@@ -172,11 +172,31 @@ class FisheryEnvFixed(MultiAgentEnv):
                 self.fixed_quota, 
                 self.prop_quota * self._fish_population
             )
-            
+
+            # calculate desired harvests for all agents
+            desired_harvest: Dict[str, float] = {}
+            for agent_id in self.fishermen:
+                if self._agent_bans[agent_id] > 0:
+                    desired_harvest[agent_id] = 0.0
+                else:
+                    action = action_dict.get(agent_id, np.array([0.0]))
+                    desired_fraction = float(np.clip(action[0], 0.0, 1.0))
+                    desired_harvest[agent_id] = desired_fraction * self._fish_population
+            total_desired_harvest = sum(desired_harvest.values())
+
+            # Enforce mass balance cap
+            scale = (
+                self._fish_population / total_desired_harvest
+                if total_desired_harvest > self._fish_population
+                and total_desired_harvest > 0
+                else 1.0
+            )
+
             # Process each fisherman's action
             for agent_id in self.fishermen:
-                agent_catches[agent_id], agent_rewards[agent_id] = self._process_agent_action(
-                    agent_id, action_dict, quota_limit
+                scaled_harvest = desired_harvest[agent_id] * scale
+                agent_catches[agent_id], agent_rewards[agent_id] = (
+                    self._process_agent_action(agent_id, scaled_harvest, quota_limit)
                 )
         else:
             # No fishing allowed when below minimum stock
@@ -226,7 +246,7 @@ class FisheryEnvFixed(MultiAgentEnv):
     def _process_agent_action(
         self, 
         agent_id: str, 
-        action_dict: Dict[str, np.ndarray], 
+        scaled_harvest: float,
         quota_limit: float
     ) -> Tuple[float, float]:
         """Process a single agent's fishing action.
@@ -244,24 +264,19 @@ class FisheryEnvFixed(MultiAgentEnv):
             self._agent_bans[agent_id] -= 1
             return 0.0, 0.0
         
-        # Get and clip agent's desired harvest fraction
-        action = action_dict.get(agent_id, np.array([0.0]))
-        desired_fraction = float(np.clip(action[0], 0.0, 1.0))
-        desired_harvest = desired_fraction * self._fish_population
-        
         # Calculate over-harvest penalty
-        over_harvest = max(0.0, desired_harvest - quota_limit)
-        
+        over_harvest = max(0.0, scaled_harvest - quota_limit)
+
         # Actual catch is limited by available fish
-        actual_catch = min(desired_harvest, self._fish_population)
-        
+        actual_catch = min(scaled_harvest, self._fish_population)
+
         # Calculate reward (catch minus fines)
         reward = actual_catch - self.fine_amount * over_harvest
-        
+
         # Apply ban if over-harvesting occurred
         if over_harvest > EPS and self.ban_period > 0:
             self._agent_bans[agent_id] = self.ban_period
-            
+
         return actual_catch, reward
     
     def _update_ecosystem(self, total_harvest: float) -> None:

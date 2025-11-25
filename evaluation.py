@@ -108,7 +108,10 @@ def evaluate_mechanism_with_metrics(
             
             # Record trajectory if requested
             if record_trajectories:
-                total_catch = sum(infos[agent_id]["catch"] for agent_id in environment.fishermen)
+                total_catch = min(
+                    current_fish,
+                    sum(infos[agent_id]["catch"] for agent_id in environment.fishermen),
+                )
                 trajectory_records.append({
                     "episode": episode_idx,
                     "step": step_count,
