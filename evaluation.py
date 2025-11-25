@@ -57,7 +57,8 @@ def evaluate_mechanism_with_metrics(
     environment: FisheryEnvFixed,
     num_episodes: int,
     sustainability_threshold: float,
-    record_trajectories: bool = False
+    record_trajectories: bool = False,
+    base_seed: Optional[int] = None
 ) -> Tuple[EvaluationMetrics, Optional[List[Dict]]]:
     """Evaluate trained agents with sustainability metrics.
     
@@ -79,7 +80,8 @@ def evaluate_mechanism_with_metrics(
     trajectory_records: List[Dict] = []
 
     for episode_idx in range(num_episodes):
-        observations, _ = environment.reset()
+        seed = None if base_seed is None else base_seed + episode_idx
+        observations, _ = environment.reset(seed=seed)
         terminated = {agent_id: False for agent_id in environment.fishermen}
         truncated = {agent_id: False for agent_id in environment.fishermen}
         episode_min_fish_stock = float("inf")
