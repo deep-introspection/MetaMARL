@@ -86,7 +86,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
                           help="Weight for sustainability penalty in objective")
     sus_group.add_argument("--sus-threshold", type=float, default=DEFAULT_TRAINING_CONFIG["sus_threshold"],
                           help="Fish stock level considered collapse threshold")
-    
+    sus_group.add_argument("--max-collapse-rate", type=float, default=0.3, help="Maximum acceptable fraction of collapsed episodes for a mechanism to be considered sustainable in outer-loop stats")
+
     # Logging parameters
     log_group = parser.add_argument_group("Logging parameters")
     log_group.add_argument("--log-dir", type=str, default=LOGGING_CONFIG["default_log_dir"],
@@ -396,7 +397,7 @@ def run_bilevel_optimization(args) -> dict:
         delta_sigma = abs(es_sigma - prev_es_sigma)
 
         # Compute sustainability metrics
-        num_sustainable = sum(1 for r in candidate_records if r[-3] < args.sus_threshold)  # collapse_rate column
+        num_sustainable = sum(1 for r in candidate_records if r[-3] < args.max_collapse_rate)  # r[-3] is collapse_rate
         sustainability_rate = num_sustainable / len(candidate_records)
 
         # Track ES evolution
