@@ -12,14 +12,14 @@ import numpy as np
 
 # Default ecological parameters for Lotka-Volterra dynamics
 DEFAULT_ECOLOGY_CONFIG = {
-    "alpha": 1.0,          # Algae growth rate
+    "alpha": 0.5,          # Algae growth rate
     "beta": 0.5,           # Algae consumption by fish
     "delta": 0.5,          # Fish growth from algae
-    "gamma": 1.0,          # Fish natural death rate
+    "gamma": 1.5,          # Fish natural death rate
     "dt": 0.05,            # Time step size
     "horizon": 200,        # Episode length
     "algae_init": 1.0,     # Initial algae population
-    "fish_init": 0.5,      # Initial fish population
+    "fish_init": 0.2,      # Initial fish population
 }
 
 # Default mechanism parameters
@@ -35,13 +35,13 @@ DEFAULT_MECHANISM_CONFIG = {
 DEFAULT_TRAINING_CONFIG = {
     "num_fishermen": 3,    # Number of fishermen agents
     "horizon": 200,        # Episode length in timesteps
-    "outer_iters": 10,     # Number of outer optimization iterations
-    "inner_iters": 100,    # Number of inner training iterations
-    "eval_episodes": 5,    # Number of evaluation episodes
-    "pop_size": 16,        # Population size for evolution strategies (increased for antithetic sampling)
+    "outer_iters": 6,     # Number of outer optimization iterations
+    "inner_iters": 120,    # Number of inner training iterations
+    "eval_episodes": 15,    # Number of evaluation episodes
+    "pop_size": 4,        # Population size for evolution strategies (increased for antithetic sampling)
     "workers": 2,          # Number of parallel workers
-    "sustain_weight": 5.0, # Sustainability weight
-    "sus_threshold": 0.1,  # Sustainability threshold
+    "sustain_weight": 20.0, # Sustainability weight
+    "sus_threshold": 0.04,  # Sustainability threshold
 }
 
 # Evolution Strategies algorithm parameters
