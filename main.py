@@ -218,11 +218,13 @@ def train_and_evaluate_candidate(
             _log_training_metrics(wandb_run, training_result, training_iter, outer_iter, candidate_idx, global_step_counter[0])
     
     # Evaluate with sustainability metrics
+    eval_base_seed = args.seed + outer_iter * 1000 + candidate_idx * 100
     metrics, _ = evaluate_mechanism_with_metrics(
         algorithm, dummy_env, 
         num_episodes=args.eval_episodes, 
         sustainability_threshold=args.sus_threshold, 
-        record_trajectories=False
+        record_trajectories=False,
+        base_seed=eval_base_seed
     )
     
     # Compute objective score
