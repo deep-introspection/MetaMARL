@@ -14,8 +14,40 @@ from config import PPO_CONFIG
 from environment import FisheryEnvFixed
 from mechanism import MechanismParameters
 
-
 def initialize_ray(logging_level: str = "ERROR") -> None:
+    """Initialize Ray (GPU allowed if present)."""
+    import os
+    import torch
+
+    os.environ["RAY_DISABLE_IMPORT_WARNING"] = "1"
+
+    print(f"CUDA available: {torch.cuda.is_available()}")
+
+    runtime_env = {
+        "excludes": [
+            "runs/",
+            "analysis_plots/",
+            "*.png",
+            "*.jpg",
+            "*.tar.gz",
+            "*.zip",
+            ".venv/",
+            "__pycache__/",
+            ".git/",
+            "wandb/",
+            "ray_results/",
+        ]
+    }
+
+    ray_init(
+        ignore_reinit_error=True,
+        logging_level=logging_level,
+        runtime_env=runtime_env,
+    )
+
+    print("✓ Ray initialized")
+
+def initialize_ray_cpu(logging_level: str = "ERROR") -> None:
     """Initialize Ray with CPU-only settings.
     
     Args:
@@ -131,8 +163,15 @@ def build_ppo_algorithm(
         PPOConfig()
         .environment(env="FisheryEnvFixed-v0")
         .framework(PPO_CONFIG["framework"], torch_compile_worker=False, torch_compile_worker_dynamo_backend=None)
-        .resources(num_gpus=0)  # Force CPU only
-        .env_runners(num_env_runners=0)  # Force 0 workers to avoid CUDA issues in worker processes
+        .resources(
+            num_gpus=1,
+            num_gpus_per_worker=0,
+            num_cpus_per_worker=1,
+        )
+        .env_runners(
+            num_env_runners=num_workers,
+            num_envs_per_env_runner=env_config.get("num_envs_per_worker", 1),
+        )
         .training(
             gamma=PPO_CONFIG["gamma"],
             train_batch_size=PPO_CONFIG["train_batch_size"],

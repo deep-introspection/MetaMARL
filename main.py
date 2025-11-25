@@ -77,6 +77,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     sys_group = parser.add_argument_group("System parameters")
     sys_group.add_argument("--workers", type=int, default=DEFAULT_TRAINING_CONFIG["workers"],
                           help="Number of parallel workers for training")
+    sys_group.add_argument("--num-envs-per-worker", type=int, default=1, help="Number of parallel envs per worker")
     sys_group.add_argument("--seed", type=int, default=0,
                           help="Random seed for reproducibility")
     
@@ -189,7 +190,7 @@ def train_and_evaluate_candidate(
     mechanism_params = map_unit_vector_to_mechanism(candidate_vector)
     
     # Build PPO algorithm
-    env_config = {"horizon": args.horizon}
+    env_config = {"horizon": args.horizon, "num_envs_per_worker": args.num_envs_per_worker,}
     algorithm, dummy_env = build_ppo_algorithm(
         args.num_fishermen, mechanism_params, num_workers=args.workers, env_config=env_config
     )
@@ -217,11 +218,14 @@ def train_and_evaluate_candidate(
             _log_training_metrics(wandb_run, training_result, training_iter, outer_iter, candidate_idx, global_step_counter[0])
     
     # Evaluate with sustainability metrics
+    # Evaluate with sustainability metrics (deterministic base_seed per candidate)
+    eval_base_seed = args.seed + outer_iter * 1000 + candidate_idx * 100
     metrics, _ = evaluate_mechanism_with_metrics(
         algorithm, dummy_env, 
         num_episodes=args.eval_episodes, 
         sustainability_threshold=args.sus_threshold, 
-        record_trajectories=False
+        record_trajectories=False,
+        base_seed=eval_base_seed,
     )
     
     # Compute objective score
@@ -298,6 +302,7 @@ def run_bilevel_optimization(args) -> dict:
         print(f"Initialized ES mean from custom values: {es_mean}")
     else:
         es_mean = np.full(5, 0.5, dtype=np.float32)  # Start at center of unit cube
+        # NM : why are there 5 params? could we make this more dynamic?
         print(f"Initialized ES mean at center: {es_mean}")
     es_sigma = float(args.sigma)
 
