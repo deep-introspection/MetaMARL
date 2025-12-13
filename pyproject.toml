@@ -16,6 +16,19 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+dependencies = [
+    "gymnasium==1.1.1",
+    "matplotlib>=3.10.7",
+    "numpy>=2.3.4",
+    "ray[rllib]==2.50.1",
+    "seaborn>=0.13.2",
+    "torch>=2.9.0",
+    "torchaudio>=2.9.0",
+    "torchvision>=0.24.0",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
 
 [project.urls]
 Homepage = "https://github.com/deep-introspection/bilevel-fishery"
@@ -30,6 +43,9 @@ dependencies = [
     "seaborn>=0.12.0,<1.0.0",
     "wandb>=0.15.0,<1.0.0",
 ]
+
+[[tool.uv.index]]
+url = "https://download.pytorch.org/whl/cpu"
 
 [project.optional-dependencies]
 dev = [
