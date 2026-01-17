@@ -13,7 +13,6 @@ class _Config(ABC):
 
 
 class OptimizerConfig(_Config, ABC):
-
     # TODO registry to allow opt_class str
     # TODO runtime checking of opt_class
     def __init__(self, opt_class: Optional[Type[Optimizer]] = None):
@@ -33,7 +32,7 @@ class OptimizerConfig(_Config, ABC):
         self._is_frozen = False
 
         # Evaluation
-        self.evaluation_config : Optional["OptimizerConfig"] = None
+        self.evaluation_config: Optional["OptimizerConfig"] = None
 
     def __setattr__(self, name, value):
         if hasattr(self, "_is_frozen") and self._is_frozen:
@@ -62,18 +61,17 @@ class OptimizerConfig(_Config, ABC):
             if isinstance(cp.evaluation_config, OptimizerConfig):
                 cp.evaluation_config._is_frozen = False
         return cp
-    
+
     # TODO freezing for nested configs
     def freeze(self) -> None:
         """Freeze this config object, such that no attributes can be set anymore.
 
-        Optimizers should use this method to make sure their config objects 
+        Optimizers should use this method to make sure their config objects
         remain read-only after this.
         """
         if self._is_frozen:
             return
         self._is_frozen = True
-
 
     # TODO deep copy allows on may be toggled later with use_copy
     # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
@@ -88,13 +86,13 @@ class OptimizerConfig(_Config, ABC):
             logger_creator: Callable that creates a logger object. If unspecified, a default logger is created.
 
         """
-        cfg = self.copy() 
+        cfg = self.copy()
         if world is not None:
             cfg._world = world
-        cfg.freeze() # attention this would freeze the cfg even if the world is None !
+        cfg.freeze()  # attention this would freeze the cfg even if the world is None !
 
         opt_class = self.opt_class
-        
+
         return opt_class(config=cfg)
 
     # TODO Docstring explanation
