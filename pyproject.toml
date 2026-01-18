@@ -18,6 +18,8 @@ classifiers = [
 ]
 dependencies = [
     "gym>=0.26.2",
+    "pydantic>=2.12.5",
+    "ray>=2.53.0",
     "ruff>=0.14.13",
 ]
 
