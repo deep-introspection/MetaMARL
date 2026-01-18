@@ -16,6 +16,9 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+dependencies = [
+    "gym>=0.26.2",
+]
 
 [project.urls]
 Homepage = "https://github.com/deep-introspection/bilevel-fishery"
