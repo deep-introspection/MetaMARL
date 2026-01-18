@@ -26,13 +26,10 @@ class DummyOptimizerConfig(OptimizerConfig):
 class SuperDummyOptimizerConfig(OptimizerConfig):
     pass
 
+
 class DummyEnv(gym.Env):
-
     def __init__(self):
-        self.action_space: spaces.Space(shape=(2,), dtype=np.float32
-        )
-
-
+        self.action_space: spaces.Space(shape=(2,), dtype=np.float32)
 
 
 def test_core_framework_end_to_end():

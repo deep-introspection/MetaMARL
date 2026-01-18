@@ -1,7 +1,7 @@
 from abc import ABC
 from enum import Enum, auto
 from pydantic import BaseModel
-from utils import (ContextID, OptimizerID)
+from utils import ContextID, OptimizerID
 import uuid
 
 # class Context(Enum):
@@ -20,14 +20,13 @@ class Context(BaseModel):
 # TODO context wrapper for envs will be required
 # TODO Enums for different contexts
 
-class World(ABC):
 
+class World(ABC):
     def __init__(self):
-        self._contexts : dict[OptimizerID, dict[ContextID, Context]]= None
+        self._contexts: dict[OptimizerID, dict[ContextID, Context]] = None
 
     def _generate_uuid(self) -> uuid.UUID:
         return uuid.getnode()
-    
 
     def add_context(self, opt_id: OptimizerID, ctx: Context) -> None:
         ctx_id = self._generate_uuid()
@@ -38,6 +37,3 @@ class World(ABC):
 
     def remove_context(self, ContextID) -> None:
         pass
-    
-
-
