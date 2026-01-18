@@ -3,6 +3,10 @@ from typing import override
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
 
+from gymnasium import spaces
+
+import numpy as np
+
 
 class DummyOptimizer(Optimizer):
     pass
@@ -21,6 +25,14 @@ class DummyOptimizerConfig(OptimizerConfig):
 
 class SuperDummyOptimizerConfig(OptimizerConfig):
     pass
+
+class DummyEnv(gym.Env):
+
+    def __init__(self):
+        self.action_space: spaces.Space(shape=(2,), dtype=np.float32
+        )
+
+
 
 
 def test_core_framework_end_to_end():
@@ -55,14 +67,3 @@ def test_core_framework_end_to_end():
     super_dummy_optimizer.save_checkpoint()
 
     super_dummy_optimizer.visualize_results()
-
-
-# ray specific
-# .framework() #config's DL framework settings. do all algorithms have a framework ?
-# .multi_agent()
-# .api_stack()
-# .callbacks()
-# .offline_data() # specific to RL algorithms
-# .rl_module() # specific to RL algorithms
-# .experimental()
-# .env_runners() # Sets the rollout worker configuration - also this is a ray wrapper
