@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from core.utils.types import ContextID, OptimizerID
+from core.types import ContextID, OptimizerID
 from pydantic import BaseModel
 
 
