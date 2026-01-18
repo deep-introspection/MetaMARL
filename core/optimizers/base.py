@@ -3,11 +3,12 @@ from logging import Logger
 from typing import Callable, Optional
 
 from core.optimizers.config import OptimizerConfig
-from core.optimizers.graph import OptimizerGraph
-from core.signal.base import Signal
+from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
+from core.types import OptimizerID
 
 # why are we inheriting from ABC ?
 # Should we inherit from gym.Algorithm ?
+# optimizer identifier
 
 
 class Optimizer(ABC):
@@ -18,13 +19,9 @@ class Optimizer(ABC):
     # data owned by the optimizer
     config: OptimizerConfig
 
-    signal: Optional[
-        Signal
-    ]  # immutable # O, really unsure about this. shouldnt there jsut be a policy ?
+    opt_id: OptimizerID
 
-    graph: Optional[OptimizerGraph]
-
-    metrics: Optional[MetricsLogger]  # necessary ?
+    metrics: Optional[MetricsLogger]  # necessary ? couldnt just be in world ?
 
     offline_data: Optional[OfflineData]  # necessary ?
 
@@ -41,10 +38,14 @@ class Optimizer(ABC):
         # TODO serialize class
         pass
 
+    @property
+    def id(self):
+        return self.opt_id
+
     # what is a class method decorator doing really
     # what is cls vs self
     @classmethod
-    def from_config(cls, config: OptimizerConfig) -> Optimizer:
+    def from_config(cls, config: OptimizerConfig) -> "Optimizer":
         """
         Docstring for from_config
 
@@ -67,7 +68,7 @@ class Optimizer(ABC):
         return cls.config
 
     @classmethod
-    def from_checkpoint(cls, file_path: Any) -> Optimizer:
+    def from_checkpoint(cls, file_path: Any) -> "Optimizer":
         """
         Docstring for from_checkpoint
 

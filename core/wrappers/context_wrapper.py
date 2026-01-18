@@ -1,6 +1,6 @@
 import gym
 from abc import abstractmethod, ABC
-from utils import OptimizerID
+from core.types import OptimizerID
 from core.world.base import World
 from typing import Any, SupportsFloat
 

@@ -3,7 +3,8 @@ from abc import ABC, abstractmethod
 from typing import Optional, Union, Type, Self
 
 from core.optimizers.base import Optimizer
-from core.utils import WorldType
+from core.world.base import World
+from core.types import EnvType
 
 
 class _Config(ABC):
@@ -26,7 +27,7 @@ class OptimizerConfig(_Config, ABC):
         self.opt_class = opt_class
 
         # World specs
-        self._world = None
+        self._world = Optional[World] = None
 
         # Has this config object been frozen (cannot alter its attributes anymore).
         self._is_frozen = False
@@ -77,7 +78,7 @@ class OptimizerConfig(_Config, ABC):
     # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
     def build_optimizer(
         self,
-        world: Optional[Union[str, WorldType]] = None,
+        world: Optional[World] = None,
     ) -> Optimizer:
         """Builds an Optimizer from this OptimizerConfig (or a copy thereof).
 
@@ -97,12 +98,24 @@ class OptimizerConfig(_Config, ABC):
 
     # TODO Docstring explanation
     @abstractmethod
-    def world(self, world: Optional[Union[str, WorldType]]):
+    def world(self, world: Optional[World] = None):
         """
         Docstring for world
 
         :param self: Description
         :param world: Description
+        """
+        raise NotImplementedError
+
+    # TODO
+    @abstractmethod
+    def environment(self, env: Optional[Union[str, EnvType]]):
+        """
+        Docstring for environment
+
+        :param self: Description
+        :param env: Description
+        :type env: Optional[Union[str, EnvType]]
         """
         raise NotImplementedError
 

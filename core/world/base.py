@@ -17,6 +17,7 @@ class World(ABC):
     The World does NOT own optimizers or environments.
     It only tracks identifiers and context payloads.
     """
+
     def __init__(self):
         # Maps optimizer IDs to the set of context IDs they own
         # TODO replace with registry
@@ -43,7 +44,6 @@ class World(ABC):
         Return all optimizer IDs known to the world.
         """
         return set(self._opt_ctx_map.keys())
-        
 
     def _validate_ctx_schema_exists(self, schema: type[ContextSchema]) -> None:
         """
@@ -62,10 +62,10 @@ class World(ABC):
 
         This initializes an empty context set for the optimizer.
         """
-        if opt_id is None :
+        if opt_id is None:
             opt_id = generate_uuid(registry=self._opt_ctx_map.keys())
         self._opt_ctx_map[opt_id] = set()
-        
+
     def set_new_context(self, ctx: Context, singleton: bool = False) -> ContextID:
         """
         Register a new context in the world.

@@ -1,8 +1,11 @@
-from typing import Type
+from typing import TypeAlias, Union
+import gym
+from ray.rllib.env.base_env import BaseEnv
+from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 # TODO what if we want the contextID to be a unique UUID and we keep a registry of already existing contextID in the world
 # TODO registry object for the world.
-ContextID: Type = str
+ContextID: TypeAlias = str
 """
 Unique identifier for a context object.
 
@@ -13,7 +16,7 @@ ContextIDs are semantic, not structural.
 """
 
 # TODO again what if we want a way to register the Optimizer in a memory object and generate a unique uuid for it ?
-OptimizerID: Type = str
+OptimizerID: TypeAlias = str
 """
 Unique identifier for an optimizer instance.
 
@@ -35,3 +38,5 @@ OptimizerIDs are expected to be stable for the lifetime of an experiment.
 # """
 # Represents a gym.Env, a MultiAgentEnv, WorldEnv.
 # """
+
+EnvType: TypeAlias = Union[BaseEnv, MultiAgentEnv, gym.Env]
