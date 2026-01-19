@@ -79,7 +79,6 @@ class Optimizer(ABC):
         # and also to call the upstream optimizer
         self._upstream.add(opt)
 
-    # what is a class method decorator doing really
     @classmethod
     def from_config(cls, config: OptimizerConfig) -> "Optimizer":
         """Instantiate optimizer from config."""
@@ -110,7 +109,6 @@ class Optimizer(ABC):
 
     @abstractmethod
     def run(self, world: Optional[World] = None) -> None:
-        # TODO do we have the entire loop in run ?
         """
         Implementations may publish Context objects to the World, invoke downstream
         optimizers via `self._downstream`, and retrieve or aggregate contexts from
