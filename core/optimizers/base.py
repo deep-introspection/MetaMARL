@@ -1,19 +1,20 @@
 from abc import ABC, abstractmethod
 from logging import Logger
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 
 from core.optimizers.config import OptimizerConfig
 from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 from core.types import OptimizerID
-
-# why are we inheriting from ABC ?
-# Should we inherit from gym.Algorithm ?
-# optimizer identifier
+from core.world.base import World
+from core.optimizers.base import Optimizer
 
 
 class Optimizer(ABC):
     """
-    Docstring for Optimizer
+    Abstract optimizer node.
+
+    Represents a single logical optimizer in a possibly hierarchical
+    (bilevel / multilevel) optimization graph.
     """
 
     # data owned by the optimizer
@@ -21,128 +22,124 @@ class Optimizer(ABC):
 
     opt_id: OptimizerID
 
-    metrics: Optional[MetricsLogger]  # necessary ? couldnt just be in world ?
+    metrics: Optional[MetricsLogger]
 
-    offline_data: Optional[OfflineData]  # necessary ?
+    # TODO ability to save data offline
+    # offline_data: Optional[OfflineData]
 
     logger_creator: Optional[Callable[[], Logger]]
 
     # this is the default configuration as soon as an optimizer is created
 
-    def __init__(self):
+    def __init__(
+        self,
+        config: Optional[OptimizerConfig] = None,
         # TODO
-        # where we initialize exactly what we can modify in the optimizer api that we expose
-        pass
+        # logger_creator: Optional[Callable[[], Logger]] = None,
+        **kwargs,
+    ):
+        self.config: OptimizerConfig = config
+
+        # Assigned by World or Orchestrator
+        self.opt_id: OptimizerID | None = None
+
+        # Optional environment (may be None for meta-optimizers)
+        # TODO review
+        self.env = getattr(config, "_env", None)
+
+        # Optional metrics hook
+        self.metrics = None
+
+        # Optimizer Graph connectivity
+        self._downstream: set[Optimizer] = set()
+        self._upstream: set[Optimizer] = set()
 
     def __str__(self) -> str:
-        # TODO serialize class
-        pass
+        return f"{self.__class__.__name__}(id={self.opt_id})"
 
     @property
-    def id(self):
+    def id(self) -> OptimizerID:
+        if self.opt_id is not None:
+            raise RuntimeError("Optimizer ID not set")
         return self.opt_id
 
+    # TODO make id immutable
+    # def set_id(self, id: OptimizerID) -> None:
+    #     if self.opt_id is not None:
+    #         raise RuntimeError("Optimizer ID not set")
+    #     self.opt_id = id
+
+    def set_downstream(self, opt: Optimizer) -> None:
+        self._downstream.add(opt)
+
+    def set_upstream(self, opt: Optimizer) -> None:
+        # this is only for checking!
+        # and also to call the upstream optimizer
+        self._upstream.add(opt)
+
     # what is a class method decorator doing really
-    # what is cls vs self
     @classmethod
     def from_config(cls, config: OptimizerConfig) -> "Optimizer":
-        """
-        Docstring for from_config
-
-        :param cls: Description
-        :param config: Description
-        :type config: OptimizerConfig
-        """
-        # equivalent to setup in ray.algorithm
+        """Instantiate optimizer from config."""
         return cls(config=config)
 
+    # TODO default config logic
     @classmethod
     def get_default_config(cls) -> OptimizerConfig:
-        """
-        Docstring for get_default_config
-
-        :param cls: Description
-        :return: Description
-        :rtype: OptimizerConfig
-        """
-        return cls.config
-
+        """ """
+        raise NotImplementedError(
+            "Optimizers must define a default config explicitly"
+        )
     @classmethod
     def from_checkpoint(cls, file_path: Any) -> "Optimizer":
-        """
-        Docstring for from_checkpoint
-
-        :param cls: Description
-        :param file_path: Description
-        :type file_path: Any
-        :return: Description
-        :rtype: Optimizer
-        """
-        # TODO
-        pass
+        """Restore optimizer from config."""
+        raise NotImplementedError
 
     # Accessors
     # def __getattribute__(self, name):
     #     return super().__getattribute__(name)
 
-    def get_signal(self) -> Signal:
-        return self.signal
-
-    def get_graph(self) -> OptimizerGraph:
-        """
-        Docstring for get_graph
-
-        :param self: Description
-        :return: Description
-        :rtype: OptimizerGraph
-        """
-        return self.graph
+    # replace with get context but probably this is in env
+    # def get_signal(self) -> Signal:
+    #     return self.signal
 
     # Mutators
     # def __setattr__(self, name, value) -> Any:
     #     return super().__setattr__(name, value)
 
-    def set_downstream(self) -> None:
-        # TODO
-        pass
+    def run(self, world: Optional[World] = None) -> None:
+        # TODO do we have the entire loop in run ?
+        """Execute ONE optimization iteration."""
 
-    def set_upstream(self) -> None:
-        # TODO
-        pass
+        if world is None:
+            raise ValueError("Optimizer.run requires a World instance")
+        
+        if self.opt_id is None:
+            raise RuntimeError("Optimizer must have an ID before running")
 
-    def set_graph(self, graph: OptimizerGraph) -> None:
-        """
-        Docstring for remove_node
+        self._publish(world)
 
-        :param self: Description
-        :param node_id: Description
-        :type node_id: NodeID
-        """
-        self.graph = graph
-        return None
+        for opt in self._downstream:
+            opt.run(world)
+
+        self._aggregate(world)
 
     @abstractmethod
-    def step(self, singal: Optional[Signal]) -> ResultDict:
-        """
-        Docstring for run
-
-        :param self: Description
-        """
-        # this would be multiple steps in MDP algorithms
-        # not sure about the resultDict here
+    def _publish(self, world: Optional[World] = None) -> None:
+        """Publish context to world before downstream optimizers run"""
         raise NotImplementedError
 
     @abstractmethod
-    def evaluate(self) -> ResultDict:
-        """
-        Docstring for evaluate
-
-        :param self: Description
-        :return: Description
-        :rtype: Any
-        """
+    def _aggregate(self, world: Optional[World] = None) -> None:
+        """Aggregate and process context published by downstream optimizers"""
         raise NotImplementedError
 
+    @abstractmethod
+    def evaluate(self, world: Optional[World]) -> None:
+        """Evaluate Optimizer Performance"""
+        raise NotImplementedError
+
+    @abstractmethod
     def save_checkpoint(self) -> None:
-        # TODO
-        pass
+        """Persist Optimizer State"""
+        raise NotImplementedError

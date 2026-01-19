@@ -11,6 +11,7 @@ import numpy as np
 from core.world.base import World, Context
 from core.world.context import ContextSchema
 
+
 class SignalContext(ContextSchema):
     value: float
 
@@ -33,6 +34,7 @@ class SuperDummyOptimizer(Optimizer):
         )
         world.set_new_context(ctx)
 
+
 class DummyContextWrapper(ContextWrapper):
     def _get_violation_signal(self) -> float:
         ctx_ids = self._get_contexts()
@@ -49,14 +51,17 @@ class DummyContextWrapper(ContextWrapper):
 
     def action(self, action):
         return action
-    
+
+
 class DummyEnv(gym.Env):
     metadata = {"render_modes": []}
 
     def __init__(self):
         super().__init__()
         self.action_space = spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32)
-        self.observation_space = spaces.Box(-np.inf, np.inf, shape=(2,), dtype=np.float32)
+        self.observation_space = spaces.Box(
+            -np.inf, np.inf, shape=(2,), dtype=np.float32
+        )
         self.state = np.zeros(2, dtype=np.float32)
 
     def reset(self, *, seed=None, options=None):
@@ -70,9 +75,9 @@ class DummyEnv(gym.Env):
         return self.state, reward, False, False, {}
 
 
-
 class DummyOptimizerConfig(BaseOptimizerConfig):
     pass
+
 
 class SuperDummyOptimizerConfig(BaseOptimizerConfig):
     pass
@@ -82,7 +87,6 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 from core.wrappers.context_wrapper import ContextWrapper
-
 
 
 def test_core_framework_end_to_end():
@@ -96,11 +100,7 @@ def test_core_framework_end_to_end():
 
     # Setup Child Optimizer
     child_env = DummyContextWrapper(env=DummyEnv(), world=world, opt_id=parent.id)
-    child_cfg = (
-        DummyOptimizerConfig()
-        .world(world=world)
-        .environment(child_env)
-    )
+    child_cfg = DummyOptimizerConfig().world(world=world).environment(child_env)
     child = child_cfg.build_optimizer()
     child.set_id("child")
 

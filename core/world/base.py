@@ -5,7 +5,7 @@ from core.world.context import Context, ContextSchema
 from core.utils import generate_uuid
 
 
-class World(ABC):
+class World:
     """
     Shared runtime container for optimizer-produced contexts.
 
@@ -27,6 +27,10 @@ class World(ABC):
         self._contexts: dict[ContextID, Context] = {}
 
     # Accessors
+    def get_context(self, ctx_id: ContextID) -> Context | None:
+        """Access a context stored in world with an ID"""
+        return self._contexts.get(ctx_id, None)
+    
     def get_opt_ctx_ids(self, opt_id: OptimizerID) -> set[ContextID]:
         """
         Return all context IDs registered under a given optimizer.
@@ -50,7 +54,7 @@ class World(ABC):
         Ensure a singleton ContextSchema is not already present in the world.
         """
         for ctx in self._contexts.values():
-            if type(ctx.schema) is schema:
+            if type(ctx.payload) is schema:
                 raise ValueError(
                     f"Singleton Context Schema {schema.__name__} already exists in world."
                 )
@@ -64,7 +68,9 @@ class World(ABC):
         """
         if opt_id is None:
             opt_id = generate_uuid(registry=self._opt_ctx_map.keys())
-        self._opt_ctx_map[opt_id] = set()
+        if opt_id not in self._opt_ctx_map:
+            self._opt_ctx_map[opt_id] = set()
+
 
     def set_new_context(self, ctx: Context, singleton: bool = False) -> ContextID:
         """
@@ -81,7 +87,7 @@ class World(ABC):
             raise ValueError("New context must not alreay have an id")
 
         if singleton:
-            self._validate_ctx_schema_exists(ctx.schema)
+            self._validate_ctx_schema_exists(type(ctx.payload))
 
         if ctx.opt_id not in self._opt_ctx_map.keys():
             self.set_new_optimizer(ctx.opt_id)
@@ -106,8 +112,11 @@ class World(ABC):
         """
         Remove a context from the world.
         """
-        self._contexts.pop(ctx.id)
-        self._opt_ctx_map[ctx.opt_id].remove(ctx.id)
+        if ctx.id in self._contexts:
+            self._contexts.pop(ctx.id)
 
-        if not self._opt_ctx_map[ctx.opt_id]:
-            del self._opt_ctx_map[ctx.opt_id]
+        if ctx.opt_id in self._opt_ctx_map:
+            self._opt_ctx_map[ctx.opt_id].discard(ctx.id)
+            if not self._opt_ctx_map[ctx.opt_id]:
+                del self._opt_ctx_map[ctx.opt_id]
+
