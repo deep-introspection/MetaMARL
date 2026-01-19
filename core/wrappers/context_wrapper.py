@@ -1,21 +1,21 @@
 from abc import ABC, abstractmethod
 from typing import Any, SupportsFloat
 
-import gym
+from gymnasium import Env, Wrapper
 from gymnasium.core import ActType, ObsType, WrapperActType, WrapperObsType
 
 from core.world.base import World
 
 
 # TODO do we really want the output of the hidden functions to be Context ?
-class ContextWrapper(gym.Wrapper, ABC):
+class ContextWrapper(Wrapper, ABC):
     """Modify observations, rewards and actions from :meth:`Env.reset` and :meth:`Env.step` using :meth:`observation`,
     :meth:`rewards` and :meth:`action`functions by injecting the world's context into it.
     Helper functions may be added to extract different information from the world context.
 
     """
 
-    def __init__(self, env: gym.Env, world: World) -> None:
+    def __init__(self, env: Env, world: World) -> None:
         """
         Constructor for the context wrapper.
 

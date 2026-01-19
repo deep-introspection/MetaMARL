@@ -86,7 +86,7 @@ class OptimizerConfig(_Config, ABC):
         """Builds an Optimizer from this OptimizerConfig (or a copy thereof).
 
         Args:
-            world: Name of the world (gym.Env type) #review
+            world: Name of the world (gymnasium Env type) #review
             logger_creator: Callable that creates a logger object. If unspecified, a default logger is created.
 
         """

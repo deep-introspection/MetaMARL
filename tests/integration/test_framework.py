@@ -1,6 +1,6 @@
-import gym
 import numpy as np
-from gymnasium import spaces
+import pytest
+from gymnasium import Env, spaces
 
 from core.optimizers.base import Optimizer
 from core.optimizers.config import BaseOptimizerConfig
@@ -22,7 +22,8 @@ class SuperDummyOptimizer(Optimizer):
         )
         if ctx.id not in world.get_opt_ctx_ids(opt_id=self.opt_id):
             world.set_new_context(ctx=ctx, singleton=False)
-        else: world.update_context(ctx=ctx)
+        else: 
+            world.update_context(ctx=ctx)
 
         for opt in self._downstream:
             opt.run(world)
@@ -34,7 +35,7 @@ class SuperDummyOptimizer(Optimizer):
         pass
 
 
-class DummyEnv(gym.Env):
+class DummyEnv(Env):
     def __init__(self):
         super().__init__()
         self.action_space = spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32)
@@ -68,7 +69,8 @@ class DummyOptimizer(Optimizer):
         
         if ctx.id not in world.get_opt_ctx_ids(opt_id=self.opt_id):
             world.set_new_context(ctx=ctx, singleton=False)
-        else: world.update_context(ctx=ctx)
+        else: 
+            world.update_context(ctx=ctx)
 
     def evaluate(self, world: World):
         pass
@@ -104,7 +106,7 @@ class SuperDummyOptimizerConfig(BaseOptimizerConfig):
     def __init__(self):
         super().__init__(opt_class=SuperDummyOptimizer)
 
-
+@pytest.mark.integration
 def test_core_framework_end_to_end():
     # Setup Shared world
     world = World()
@@ -164,6 +166,3 @@ def test_core_framework_end_to_end():
     reward_ctx_updated = world.get_context("reward_signal")
     assert reward_ctx_updated.payload.value != prev_reward
     assert len(world.get_ctx_ids()) == 2, "Context count must remain stable"
-
-
-test_core_framework_end_to_end()
