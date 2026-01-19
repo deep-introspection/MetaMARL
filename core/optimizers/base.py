@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
 from logging import Logger
-from typing import Callable, Optional, Any
+from typing import Any, Callable, Optional
+
+from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 
 from core.optimizers.config import OptimizerConfig
-from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 from core.types import OptimizerID
 from core.world.base import World
-from core.optimizers.base import Optimizer
 
 
 class Optimizer(ABC):
@@ -38,6 +38,8 @@ class Optimizer(ABC):
         # logger_creator: Optional[Callable[[], Logger]] = None,
         **kwargs,
     ):
+        from core.optimizers.config import OptimizerConfig
+
         self.config: OptimizerConfig = config
 
         # Assigned by World or Orchestrator
@@ -51,28 +53,28 @@ class Optimizer(ABC):
         self.metrics = None
 
         # Optimizer Graph connectivity
-        self._downstream: set[Optimizer] = set()
-        self._upstream: set[Optimizer] = set()
+        self._downstream: set["Optimizer"] = set()
+        self._upstream: set["Optimizer"] = set()
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(id={self.opt_id})"
 
     @property
     def id(self) -> OptimizerID:
-        if self.opt_id is not None:
+        if self.opt_id is None:
             raise RuntimeError("Optimizer ID not set")
         return self.opt_id
 
     # TODO make id immutable
-    # def set_id(self, id: OptimizerID) -> None:
-    #     if self.opt_id is not None:
-    #         raise RuntimeError("Optimizer ID not set")
-    #     self.opt_id = id
+    def set_id(self, id: OptimizerID) -> None:
+        if self.opt_id is not None:
+            raise RuntimeError("Optimizer ID already set")
+        self.opt_id = id
 
-    def set_downstream(self, opt: Optimizer) -> None:
+    def set_downstream(self, opt: "Optimizer") -> None:
         self._downstream.add(opt)
 
-    def set_upstream(self, opt: Optimizer) -> None:
+    def set_upstream(self, opt: "Optimizer") -> None:
         # this is only for checking!
         # and also to call the upstream optimizer
         self._upstream.add(opt)
@@ -87,9 +89,8 @@ class Optimizer(ABC):
     @classmethod
     def get_default_config(cls) -> OptimizerConfig:
         """ """
-        raise NotImplementedError(
-            "Optimizers must define a default config explicitly"
-        )
+        raise NotImplementedError("Optimizers must define a default config explicitly")
+
     @classmethod
     def from_checkpoint(cls, file_path: Any) -> "Optimizer":
         """Restore optimizer from config."""
@@ -107,31 +108,41 @@ class Optimizer(ABC):
     # def __setattr__(self, name, value) -> Any:
     #     return super().__setattr__(name, value)
 
+    @abstractmethod
     def run(self, world: Optional[World] = None) -> None:
         # TODO do we have the entire loop in run ?
-        """Execute ONE optimization iteration."""
+        """
+        Implementations may publish Context objects to the World, invoke downstream
+        optimizers via `self._downstream`, and retrieve or aggregate contexts from
+        the World in any order. The framework does not impose a fixed execution flow.
 
-        if world is None:
-            raise ValueError("Optimizer.run requires a World instance")
+        Example
+        -------
+        >>> def run(self, world: World) -> None:
+        >>>     # Publish contexts
+        >>>     ctx = Context(
+        >>>         id=None,
+        >>>         opt_id=self.id,
+        >>>         payload=SignalContext(value=1.0),
+        >>>     )
+        >>>     world.set_new_context(ctx)
+        >>>
+        >>>     # Execute downstream optimizers
+        >>>     for opt in self._downstream:
+        >>>         opt.run(world)
+        >>>
+        >>>     # Retrieve downstream contexts ---
+        >>>     for opt in self._downstream:
+        >>>         ctx_ids = world.get_opt_ctx_ids(opt.id)
+        >>>         for ctx_id in ctx_ids:
+        >>>             ctx = world.get_context(ctx_id)
+        >>>             # aggregate or process ctx.payload here
+        >>>
+        >>>     # Optional: update or overwrite own context ---
+        >>>     ctx.payload.value += 1.0
+        >>>     world.update_context(ctx)
         
-        if self.opt_id is None:
-            raise RuntimeError("Optimizer must have an ID before running")
-
-        self._publish(world)
-
-        for opt in self._downstream:
-            opt.run(world)
-
-        self._aggregate(world)
-
-    @abstractmethod
-    def _publish(self, world: Optional[World] = None) -> None:
-        """Publish context to world before downstream optimizers run"""
-        raise NotImplementedError
-
-    @abstractmethod
-    def _aggregate(self, world: Optional[World] = None) -> None:
-        """Aggregate and process context published by downstream optimizers"""
+        """
         raise NotImplementedError
 
     @abstractmethod

@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 import copy
 from abc import ABC, abstractmethod
-from typing import Optional, Union, Type, Self
+from typing import TYPE_CHECKING, Optional, Self, Type, Union
 
-from core.optimizers.base import Optimizer
-from core.world.base import World
 from core.types import EnvType
+from core.world.base import World
+
+if TYPE_CHECKING:
+    from core.optimizers.base import Optimizer
 
 
 class _Config(ABC):
@@ -27,7 +31,7 @@ class OptimizerConfig(_Config, ABC):
         self.opt_class = opt_class
 
         # World specs
-        self._world = Optional[World] = None
+        self._world: Optional[World] = None
 
         # Has this config object been frozen (cannot alter its attributes anymore).
         self._is_frozen = False
@@ -76,10 +80,9 @@ class OptimizerConfig(_Config, ABC):
 
     # TODO deep copy allows on may be toggled later with use_copy
     # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
-    def build_optimizer(
-        self,
-        world: Optional[World] = None,
-    ) -> Optimizer:
+    # TODO move optimizer registration to executor in future
+    # TODO enable multiple world registration
+    def build_optimizer(self) -> Optimizer:
         """Builds an Optimizer from this OptimizerConfig (or a copy thereof).
 
         Args:
@@ -87,25 +90,30 @@ class OptimizerConfig(_Config, ABC):
             logger_creator: Callable that creates a logger object. If unspecified, a default logger is created.
 
         """
+        # TODO Executer to enforce guardrails
+        # if world is None:
+        #     raise ValueError("Optimizer requires a World instance")
+        
         cfg = self.copy()
-        if world is not None:
-            cfg._world = world
+
+        # TODO : world is passed to optimizer, but also stored in config. must only have one source of truth
+        # if world is not None:
+        #     cfg._world = world
+
         cfg.freeze()  # attention this would freeze the cfg even if the world is None !
-
         opt_class = self.opt_class
-
         return opt_class(config=cfg)
 
     # TODO Docstring explanation
-    @abstractmethod
-    def world(self, world: Optional[World] = None):
-        """
-        Docstring for world
+    # @abstractmethod
+    # def world(self, world: Optional[World] = None):
+    #     """
+    #     Docstring for world
 
-        :param self: Description
-        :param world: Description
-        """
-        raise NotImplementedError
+    #     :param self: Description
+    #     :param world: Description
+    #     """
+    #     raise NotImplementedError
 
     # TODO
     @abstractmethod
@@ -153,3 +161,30 @@ class OptimizerConfig(_Config, ABC):
     @abstractmethod
     def experimental(self):
         raise NotImplementedError
+
+
+class BaseOptimizerConfig(OptimizerConfig):
+    def environment(self, env):
+        self._env = env
+        return self
+
+    def training(self):
+        return self
+
+    def ressources(self):
+        return self
+
+    def evaluation(self):
+        return self
+
+    def reporting(self):
+        return self
+
+    def checkpointing(self):
+        return self
+
+    def fault_tolerance(self):
+        return self
+
+    def experimental(self):
+        return self

@@ -17,10 +17,12 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+    "dm-tree>=0.1.9",
     "gym>=0.26.2",
     "pydantic>=2.12.5",
-    "ray>=2.53.0",
+    "ray[tune]>=2.53.0",
     "ruff>=0.14.13",
+    "scipy>=1.17.0",
 ]
 
 [project.urls]

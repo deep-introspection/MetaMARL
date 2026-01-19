@@ -1,6 +1,8 @@
 from dataclasses import dataclass
-from core.types import ContextID, OptimizerID
+
 from pydantic import BaseModel
+
+from core.types import ContextID, OptimizerID
 
 
 # TODO some world contexts are singletons (mutable) others are simply mutable.
@@ -20,5 +22,4 @@ class Context:
 
     id: ContextID | None
     opt_id: OptimizerID
-    schema: type[ContextSchema]
     payload: ContextSchema

@@ -1,4 +1,5 @@
 from typing import TypeAlias, Union
+
 import gym
 from ray.rllib.env.base_env import BaseEnv
 from ray.rllib.env.multi_agent_env import MultiAgentEnv

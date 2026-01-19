@@ -1,10 +1,10 @@
-import gym
-from abc import abstractmethod, ABC
-from core.types import OptimizerID
-from core.world.base import World
+from abc import ABC, abstractmethod
 from typing import Any, SupportsFloat
 
-from gymnasium.core import WrapperObsType, WrapperActType, ObsType, ActType
+import gym
+from gymnasium.core import ActType, ObsType, WrapperActType, WrapperObsType
+
+from core.world.base import World
 
 
 # TODO do we really want the output of the hidden functions to be Context ?
@@ -15,19 +15,15 @@ class ContextWrapper(gym.Wrapper, ABC):
 
     """
 
-    def __init__(self, env: gym.Env, world: World, opt_id: OptimizerID) -> None:
+    def __init__(self, env: gym.Env, world: World) -> None:
         """
         Constructor for the context wrapper.
 
         Args:
             env: Environment to be wrapped
         """
-        super().__init__(self, env)
+        super().__init__(env)
         self._world = world
-        self._opt_id = opt_id
-
-    def _get_context(self):
-        return self._world.get_context(self._opt_id)
 
     @abstractmethod
     def _get_violation_signal(self) -> float:
@@ -37,9 +33,10 @@ class ContextWrapper(gym.Wrapper, ABC):
     def _get_violation_penalty(self) -> float:
         raise NotImplementedError
 
-    @abstractmethod
-    def _get_signal_from_ctx(self) -> float:
-        raise NotImplementedError
+    # TODO abstract method for other signal types
+    # @abstractmethod
+    # def _get_signal_from_ctx(self) -> float:
+    #     raise NotImplementedError
 
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None

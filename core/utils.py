@@ -1,7 +1,7 @@
 import uuid
 from typing import AbstractSet, Any
 
-# TODO restric Any type annotation.
+# TODO restrict Any type annotation.
 
 
 def generate_uuid(registry: AbstractSet[Any]) -> str:
