@@ -52,7 +52,7 @@ experiments/
 logs/
 checkpoints/
 models/
-
+_private/
 # Backup files and directories
 *_backup_*
 backup_*
