@@ -156,3 +156,35 @@ def mechanism_to_unit_vector(params: MechanismParameters) -> np.ndarray:
         ],
         dtype=np.float32,
     )
+
+
+from core.world.context import ContextSchema
+
+
+class MechanismContext(ContextSchema):
+    """Regulatory mechanism parameters published by meta optimizer."""
+
+    fixed_quota: float
+    prop_quota: float
+    min_stock: float
+    fine_amount: float
+    ban_period: int
+
+    @classmethod
+    def from_mechanism_params(cls, params: MechanismParameters) -> "MechanismContext":
+        return cls(
+            fixed_quota=params.fixed_quota,
+            prop_quota=params.prop_quota,
+            min_stock=params.min_stock,
+            fine_amount=params.fine_amount,
+            ban_period=params.ban_period,
+        )
+
+    def to_mechanism_params(self) -> MechanismParameters:
+        return MechanismParameters(
+            fixed_quota=self.fixed_quota,
+            prop_quota=self.prop_quota,
+            min_stock=self.min_stock,
+            fine_amount=self.fine_amount,
+            ban_period=self.ban_period,
+        )

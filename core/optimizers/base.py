@@ -7,6 +7,7 @@ from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 from core.optimizers.config import OptimizerConfig
 from core.types import OptimizerID
 from core.world.base import World
+from core.wrappers.context_wrapper import ContextWrapper
 
 
 class Optimizer(ABC):
@@ -47,7 +48,7 @@ class Optimizer(ABC):
 
         # Optional environment (may be None for meta-optimizers)
         # TODO review
-        self.env = getattr(config, "_env", None)
+        self.env: ContextWrapper = getattr(config, "_env", None)
 
         # Optional metrics hook
         self.metrics = None

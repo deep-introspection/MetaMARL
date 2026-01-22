@@ -1,11 +1,15 @@
-from src.es.optimizer import ESOptimizer
-from src.es.config import ESConfig
 import pytest
 
 from core.world.base import World
+from src.es.config import ESConfig
 
 # TODO move dummy classes
-from tests.integration.test_framework import SignalContext, DummyEnv, DummyOptimizer, DummyContextWrapper, DummyOptimizerConfig
+from tests.integration.test_framework import (
+    DummyContextWrapper,
+    DummyEnv,
+    DummyOptimizerConfig,
+)
+
 
 @pytest.mark.integration
 def test_es_optimizer_integration():
@@ -14,10 +18,7 @@ def test_es_optimizer_integration():
     # Shouldn't ES get its own environment ?
     # which stores the state and the action ?
     # No the ES algorithm should be decoupled from the algorithm
-    wrapped_env = DummyContextWrapper(
-        env=DummyEnv,
-        world=world
-    )
+    wrapped_env = DummyContextWrapper(env=DummyEnv, world=world)
 
     child_cfg = DummyOptimizerConfig().environment(wrapped_env)
     child = child_cfg.build_optimizer()
@@ -36,24 +37,23 @@ def test_es_optimizer_integration():
         .reporting()
         .checkpointing()
         .fault_tolerance()
-        .experimental()      
+        .experimental()
     )
     es_opt.set_downstream(opt=child)
 
     # TODO this will quickly lead into code duplication
     # TODO there is the optimizer algorithm itself and then there is the child loop downstream.
 
-
     # downstream algorithm may run before or after.
     # generally downstream algorithm may retreive or publish context to world
     # perhaps the builder should take care of the responsability of assembling the optimizer
-    # we should have an orchestrator that takes care of connecting the optimizers and 
+    # we should have an orchestrator that takes care of connecting the optimizers and
     # and passing context between them
     # optimizer should not know about another optimizer. an optimizer only
     # knows how to pubish and receive context from the world.
     # but this is handled to world
     # what the optimizer does it - this is hardcoded into each optimizer.
-    # the config builds the optimization 
+    # the config builds the optimization
 
     # TODO we use callbacks to define exactly how rewards what contexty and when is written into the world
     # TODO the worker handles how and when contexts are written
@@ -80,4 +80,3 @@ def test_es_optimizer_integration():
     )
 
     """
-
