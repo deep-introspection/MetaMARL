@@ -39,6 +39,9 @@ class OptimizerConfig(_Config, ABC):
         # Evaluation
         self.evaluation_config: Optional["OptimizerConfig"] = None
 
+        # Training configs
+        self.seed = 0
+
     def __setattr__(self, name, value):
         if hasattr(self, "_is_frozen") and self._is_frozen:
             if name not in ["_is_frozen"]:
@@ -93,7 +96,7 @@ class OptimizerConfig(_Config, ABC):
         # TODO Executer to enforce guardrails
         # if world is None:
         #     raise ValueError("Optimizer requires a World instance")
-        
+
         cfg = self.copy()
 
         # TODO : world is passed to optimizer, but also stored in config. must only have one source of truth
@@ -129,8 +132,13 @@ class OptimizerConfig(_Config, ABC):
 
     # TODO Docstring explanation
     @abstractmethod
-    def training(self):
-        raise NotImplementedError
+    def training(
+        self,
+        seed = Optional[float]
+    ) -> Self:
+        
+        if seed is not None:
+            self.seed = 0
 
     # TODO Docstring explanation
     @abstractmethod
