@@ -897,5 +897,13 @@ def main() -> None:
         raise
 
 
+<<<<<<< HEAD:legacy_code/main.py
 if __name__ == "__main__":
     main()
+=======
+# if __name__ == "__main__":
+#     main()
+
+
+main()
+>>>>>>> 7b4956b (feat : test es optimizer checkpoint):main.py
