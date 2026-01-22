@@ -21,16 +21,16 @@ from typing import Any, Optional
 
 from gymnasium import Env
 
-from config import ES_CONFIG
+from contexts.evaluation import evaluate_mechanism_with_metrics
+from contexts.mechanism import MechanismParameters, map_unit_vector_to_mechanism
 from core.optimizers.base import Optimizer
 from core.optimizers.config import BaseOptimizerConfig
 from core.world.base import World
 from core.world.context import Context, ContextSchema
 from core.wrappers.context_wrapper import ContextWrapper
-from evaluation import evaluate_mechanism_with_metrics
-from evolution_strategies import EvolutionStrategies
-from mechanism import MechanismParameters, map_unit_vector_to_mechanism
-from training import build_ppo_algorithm, train_algorithm
+from examples.config import ES_CONFIG
+from src.optimizers.es.evolution_strategies import EvolutionStrategies
+from src.optimizers.ppo.training import build_ppo_algorithm, train_algorithm
 
 
 def load_config(path: str) -> dict[str, Any]:
@@ -370,7 +370,7 @@ def run_bilevel_optimization(config: dict[str, Any]) -> MechanismParameters:
     Returns:
         Best mechanism parameters found
     """
-    from training import initialize_ray, shutdown_ray
+    from optimizers.ppo.training import initialize_ray, shutdown_ray
 
     # Extract config values
     bilevel_cfg = config.get("bilevel", {})

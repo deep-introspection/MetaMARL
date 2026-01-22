@@ -139,7 +139,7 @@ class Optimizer(ABC):
         >>>     # Optional: update or overwrite own context ---
         >>>     ctx.payload.value += 1.0
         >>>     world.update_context(ctx)
-        
+
         """
         raise NotImplementedError
 

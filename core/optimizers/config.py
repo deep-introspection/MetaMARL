@@ -93,7 +93,7 @@ class OptimizerConfig(_Config, ABC):
         # TODO Executer to enforce guardrails
         # if world is None:
         #     raise ValueError("Optimizer requires a World instance")
-        
+
         cfg = self.copy()
 
         # TODO : world is passed to optimizer, but also stored in config. must only have one source of truth
