@@ -18,31 +18,26 @@ classifiers = [
 ]
 dependencies = [
     "dm-tree>=0.1.9",
-    "gym>=0.26.2",
-    "matplotlib>=3.10.8",
+    "gymnasium>=0.29.0,<2.0.0",
+    "matplotlib>=3.7.0,<4.0.0",
+    "numpy>=1.24.0,<3.0.0",
     "pydantic>=2.12.5",
+    "pyyaml>=6.0",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
+    "ray[rllib]>=2.40.0,<3.0.0",
     "ray[tune]>=2.53.0",
     "ruff>=0.14.13",
     "scipy>=1.17.0",
-    "seaborn>=0.13.2",
-    "torch>=2.10.0",
+    "seaborn>=0.12.0,<1.0.0",
+    "torch>=2.0.0,<3.0.0",
+    "wandb>=0.15.0,<1.0.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/deep-introspection/bilevel-fishery"
 Repository = "https://github.com/deep-introspection/bilevel-fishery"
 Issues = "https://github.com/deep-introspection/bilevel-fishery/issues"
-dependencies = [
-    "numpy>=1.24.0,<3.0.0",
-    "ray[rllib]>=2.40.0,<3.0.0",
-    "gymnasium>=0.29.0,<2.0.0",
-    "torch>=2.0.0,<3.0.0",
-    "matplotlib>=3.7.0,<4.0.0",
-    "seaborn>=0.12.0,<1.0.0",
-    "wandb>=0.15.0,<1.0.0",
-]
 
 [project.optional-dependencies]
 dev = [
