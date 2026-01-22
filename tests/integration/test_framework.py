@@ -166,3 +166,6 @@ def test_core_framework_end_to_end():
     reward_ctx_updated = world.get_context("reward_signal")
     assert reward_ctx_updated.payload.value != prev_reward
     assert len(world.get_ctx_ids()) == 2, "Context count must remain stable"
+
+
+# TODO unit tests for Null opt_id
