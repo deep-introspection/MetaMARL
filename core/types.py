@@ -41,3 +41,14 @@ OptimizerIDs are expected to be stable for the lifetime of an experiment.
 # """
 
 EnvType: TypeAlias = Union[BaseEnv, MultiAgentEnv, Env]
+"""
+Represents a BaseEnv, MultiAgentEnv, ExternalEnv, ExternalMultiAgentEnv,
+VectorEnv, gym.Env, or ActorHandle.
+"""
+
+
+EnvConfigDict: TypeAlias = dict
+"""
+Represents the env_config sub-dict of the algo config that is passed to
+the env constructor.
+"""
