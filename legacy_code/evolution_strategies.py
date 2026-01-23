@@ -8,7 +8,8 @@ import math
 from typing import List, Tuple
 
 import numpy as np
-from config import EPS, ES_CONFIG
+
+from examples.config import EPS, ES_CONFIG
 
 
 class EvolutionStrategies:

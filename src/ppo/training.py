@@ -6,13 +6,14 @@ for the multi-agent fishery environment.
 
 from typing import Tuple
 
-from config import PPO_CONFIG
-from environment import FisheryEnvFixed
-from mechanism import MechanismParameters
 from ray import init as ray_init
 from ray import shutdown as ray_shutdown
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.tune.registry import register_env
+
+from contexts.mechanism import MechanismParameters
+from envs.environment import FisheryEnvFixed
+from examples.config import PPO_CONFIG
 
 
 def initialize_ray(logging_level: str = "ERROR") -> None:
