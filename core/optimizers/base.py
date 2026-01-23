@@ -108,6 +108,7 @@ class Optimizer(ABC):
     # def __setattr__(self, name, value) -> Any:
     #     return super().__setattr__(name, value)
 
+    # TODO change this to training step
     @abstractmethod
     def run(self, world: Optional[World] = None) -> None:
         """
