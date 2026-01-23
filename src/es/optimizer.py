@@ -1,48 +1,38 @@
+import math
+
 import numpy as np
 
 from core.optimizers.base import Optimizer
+from src.es.config import ESConfig
+
+# TODO move this into constants
+EPS = 1e-8
 
 
 class ESOptimizer(Optimizer):
-    def __init__(self, config):
+    def __init__(self, config: ESConfig):
         super().__init__(config)
 
-        self.dimension: int = config["dimension"]
-        self.population_size: int = config["population_size"]
-        self.sigma: float = config["sigma"]
-        self.mean_learning_rate: float = config["mean_learning_rate"]
-        self.sigma_learning_rate: float = config["sigma_learning_rate"]
+        # --- hyperparameters --
+        self.dimension = config.dimension
+        self.population_size = config.pop_size
+        self.mean_lr = config.mean_lr
+        self.sigma_lr = config.sigma_lr
+        self.min_sigma = config.min_sigma
+        self.max_sigma = config.max_sigma
 
-        self.min_sigma: float = config["min_sigma"]
-        self.max_sigma: float = config["max_sigma"]
-        self.random_seed: float = config["random_seed"]
-
+        # --- runtime state ---
         # Initialize search distribution at center of unit cube
-        self.mean = np.full(self.dimension, 0.5, dtype=np.float32)
-        self.sigma = float(self.sigma)
+        self.mean = np.full(config.dimension, 0.5, dtype=np.float32)
+        self.sigma = float(config.sigma)
 
         # Random number generator
-        self.rng = np.random.default_rng(self.random_seed)
+        self.rng = np.random.default_rng(config.seed)
 
         # History tracking
         self.generation = 0
         self.best_fitness = -float("inf")
         self.best_candidate = self.mean.copy()
-
-    @classmethod
-    def get_default_config(cls) -> OptimizerConfig:
-        config = {}
-        config["dimension"] = 5
-        config["population_size"] = 8
-        config["sigma"] = 0.15
-        config["mean_learning_rate"] = 0.1
-        config["sigma_learning_rate"] = 0.05
-
-        config["min_sigma"] = 1e-3
-        config["max_sigma"] = 0.5
-        config["random_seed"] = 0
-
-        return config
 
     # TODO refactor this to Env_Runner sampler
     def _sample_population(self) -> np.ndarray:
@@ -92,7 +82,7 @@ class ESOptimizer(Optimizer):
 
     # TODO refactor this into Learner
     def _update_parameters(
-        self, population: np.ndarray, fitness_scores: List[float]
+        self, population: np.ndarray, fitness_scores: list[float]
     ) -> None:
         """Update ES distribution parameters using fitness-weighted gradients.
 
@@ -190,7 +180,11 @@ class ESOptimizer(Optimizer):
 
     def run(self) -> None:
         population = self._sample_population()
-        fitness = self.env.step(population)
+        if self.env is not None:
+            _, fitness, _, _, _ = self.env.step(population)
+        else:
+            # TODO case when the fitness is not none
+            fitness = "????"
         self._update_parameters(population, fitness)
 
         self.metrics.log_dict(
@@ -201,3 +195,6 @@ class ESOptimizer(Optimizer):
                 "sigma": self.sigma,
             }
         )
+
+    async def run_async(self) -> None:
+        pass

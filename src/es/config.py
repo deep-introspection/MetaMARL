@@ -1,34 +1,21 @@
-from src.es.optimizer import ESOptimizer
+from typing import Optional, Self, override
+
 from core.optimizers.config import OptimizerConfig
-from typing import Self, override, Optional
+from src.es.optimizer import ESOptimizer
 
 
 class ESConfig(OptimizerConfig):
     def __init__(self, opt_class=None):
         super().__init__(opt_class=opt_class or ESOptimizer)
 
-
-        # ES specific settings (default)
-        # Distribution and population
+        # ES training hyperparameters
         self.dimension: int = 5
         self.pop_size: int = 8
         self.sigma: int = 0.15
-
-        # Distribution lr
         self.mean_lr: float = 0.1
         self.sigma_lr: float = 0.05
-
-        # sigma constraints
         self.min_sigma: float = 1e-3
         self.max_sigma: float = 0.5
-
-        # Random number generator
-        self.rng = np.random.default_rng(self.random_seed)
-        
-        # History tracking
-        self.generation = 0
-        self.best_fitness = -float("inf")
-        self.best_candidate = self.mean.copy()
 
     @override(OptimizerConfig)
     def training(
@@ -41,12 +28,12 @@ class ESConfig(OptimizerConfig):
         sigma_lr: Optional[float] = None,
         min_sigma: Optional[float] = None,
         max_sigma: Optional[float] = None,
-        **kwargs,
+        generation: Optional[int] = None,
     ) -> Self:
         """Sets the training related configs for Evolution Strategies (ES).
 
         Args:
-            dimenstion: Dimensionality of the search space which corresponds to the number of 
+            dimenstion: Dimensionality of the search space which corresponds to the number of
                 parameters being optimized (e.g., number of mechanism params in the outer loop).
             pop_size: Number of candidate solutions sampled per ES generation. Larger population
                 provide more stable gradient estimates at the cost of increased computation.
@@ -77,29 +64,19 @@ class ESConfig(OptimizerConfig):
             self.min_sigma = min_sigma
         if max_sigma is not None:
             self.max_sigma = max_sigma
-        
+        if generation is not None:
+            self.generation = generation
+
         return self
-    
 
-    @override(OptimizerConfig)
-    def evaluation(
-        self,
-        *,
-        evaluation_best_fitness,
-        evaluation_best_candidate,
-        **kwargs
-    ) -> Self : 
-        raise NotImplementedError
-    
+    # @override(OptimizerConfig)
+    # def evaluation(
+    #     self, *, evaluation_best_fitness, evaluation_best_candidate, **kwargs
+    # ) -> Self:
+    #     raise NotImplementedError
 
-    # TODO this is where the random seed goes
-    @override(OptimizerConfig)
-    def fault_tolerance(
-        self,
-        *,
-        rng,
-        **kwargs) -> Self:
-        return super().fault_tolerance()
-    
-        if rns is not None:
-            self.rng = rng
+    # # TODO this is where the random seed goes
+    # # TODO do we put rng here ?
+    # @override(OptimizerConfig)
+    # def fault_tolerance(self, *, rng: Optional[float] = None, **kwargs) -> Self:
+    #     return super().fault_tolerance()
