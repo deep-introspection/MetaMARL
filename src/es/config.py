@@ -1,12 +1,11 @@
 from typing import Optional, Self, override
 
 from core.optimizers.config import OptimizerConfig
-from src.es.optimizer import ESOptimizer
 
 
 class ESConfig(OptimizerConfig):
     def __init__(self, opt_class=None):
-        super().__init__(opt_class=opt_class or ESOptimizer)
+        super().__init__(opt_class=opt_class)
 
         # ES training hyperparameters
         self.dimension: int = 5
@@ -17,7 +16,7 @@ class ESConfig(OptimizerConfig):
         self.min_sigma: float = 1e-3
         self.max_sigma: float = 0.5
 
-    @override(OptimizerConfig)
+    @override
     def training(
         self,
         *,
@@ -29,6 +28,7 @@ class ESConfig(OptimizerConfig):
         min_sigma: Optional[float] = None,
         max_sigma: Optional[float] = None,
         generation: Optional[int] = None,
+        **kwargs,
     ) -> Self:
         """Sets the training related configs for Evolution Strategies (ES).
 
@@ -49,6 +49,7 @@ class ESConfig(OptimizerConfig):
         Returns:
             This updated OptimizerConfig object.
         """
+        super().training(**kwargs)
 
         if dimension is not None:
             self.dimension = dimension
