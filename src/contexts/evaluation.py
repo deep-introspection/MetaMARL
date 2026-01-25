@@ -8,8 +8,9 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from config import EPS
-from environment import FisheryEnvFixed
+
+from envs.environment import FisheryEnvFixed
+from examples.config import EPS
 
 
 @dataclass
