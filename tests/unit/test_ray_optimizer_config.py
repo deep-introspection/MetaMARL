@@ -6,7 +6,7 @@ from src.ppo.config import PPOptimizerConfig
 
 @pytest.mark.unit
 def test_ppo_config_builds_optimizer():
-    cfg = PPOptimizerConfig()
+    cfg = PPOptimizerConfig().environment(env="CartPole-v1")
     opt = cfg.build_optimizer()
     assert isinstance(opt, RayOptimizer)
     assert opt.algo is not None
