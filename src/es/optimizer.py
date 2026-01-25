@@ -1,9 +1,15 @@
+from __future__ import annotations
+
 import math
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from core.optimizers.base import Optimizer
-from src.es.config import ESConfig
+
+if TYPE_CHECKING:
+    from src.es.config import ESConfig
+
 
 # TODO move this into constants
 EPS = 1e-8
@@ -20,6 +26,7 @@ class ESOptimizer(Optimizer):
         self.sigma_lr = config.sigma_lr
         self.min_sigma = config.min_sigma
         self.max_sigma = config.max_sigma
+        self.break_symmetry = config.break_symmetry
 
         # --- runtime state ---
         # Initialize search distribution at center of unit cube
@@ -31,6 +38,7 @@ class ESOptimizer(Optimizer):
 
         # History tracking
         self.generation = 0
+        self.fitness_baseline = None
         self.best_fitness = -float("inf")
         self.best_candidate = self.mean.copy()
 
@@ -66,6 +74,11 @@ class ESOptimizer(Optimizer):
             )
             noise_matrix = np.vstack([noise_matrix, extra_noise])
 
+        if self.break_symmetry and self.population_size % 2 == 0 and half_pop > 0:
+            noise_matrix[-1] = self.rng.standard_normal(
+                (self.dimension,), dtype=np.float32
+            )
+
         # Transform mean to logit space for unbounded optimization
         # logit(p) = log(p/(1-p)), inverse_logit(x) = 1/(1+exp(-x))
         eps_bound = 1e-6
@@ -81,96 +94,73 @@ class ESOptimizer(Optimizer):
         return population.astype(np.float32)
 
     # TODO refactor this into Learner
+    # TODO review this and make sure faster compute
     def _update_parameters(
-        self, population: np.ndarray, fitness_scores: list[float]
+        self,
+        population: np.ndarray,
+        fitness_scores: list[float],
     ) -> None:
-        """Update ES distribution parameters using fitness-weighted gradients.
+        eps = 1e-8
+        fitness = np.asarray(fitness_scores, dtype=np.float32)
 
-        Uses rank-based fitness shaping for robustness to outliers.
-        Works in logit space for unconstrained optimization.
+        # Fitness whitening
+        f_mean = np.mean(fitness)
+        f_std = np.std(fitness) + eps
+        fitness = (fitness - f_mean) / f_std
 
-        Args:
-            population: Population that was evaluated (pop_size x dimension)
-            fitness_scores: Fitness scores for each population member
-        """
-        # Rank-based fitness shaping (more robust than raw scores)
-        fitness_array = np.array(fitness_scores)
-        fitness_ranks = np.argsort(
-            np.argsort(-fitness_array)
-        )  # Higher rank = better fitness
-
-        # Normalize ranks to zero mean, unit std (with numerical stability)
-        rank_mean = np.mean(fitness_ranks)
-        rank_std = np.std(fitness_ranks)
-
-        if rank_std < EPS:
-            # All fitness scores are identical - use uniform weights (no gradient)
-            weighted_gradient = np.zeros(self.dimension, dtype=np.float32)
-        else:
-            # Use utility-based weights instead of zero-mean normalized ranks
-            # Convert ranks to utilities (higher rank = higher utility)
-            utilities = fitness_ranks.astype(np.float32)
-            utility_weights = utilities - np.mean(utilities)  # Zero-mean utilities
-
-            # Check if weights sum to approximately zero
-            weights_sum = np.sum(utility_weights)
-            if abs(weights_sum) < EPS:
-                # If weights sum to zero, use simple ranking approach
-                # Only use top half of population for gradient
-                top_half_mask = utilities >= np.median(utilities)
-                if np.sum(top_half_mask) == 0:
-                    weighted_gradient = np.zeros(self.dimension, dtype=np.float32)
-                else:
-                    # Transform to logit space for gradient computation
-                    eps_bound = 1e-6
-                    mean_clipped = np.clip(self.mean, eps_bound, 1.0 - eps_bound)
-                    mean_logit = np.log(mean_clipped / (1.0 - mean_clipped))
-
-                    pop_clipped = np.clip(population, eps_bound, 1.0 - eps_bound)
-                    pop_logit = np.log(pop_clipped / (1.0 - pop_clipped))
-
-                    search_directions = pop_logit - mean_logit[None, :]
-                    weighted_gradient = np.mean(
-                        search_directions[top_half_mask], axis=0
-                    ) / (self.sigma + EPS)
-            else:
-                # Compute weighted gradient for mean update in logit space
-                eps_bound = 1e-6
-                mean_clipped = np.clip(self.mean, eps_bound, 1.0 - eps_bound)
-                mean_logit = np.log(mean_clipped / (1.0 - mean_clipped))
-
-                pop_clipped = np.clip(population, eps_bound, 1.0 - eps_bound)
-                pop_logit = np.log(pop_clipped / (1.0 - pop_clipped))
-
-                search_directions = pop_logit - mean_logit[None, :]
-                weighted_gradient = np.sum(
-                    search_directions * utility_weights[:, None], axis=0
-                ) / (weights_sum * (self.sigma + EPS))
-
-        # Update mean in logit space and transform back
+        # Logit transform
         eps_bound = 1e-6
-        mean_clipped = np.clip(self.mean, eps_bound, 1.0 - eps_bound)
-        mean_logit = np.log(mean_clipped / (1.0 - mean_clipped))
-        new_mean_logit = mean_logit + self.mean_lr * weighted_gradient
-        new_mean = 1.0 / (1.0 + np.exp(-new_mean_logit))
+        mean_clipped = np.clip(self.mean, eps_bound, 1 - eps_bound)
+        mean_logit = np.log(mean_clipped / (1 - mean_clipped))
 
-        # Adaptive sigma update based on fitness diversity
-        fitness_std = float(np.std(fitness_scores))
-        target_diversity = 1e-3  # Target minimum diversity
-        sigma_multiplier = math.exp(self.sigma_lr * (fitness_std - target_diversity))
+        pop_clipped = np.clip(population, eps_bound, 1 - eps_bound)
+        pop_logit = np.log(pop_clipped / (1 - pop_clipped))
 
-        # Update sigma with bounds
-        new_sigma = np.clip(
-            self.sigma * sigma_multiplier, self.min_sigma, self.max_sigma
+        # Approximate antithetic noise
+        eps_est = (pop_logit - mean_logit[None, :]) / (self.sigma + eps)
+
+        # Mirrored gradient
+        N = len(fitness)
+        half = N // 2
+
+        # Detect if strict antithetic symmetry holds
+        strict_antithetic = self.population_size % 2 == 0
+
+        if self.break_symmetry and strict_antithetic and half > 0:
+            f_pos = fitness[:half]
+            f_neg = fitness[half : 2 * half]
+            eps_pos = eps_est[:half]
+
+            gradient = np.mean((f_pos - f_neg)[:, None] * eps_pos, axis=0)
+        else:
+            # Fall back to full ES estimator when symmetry is broken
+            gradient = np.mean(fitness[:, None] * eps_est, axis=0)
+
+        # Gradient clipping
+        grad_norm = np.linalg.norm(gradient)
+        if grad_norm > 5.0:
+            gradient *= 5.0 / (grad_norm + eps)
+
+        # Mean update
+        new_mean_logit = mean_logit + self.mean_lr * gradient
+        self.mean = (1.0 / (1.0 + np.exp(-new_mean_logit))).astype(np.float32)
+
+        # Sigma update: 1/5 success rule
+        success_rate = np.mean(fitness > 0)
+        target = 0.2
+
+        sigma_multiplier = math.exp(self.sigma_lr * (success_rate - target))
+
+        self.sigma = float(
+            np.clip(self.sigma * sigma_multiplier, self.min_sigma, self.max_sigma)
         )
+        # Soft anchor toward mid sigma to prevent saturation
+        sigma_mid = 0.5 * (self.min_sigma + self.max_sigma)
+        self.sigma = 0.97 * self.sigma + 0.03 * sigma_mid
 
-        # Apply updates
-        self.mean = new_mean
-        self.sigma = float(new_sigma)
-
-        # Update best candidate tracking
-        best_idx = np.argmax(fitness_scores)
-        best_fitness = fitness_scores[best_idx]
+        # Track best
+        best_idx = int(np.argmax(fitness_scores))
+        best_fitness = float(fitness_scores[best_idx])
 
         if best_fitness > self.best_fitness:
             self.best_fitness = best_fitness
@@ -196,5 +186,26 @@ class ESOptimizer(Optimizer):
             }
         )
 
-    async def run_async(self) -> None:
-        pass
+    # TODO CMA-ES
+    async def run_async(self, batch_size: int = None) -> None:
+        population = self._sample_population()
+
+        if batch_size is None:
+            _, fitness, _, _, _ = await self.env.step(population)
+        else:
+            fitness_chunks = []
+            for i in range(0, len(population), batch_size):
+                pop_chunk = population[i : i + batch_size]
+                _, f_chunk, _, _, _ = await self.env.step(pop_chunk)
+                fitness_chunks.append(f_chunk)
+            fitness = np.concatenate(fitness_chunks, axis=0)
+        self._update_parameters(population=population, fitness_scores=fitness)
+
+        self.metrics.log_dict(
+            {
+                "generation": self.generation,
+                "mean_fitness": float(np.mean(fitness)),
+                "max_fitness": float(np.max(fitness)),
+                "sigma": self.sigma,
+            }
+        )
