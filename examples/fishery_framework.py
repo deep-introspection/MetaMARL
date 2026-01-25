@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from typing import Any, Optional
 
 from gymnasium import Env
+from src.optimizers.ppo.training import build_ppo_algorithm, train_algorithm
 
 from contexts.evaluation import evaluate_mechanism_with_metrics
 from contexts.mechanism import MechanismParameters, map_unit_vector_to_mechanism
@@ -29,8 +30,7 @@ from core.world.base import World
 from core.world.context import Context, ContextSchema
 from core.wrappers.context_wrapper import ContextWrapper
 from examples.config import ES_CONFIG
-from src.optimizers.es.evolution_strategies import EvolutionStrategies
-from src.optimizers.ppo.training import build_ppo_algorithm, train_algorithm
+from legacy_code.evolution_strategies import EvolutionStrategies
 
 
 def load_config(path: str) -> dict[str, Any]:
