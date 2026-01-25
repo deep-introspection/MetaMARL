@@ -5,8 +5,9 @@ from abc import ABC
 from typing import TYPE_CHECKING, Optional, Self, Type, Union
 
 from gymnasium import Space
+from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 
-from core.types import EnvType
+from core.types import EnvConfigDict, EnvType
 from core.world.base import World
 
 if TYPE_CHECKING:
@@ -48,6 +49,10 @@ class OptimizerConfig(_Config, ABC):
 
         # --- eval ---
         self.evaluation_config: Optional["OptimizerConfig"] = None
+
+        # TODO
+        # --- reporting ---
+        self.stats_cls_lookup = DEFAULT_STATS_CLS_LOOKUP
 
     def __setattr__(self, name, value):
         if hasattr(self, "_is_frozen") and self._is_frozen:
@@ -113,37 +118,11 @@ class OptimizerConfig(_Config, ABC):
     # TODO move optimizer registration to executor in future
     # TODO enable multiple world registration
     def build_optimizer(self) -> Optimizer:
-        """Builds an Optimizer from this OptimizerConfig (or a copy thereof).
-
-        Args:
-            world: Name of the world (gymnasium Env type) #review
-            logger_creator: Callable that creates a logger object. If unspecified, a default logger is created.
-
-        """
-        # TODO Executer to enforce guardrails
-        # if world is None:
-        #     raise ValueError("Optimizer requires a World instance")
-
-        cfg = self.copy()
-
-        # TODO : world is passed to optimizer, but also stored in config. must only have one source of truth
-        # if world is not None:
-        #     cfg._world = world
-
-        cfg.freeze()  # attention this would freeze the cfg even if the world is None !
-        opt_class = self.opt_class
-        return opt_class(config=cfg)
-
-    # TODO Docstring explanation
-    # @abstractmethod
-    # def world(self, world: Optional[World] = None):
-    #     """
-    #     Docstring for world
-
-    #     :param self: Description
-    #     :param world: Description
-    #     """
-    #     raise NotImplementedError
+        """Builds an Optimizer from this OptimizerConfig (or a copy thereof)."""
+        cfg = self.copy(copy_frozen=True)
+        if cfg.opt_class is None:
+            raise ValueError("OptimizerConfig has no opt_class")
+        return cfg.opt_class(config=cfg)
 
     # TODO EnvConfigDict
     def environment(
@@ -179,7 +158,7 @@ class OptimizerConfig(_Config, ABC):
             self.disable_env_checking = disable_env_checking
         return self
 
-    def training(self, *, seed=Optional[float]) -> Self:
+    def training(self, *, seed: Optional[float] = None) -> Self:
         """
 
         Args:

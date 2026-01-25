@@ -51,7 +51,9 @@ class Optimizer(ABC):
         self.env: ContextWrapper = getattr(config, "_env", None)
 
         # Optional metrics hook
-        self.metrics = None
+        self.metrics: MetricsLogger = MetricsLogger(
+            root=True, stats_cls_lookup=config.stats_cls_lookup
+        )
 
         # Optimizer Graph connectivity
         self._downstream: set["Optimizer"] = set()
@@ -145,12 +147,12 @@ class Optimizer(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
-    def evaluate(self, world: Optional[World]) -> None:
-        """Evaluate Optimizer Performance"""
-        raise NotImplementedError
+    # @abstractmethod
+    # def evaluate(self, world: Optional[World]) -> None:
+    #     """Evaluate Optimizer Performance"""
+    #     raise NotImplementedError
 
-    @abstractmethod
-    def save_checkpoint(self) -> None:
-        """Persist Optimizer State"""
-        raise NotImplementedError
+    # @abstractmethod
+    # def save_checkpoint(self) -> None:
+    #     """Persist Optimizer State"""
+    #     raise NotImplementedError
