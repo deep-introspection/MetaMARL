@@ -3,7 +3,7 @@ import pytest
 from gymnasium import Env, spaces
 
 from core.optimizers.base import Optimizer
-from core.optimizers.config import BaseOptimizerConfig
+from core.optimizers.config import OptimizerConfig
 from core.world.base import Context, World
 from core.world.context import ContextSchema
 from core.wrappers.context_wrapper import ContextWrapper
@@ -12,17 +12,16 @@ from core.wrappers.context_wrapper import ContextWrapper
 class SignalContext(ContextSchema):
     value: float
 
-# TODO 
+
+# TODO
 class SuperDummyOptimizer(Optimizer):
     def run(self, world: World) -> None:
         ctx = Context(
-            id="regulation_signal", 
-            opt_id=self.id, 
-            payload=SignalContext(value=1.0)
+            id="regulation_signal", opt_id=self.id, payload=SignalContext(value=1.0)
         )
         if ctx.id not in world.get_opt_ctx_ids(opt_id=self.opt_id):
             world.set_new_context(ctx=ctx, singleton=False)
-        else: 
+        else:
             world.update_context(ctx=ctx)
 
         for opt in self._downstream:
@@ -62,14 +61,12 @@ class DummyOptimizer(Optimizer):
         _, reward, _, _, _ = self.env.step(action)
 
         ctx = Context(
-            id="reward_signal", 
-            opt_id=self.id, 
-            payload=SignalContext(value=reward)
+            id="reward_signal", opt_id=self.id, payload=SignalContext(value=reward)
         )
-        
+
         if ctx.id not in world.get_opt_ctx_ids(opt_id=self.opt_id):
             world.set_new_context(ctx=ctx, singleton=False)
-        else: 
+        else:
             world.update_context(ctx=ctx)
 
     def evaluate(self, world: World):
@@ -96,15 +93,18 @@ class DummyContextWrapper(ContextWrapper):
     def action(self, action):
         return action
 
+
 # TODO review this
-class DummyOptimizerConfig(BaseOptimizerConfig):
+class DummyOptimizerConfig(OptimizerConfig):
     def __init__(self):
         super().__init__(opt_class=DummyOptimizer)
 
+
 # TODO review this
-class SuperDummyOptimizerConfig(BaseOptimizerConfig):
+class SuperDummyOptimizerConfig(OptimizerConfig):
     def __init__(self):
         super().__init__(opt_class=SuperDummyOptimizer)
+
 
 @pytest.mark.integration
 def test_core_framework_end_to_end():
@@ -127,11 +127,11 @@ def test_core_framework_end_to_end():
     meta_opt.set_id("parent")
     meta_opt.set_downstream(opt=child)
     world.register_optimizer(meta_opt)
-    
+
     # Build assertions
     assert world.get_ctx_ids() == set()
     assert world.get_opt_ids() == {"child", "parent"}
-    
+
     # Run Meta Optimizer (will also run child)
     meta_opt.run(world)
 
@@ -158,7 +158,7 @@ def test_core_framework_end_to_end():
     # Env Wrapper assertions
     violation_signal = wrapped_env._get_violation_signal()
     assert violation_signal == 1.0, "Env should read regulation signal from world"
-    
+
     # Run a downstream optimizer only
     prev_reward = reward_ctx.payload.value
     child.run(world)
@@ -166,3 +166,6 @@ def test_core_framework_end_to_end():
     reward_ctx_updated = world.get_context("reward_signal")
     assert reward_ctx_updated.payload.value != prev_reward
     assert len(world.get_ctx_ids()) == 2, "Context count must remain stable"
+
+
+# TODO unit tests for Null opt_id

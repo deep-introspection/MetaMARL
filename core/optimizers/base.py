@@ -7,6 +7,7 @@ from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 from core.optimizers.config import OptimizerConfig
 from core.types import OptimizerID
 from core.world.base import World
+from core.wrappers.context_wrapper import ContextWrapper
 
 
 class Optimizer(ABC):
@@ -47,10 +48,12 @@ class Optimizer(ABC):
 
         # Optional environment (may be None for meta-optimizers)
         # TODO review
-        self.env = getattr(config, "_env", None)
+        self.env: ContextWrapper = getattr(config, "_env", None)
 
         # Optional metrics hook
-        self.metrics = None
+        self.metrics: MetricsLogger = MetricsLogger(
+            root=True, stats_cls_lookup=config.stats_cls_lookup
+        )
 
         # Optimizer Graph connectivity
         self._downstream: set["Optimizer"] = set()
@@ -107,6 +110,7 @@ class Optimizer(ABC):
     # def __setattr__(self, name, value) -> Any:
     #     return super().__setattr__(name, value)
 
+    # TODO change this to training step
     @abstractmethod
     def run(self, world: Optional[World] = None) -> None:
         """
@@ -139,16 +143,16 @@ class Optimizer(ABC):
         >>>     # Optional: update or overwrite own context ---
         >>>     ctx.payload.value += 1.0
         >>>     world.update_context(ctx)
-        
+
         """
         raise NotImplementedError
 
-    @abstractmethod
-    def evaluate(self, world: Optional[World]) -> None:
-        """Evaluate Optimizer Performance"""
-        raise NotImplementedError
+    # @abstractmethod
+    # def evaluate(self, world: Optional[World]) -> None:
+    #     """Evaluate Optimizer Performance"""
+    #     raise NotImplementedError
 
-    @abstractmethod
-    def save_checkpoint(self) -> None:
-        """Persist Optimizer State"""
-        raise NotImplementedError
+    # @abstractmethod
+    # def save_checkpoint(self) -> None:
+    #     """Persist Optimizer State"""
+    #     raise NotImplementedError

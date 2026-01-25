@@ -71,11 +71,14 @@ class World:
 
         This initializes an empty context set for the optimizer.
         """
-        if opt.opt_id is None:
-            opt.opt_id = generate_uuid(registry=self._opt_ctx_map.keys())
-        if opt.opt_id not in self._opt_ctx_map:
-            self._opt_ctx_map[opt.opt_id] = set()
-        return opt.opt_id
+        return self._set_new_opt_id(opt_id=opt.opt_id)
+
+    def _set_new_opt_id(self, opt_id: OptimizerID) -> OptimizerID:
+        if opt_id is None:
+            opt_id = generate_uuid(registry=self._opt_ctx_map.keys())
+        if opt_id not in self._opt_ctx_map:
+            self._opt_ctx_map[opt_id] = set()
+        return opt_id
 
     def set_new_context(self, ctx: Context, singleton: bool = False) -> ContextID:
         """
@@ -92,17 +95,17 @@ class World:
         if singleton:
             self._validate_ctx_schema_exists(type(ctx.payload))
 
-        if ctx.id is not None :
+        if ctx.id is not None:
             if ctx.id in self._contexts:
                 raise ValueError(f"ContextID '{ctx.id}' already exists")
         else:
             ctx.id = generate_uuid(registry=self._contexts.keys())
 
         self._contexts[ctx.id] = ctx
-        
+
         if ctx.opt_id is not None:
             if ctx.opt_id not in self._opt_ctx_map:
-                self.set_new_optimizer(ctx.opt_id)
+                self._set_new_opt_id(ctx.opt_id)
             self._opt_ctx_map[ctx.opt_id].add(ctx.id)
 
         return ctx.id

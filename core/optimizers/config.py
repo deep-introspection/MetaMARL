@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import copy
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import TYPE_CHECKING, Optional, Self, Type, Union
 
-from core.types import EnvType
+from gymnasium import Space
+from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
+
+from core.types import EnvConfigDict, EnvType
 from core.world.base import World
 
 if TYPE_CHECKING:
@@ -30,14 +33,26 @@ class OptimizerConfig(_Config, ABC):
         """
         self.opt_class = opt_class
 
-        # World specs
-        self._world: Optional[World] = None
-
-        # Has this config object been frozen (cannot alter its attributes anymore).
+        # -- lifecycle --
         self._is_frozen = False
 
-        # Evaluation
+        # --- world / environment ---
+        self._world: Optional[World] = None
+        self.env: Optional[Union[str, EnvType]] = None
+        self.env_config: dict = {}
+        self.observation_space: Optional[Space] = None
+        self.action_space: Optional[Space] = None
+        self.disable_env_checking: bool = False
+
+        # --- training ---
+        self.seed: int = 0
+
+        # --- eval ---
         self.evaluation_config: Optional["OptimizerConfig"] = None
+
+        # TODO
+        # --- reporting ---
+        self.stats_cls_lookup = DEFAULT_STATS_CLS_LOOKUP
 
     def __setattr__(self, name, value):
         if hasattr(self, "_is_frozen") and self._is_frozen:
@@ -47,6 +62,17 @@ class OptimizerConfig(_Config, ABC):
                     "OptimizerConfig!"
                 )
         super().__setattr__(name, value)
+
+    # TODO freezing for nested configs
+    def freeze(self) -> None:
+        """Freeze this config object, such that no attributes can be set anymore.
+
+        Optimizers should use this method to make sure their config objects
+        remain read-only after this.
+        """
+        if self._is_frozen:
+            return
+        self._is_frozen = True
 
     def copy(self, copy_frozen: Optional[bool] = None) -> Self:
         """Creates a deep copy of this config and (un)freezes if necessary.
@@ -67,124 +93,107 @@ class OptimizerConfig(_Config, ABC):
                 cp.evaluation_config._is_frozen = False
         return cp
 
-    # TODO freezing for nested configs
-    def freeze(self) -> None:
-        """Freeze this config object, such that no attributes can be set anymore.
+    # TODO review this
+    @classmethod
+    def from_dict(cls, data: dict) -> Self:
+        """Serialization from dict"""
+        cfg = cls()
+        for k, v in data.items():
+            if hasattr(cfg, k):
+                setattr(cfg, k, v)
+        return cfg
 
-        Optimizers should use this method to make sure their config objects
-        remain read-only after this.
-        """
-        if self._is_frozen:
-            return
-        self._is_frozen = True
+    # TODO review this
+    @classmethod
+    def from_yaml(cls, path: str) -> Self:
+        """Serialization from yaml"""
+        import yaml
+
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+        return cls.from_dict(data)
 
     # TODO deep copy allows on may be toggled later with use_copy
     # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
     # TODO move optimizer registration to executor in future
     # TODO enable multiple world registration
     def build_optimizer(self) -> Optimizer:
-        """Builds an Optimizer from this OptimizerConfig (or a copy thereof).
+        """Builds an Optimizer from this OptimizerConfig (or a copy thereof)."""
+        cfg = self.copy(copy_frozen=True)
+        if cfg.opt_class is None:
+            raise ValueError("OptimizerConfig has no opt_class")
+        return cfg.opt_class(config=cfg)
+
+    # TODO EnvConfigDict
+    def environment(
+        self,
+        env: Optional[Union[str, EnvType]] = None,
+        *,
+        env_config: Optional[EnvConfigDict] = None,
+        observation_space: Optional[Space] = None,
+        action_space: Optional[Space] = None,
+        disable_env_checking: Optional[bool] = None,
+    ):
+        """Defines the environment interface for the Optimizer
 
         Args:
-            world: Name of the world (gymnasium Env type) #review
-            logger_creator: Callable that creates a logger object. If unspecified, a default logger is created.
-
+            env: Environment identifier or callable. May be a Gymnasium env, a Ray-registered env
+                name, or a custom environment class.
+            env_config: Domain-specific configuration passed to the environment constructor.
+            observation_space: Observation space describing environment outputs. Optional for
+                for optimizers that do not consume observation.
+            action_space: Action space describing valid environment inputs.
+            disable_env_checking: If True, disable environment validation checks. Userful for
+                custom or partially compliant environments.
         """
-        # TODO Executer to enforce guardrails
-        # if world is None:
-        #     raise ValueError("Optimizer requires a World instance")
-        
-        cfg = self.copy()
+        if env is not None:
+            self.env = env
+        if env_config is not None:
+            self.env_config = env_config
+        if observation_space is not None:
+            self.observation_space = observation_space
+        if action_space is not None:
+            self.action_space = action_space
+        if disable_env_checking is not None:
+            self.disable_env_checking = disable_env_checking
+        return self
 
-        # TODO : world is passed to optimizer, but also stored in config. must only have one source of truth
-        # if world is not None:
-        #     cfg._world = world
+    def training(self, *, seed: Optional[float] = None) -> Self:
+        """
 
-        cfg.freeze()  # attention this would freeze the cfg even if the world is None !
-        opt_class = self.opt_class
-        return opt_class(config=cfg)
+        Args:
+            seed:
+        """
+        if seed is not None:
+            self.seed = seed
+        return self
 
     # TODO Docstring explanation
     # @abstractmethod
-    # def world(self, world: Optional[World] = None):
-    #     """
-    #     Docstring for world
-
-    #     :param self: Description
-    #     :param world: Description
-    #     """
+    # def ressources(self):
     #     raise NotImplementedError
 
-    # TODO
-    @abstractmethod
-    def environment(self, env: Optional[Union[str, EnvType]]):
-        """
-        Docstring for environment
+    # # TODO Docstring explanation
+    # @abstractmethod
+    # def evaluation(self):
+    #     raise NotImplementedError
 
-        :param self: Description
-        :param env: Description
-        :type env: Optional[Union[str, EnvType]]
-        """
-        raise NotImplementedError
+    # # TODO Docstring explanation
+    # @abstractmethod
+    # def reporting(self):
+    #     raise NotImplementedError
 
-    # TODO Docstring explanation
-    @abstractmethod
-    def training(self):
-        raise NotImplementedError
+    # # TODO Docstring explanation
+    # @abstractmethod
+    # def checkpointing(self):
+    #     raise NotImplementedError
 
-    # TODO Docstring explanation
-    @abstractmethod
-    def ressources(self):
-        raise NotImplementedError
+    # # TODO Docstring explanation
+    # @abstractmethod
+    # def fault_tolerance(self):
+    #     raise NotImplementedError
 
-    # TODO Docstring explanation
-    @abstractmethod
-    def evaluation(self):
-        raise NotImplementedError
-
-    # TODO Docstring explanation
-    @abstractmethod
-    def reporting(self):
-        raise NotImplementedError
-
-    # TODO Docstring explanation
-    @abstractmethod
-    def checkpointing(self):
-        raise NotImplementedError
-
-    # TODO Docstring explanation
-    @abstractmethod
-    def fault_tolerance(self):
-        raise NotImplementedError
-
-    # TODO Docstring explanation
-    @abstractmethod
-    def experimental(self):
-        raise NotImplementedError
-
-
-class BaseOptimizerConfig(OptimizerConfig):
-    def environment(self, env):
-        self._env = env
-        return self
-
-    def training(self):
-        return self
-
-    def ressources(self):
-        return self
-
-    def evaluation(self):
-        return self
-
-    def reporting(self):
-        return self
-
-    def checkpointing(self):
-        return self
-
-    def fault_tolerance(self):
-        return self
-
-    def experimental(self):
-        return self
+    # # TODO Docstring explanation
+    # @abstractmethod
+    # def experimental(self):
+    #     raise NotImplementedError
