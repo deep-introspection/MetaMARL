@@ -3,7 +3,7 @@ import pytest
 from gymnasium import Env, spaces
 
 from core.optimizers.base import Optimizer
-from core.optimizers.config import BaseOptimizerConfig
+from core.optimizers.config import OptimizerConfig
 from core.world.base import Context, World
 from core.world.context import ContextSchema
 from core.wrappers.context_wrapper import ContextWrapper
@@ -95,13 +95,13 @@ class DummyContextWrapper(ContextWrapper):
 
 
 # TODO review this
-class DummyOptimizerConfig(BaseOptimizerConfig):
+class DummyOptimizerConfig(OptimizerConfig):
     def __init__(self):
         super().__init__(opt_class=DummyOptimizer)
 
 
 # TODO review this
-class SuperDummyOptimizerConfig(BaseOptimizerConfig):
+class SuperDummyOptimizerConfig(OptimizerConfig):
     def __init__(self):
         super().__init__(opt_class=SuperDummyOptimizer)
 

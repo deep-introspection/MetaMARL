@@ -1,5 +1,3 @@
-import pytest
-
 from core.world.base import World
 from src.es.config import ESConfig
 
@@ -11,7 +9,7 @@ from tests.integration.test_framework import (
 )
 
 
-@pytest.mark.integration
+# @pytest.mark.integration
 def test_es_optimizer_integration():
     world = World()
 
