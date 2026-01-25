@@ -8,15 +8,16 @@ with regulatory mechanisms including quotas, fines, and temporary bans.
 from typing import Dict, Optional, Tuple
 
 import numpy as np
-from config import (
+from gymnasium import spaces
+from ray.rllib.env.multi_agent_env import MultiAgentEnv
+
+from examples.config import (
     ACTION_BOUNDS,
     DEFAULT_ECOLOGY_CONFIG,
     DEFAULT_MECHANISM_CONFIG,
     EPS,
     OBSERVATION_BOUNDS,
 )
-from gymnasium import spaces
-from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 
 class FisheryEnvFixed(MultiAgentEnv):
