@@ -1,11 +1,14 @@
-from typing import Self
+from typing import Optional, Self
 
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 
 from core.adaptors.ray.optimizer import RayOptimizer
 from core.annotations import override
+from core.envs.base import BaseEnv
+from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
+from core.world.base import World
 
 
 class RayOptimizerConfig(OptimizerConfig):
@@ -18,7 +21,11 @@ class RayOptimizerConfig(OptimizerConfig):
             raise ValueError(f"{self.__class__.__name__} must define `algo_class`")
         super().__init__(opt_class=RayOptimizer)
 
-        self.ray_cfg: AlgorithmConfig = self.algo_class.get_default_config()
+        self.ray_cfg: AlgorithmConfig = (
+            self.algo_class.get_default_config()
+            .environment(None)
+            .env_runners(num_env_runners=0)
+        )
 
     def validate(self) -> None:
         self.ray_cfg.validate()
@@ -91,9 +98,24 @@ class RayOptimizerConfig(OptimizerConfig):
         return self
 
     @override(OptimizerConfig)
-    def build_optimizer(self, **kwargs):
+    def build_optimizer(self, *, world: Optional[World] = None, inner_opt: Optional[Optimizer] = None, **kwargs):
+        cfg = self.copy(copy_frozen=True)
+        if cfg.opt_class is None:
+            raise ValueError("OptimizerConfig has no opt_class")
+        
         algo = self.ray_cfg.build(**kwargs)
-        return RayOptimizer(algo=algo, config=self)
+        opt = RayOptimizer(algo=algo, config=cfg)
+
+        # register optimizer in world to link contexts to optimizers
+        if world is not None:
+            opt_id = world.register_optimizer(opt)
+            opt.set_id(opt_id)
+
+        env = cfg._env_creator(world=world, inner_opt=inner_opt)
+        env.set_opt_id(opt.id)
+        opt.env = env
+        
+        return 
 
     @override(OptimizerConfig)
     def freeze(self) -> None:
@@ -105,6 +127,6 @@ class RayOptimizerConfig(OptimizerConfig):
         return self
 
     @override(OptimizerConfig)
-    def environment(self, **kwargs) -> Self:
-        self.ray_cfg = self.ray_cfg.environment(**kwargs)
+    def environment(self, *, env=None, **kwargs) -> Self:
+        self.env = env
         return self
