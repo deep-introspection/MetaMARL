@@ -5,53 +5,57 @@ from gymnasium import Env
 from gymnasium.core import ActType, ObsType, WrapperActType, WrapperObsType
 
 from core.annotations import override
+from core.types import ContextID, OptimizerID
 from core.world.base import World
-from core.world.context import Context
+from core.world.context import Context, ContextSchema, EnvStepContext
 
 
 class BaseEnv(Env):
     """Base environment that directly interacts with the World."""
 
-    def __init__(self, world: World) -> None:
+    def __init__(self, *, world: World, **kwargs) -> None:
         super().__init__()
         self.world = world
+        self._ctx_id: ContextID | None = None
+        self._opt_id: OptimizerID | None = None
 
-    def _publish(self, ctx: Context):
-        # TODO get specific ctx id and opt_id (IMPORTANT)
-        self.world.update_context(ctx)
+    # Setter
+    def set_opt_id(self, opt_id: OptimizerID) -> None:
+        self._opt_id = opt_id
+
+    # private methods
+    def _publish(self, payload: ContextSchema):
+        ctx = Context(
+            id=self._ctx_id,
+            opt_id=self._opt_id,
+            payload=payload,
+        )
+
+        if self._ctx_id is None:
+            self._ctx_id = self.world.set_new_context(ctx)
+        else:
+            ctx.id = self._ctx_id
+            self.world.update_context(ctx)
 
     @abstractmethod
     def _step(
-        self, action: ActType
+        self, action: ActType = None
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
         """Run one timestep of the environment's dynamics using the agent actions."""
         raise NotImplementedError
 
     @override(Env)
     def step(
-        self, action: ActType
+        self, action: ActType = None
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-        out = self._step(self.action(action))
-
-        if out is None:
-            obs = self.observation(None)
-            reward = self.reward(0.0)
-            terminated = False
-            truncated = False
-            info = {}
-        else:
-            obs, reward, terminated, truncated, info = out
+        obs, reward, terminated, truncated, info = self._step(self.action(action))
 
         # Publish env context to World
         self._publish(
-            Context(
-                id=None,
-                opt_id=None,
-                payload={
-                    "observation": obs,
-                    "reward": reward,
-                    "action": action,
-                },
+            EnvStepContext(
+                observation=obs,
+                reward=reward,
+                action=action,
             )
         )
 

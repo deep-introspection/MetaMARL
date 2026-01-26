@@ -31,6 +31,12 @@ class World:
         # Maps context IDs to Context objects
         self._contexts: dict[ContextID, Context] = {}
 
+    def __deepcopy__(self, memo):
+        return self
+    
+    def __copy__(self):
+        return self
+
     # Accessors
     def get_context(self, ctx_id: ContextID) -> Context | None:
         """Access a context stored in world with an ID"""
