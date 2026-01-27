@@ -116,7 +116,11 @@ class OptimizerConfig(_Config, ABC):
         return cls.from_dict(data)
 
     def _env_creator(
-        self, *, world: Optional[World] = None, inner_opt: Optional[Optimizer] = None, **kwargs
+        self,
+        *,
+        world: Optional[World] = None,
+        inner_opt: Optional[Optimizer] = None,
+        **kwargs,
     ) -> BaseEnv:
         return self.env(
             world=world,
@@ -131,7 +135,12 @@ class OptimizerConfig(_Config, ABC):
     # TODO move optimizer registration to executor in future
     # TODO enable multiple world registration
     def build_optimizer(
-        self, *, world: Optional[World] = None, inner_opt: Optional[Optimizer] = None, **kwargs) -> Optimizer:
+        self,
+        *,
+        world: Optional[World] = None,
+        inner_opt: Optional[Optimizer] = None,
+        **kwargs,
+    ) -> Optimizer:
         """Builds an Optimizer from this OptimizerConfig (or a copy thereof)."""
         cfg = self.copy(copy_frozen=True)
         if cfg.opt_class is None:

@@ -44,6 +44,10 @@ class BaseEnv(Env):
         """Run one timestep of the environment's dynamics using the agent actions."""
         raise NotImplementedError
 
+    @abstractmethod
+    def _reset(self):
+        raise NotImplementedError
+
     @override(Env)
     def step(
         self, action: ActType = None
@@ -66,6 +70,22 @@ class BaseEnv(Env):
             truncated,
             info,
         )
+
+    @override(Env)
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+
+        obs = self._reset()
+
+        self._publish(
+            EnvStepContext(
+                observation=obs,
+                reward=0.0,
+                action=None,
+            )
+        )
+
+        return obs, {}
 
     def observation(self, observation: ObsType) -> WrapperObsType:
         """Returns a modified observation.

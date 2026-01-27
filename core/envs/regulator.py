@@ -19,7 +19,7 @@ class RegulatorEnv(BaseEnv):
         optimizer: Optional[Optimizer] = None,
         train_iters: int = 5,
         eval_iters: int = 2,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(world=world)
         self.inner: Optimizer = optimizer

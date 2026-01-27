@@ -39,12 +39,7 @@ def test_es_regulator_loop():
             mean_lr=0.2,
             sigma_lr=0.0,
         )
-        .environment(
-            env=DummyRegulatorEnv,
-            env_config={
-                "optimum": optimum
-            }
-        )
+        .environment(env=DummyRegulatorEnv, env_config={"optimum": optimum})
     )
 
     es = es_cfg.build_optimizer(world=dummy_world)
@@ -70,6 +65,9 @@ def test_ppo_with_regulated_env():
             obs = np.random.randn(4).astype(np.float32)
             reward = 1.0
             return obs, reward, False, False, {}
+
+        def _reset(self):
+            return np.random.randn(4).astype(np.float32)
 
         def violation_signal(self):
             return 0.5
