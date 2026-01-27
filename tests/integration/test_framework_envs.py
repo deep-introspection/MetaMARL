@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from gymnasium import spaces
+import ray
 
 from core.annotations import override
 from core.envs.regulated import RegulatedEnv
@@ -53,20 +54,25 @@ def test_es_regulator_loop():
 
 @pytest.mark.integration
 def test_ppo_with_regulated_env():
-    world = World()
+    WORLD_NAME = "global_world"
+    world = World.options(name=WORLD_NAME).remote()
 
     class DummyRegulatedEnv(RegulatedEnv):
-        def __init__(self, *, world, **kwargs):
-            super().__init__(world=world)
+        def __init__(self, *, world, opt_id, **kwargs):
+            super().__init__(world=world, opt_id=opt_id, **kwargs)
             self.observation_space = spaces.Box(-1, 1, (4,), np.float32)
             self.action_space = spaces.Discrete(2)
+            self.t = 0
+            self.max_steps = 25
 
         def _step(self, action):
             obs = np.random.randn(4).astype(np.float32)
             reward = 1.0
-            return obs, reward, False, False, {}
+            terminated = self.t >= self.max_steps
+            return obs, reward, terminated, False, {}
 
         def _reset(self):
+            self.t = 0
             return np.random.randn(4).astype(np.float32)
 
         def violation_signal(self):
@@ -78,20 +84,24 @@ def test_ppo_with_regulated_env():
     # TODO perhaps a world config fc
     cfg = (
         PPOptimizerConfig()
-        .environment(env=DummyRegulatedEnv)
+        .environment(
+            env=DummyRegulatedEnv,
+            env_config={"world_name": WORLD_NAME})
         .framework(framework="torch")
         .resources(num_gpus=0)
         .training(train_batch_size=200)
     )
 
-    ppo = cfg.build_optimizer(world=world)
+    ppo = cfg.build_optimizer(world=world, world_name=WORLD_NAME)
 
     # Run a few iterations
     for _ in range(3):
         result = ppo.run()
 
-    assert "episode_reward_mean" in result
-    assert len(world.get_opt_ctx_ids(ppo.id)) > 0
+    assert result["learners"]["default_policy"]["num_module_steps_trained"] > 0
+    ids = ray.get(world.get_opt_ctx_ids.remote(ppo.id))
+    assert len(ids) > 0
+
 
 
 @pytest.mark.integration
@@ -160,5 +170,3 @@ def test_full_bilevel_es_ppo_loop():
 
     assert len(world.get_ctx_ids()) > 0
 
-
-test_ppo_with_regulated_env()

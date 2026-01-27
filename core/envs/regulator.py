@@ -21,7 +21,7 @@ class RegulatorEnv(BaseEnv):
         eval_iters: int = 2,
         **kwargs,
     ):
-        super().__init__(world=world)
+        super().__init__(world=world, **kwargs)
         self.inner: Optimizer = optimizer
         self.train_iters: int = train_iters
         self.eval_iters: int = eval_iters

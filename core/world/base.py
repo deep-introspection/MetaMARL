@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, KeysView
 
 from core.types import ContextID, OptimizerID
 from core.utils import generate_uuid
 from core.world.context import Context, ContextSchema
 
+import ray
+
 if TYPE_CHECKING:
     from core.optimizers.base import Optimizer
 
-
+@ray.remote
 class World:
     """
     Shared runtime container for optimizer-produced contexts.
@@ -38,6 +40,9 @@ class World:
         return self
 
     # Accessors
+    def get_opt_registry(self) -> KeysView[OptimizerID]:
+        return self._opt_ctx_map.keys()
+    
     def get_context(self, ctx_id: ContextID) -> Context | None:
         """Access a context stored in world with an ID"""
         return self._contexts.get(ctx_id, None)

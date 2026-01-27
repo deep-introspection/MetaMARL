@@ -3,12 +3,18 @@ from typing import SupportsFloat
 
 from core.annotations import override
 from core.envs.base import BaseEnv
+from core.types import OptimizerID
 from core.world.base import World
 
 
 class RegulatedEnv(BaseEnv):
-    def __init__(self, world: World) -> None:
-        super().__init__(world=world)
+    def __init__(
+            self, 
+            *, 
+            world: World, 
+            opt_id: OptimizerID | None = None,
+            **kwargs) -> None:
+        super().__init__(world=world, opt_id=opt_id, **kwargs)
 
     @abstractmethod
     def violation_signal(self) -> float:

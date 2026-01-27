@@ -9,15 +9,17 @@ from core.types import ContextID, OptimizerID
 from core.world.base import World
 from core.world.context import Context, ContextSchema, EnvStepContext
 
+import ray
+
 
 class BaseEnv(Env):
     """Base environment that directly interacts with the World."""
 
-    def __init__(self, *, world: World, **kwargs) -> None:
+    def __init__(self, *, world: World, opt_id: OptimizerID | None = None, **kwargs) -> None:
         super().__init__()
         self.world = world
+        self._opt_id = opt_id
         self._ctx_id: ContextID | None = None
-        self._opt_id: OptimizerID | None = None
 
     # Setter
     def set_opt_id(self, opt_id: OptimizerID) -> None:
@@ -32,10 +34,10 @@ class BaseEnv(Env):
         )
 
         if self._ctx_id is None:
-            self._ctx_id = self.world.set_new_context(ctx)
+            self._ctx_id = ray.get(self.world.set_new_context.remote(ctx))
         else:
             ctx.id = self._ctx_id
-            self.world.update_context(ctx)
+            ray.get(self.world.update_context.remote(ctx))
 
     @abstractmethod
     def _step(
