@@ -5,14 +5,11 @@ import numpy as np
 
 
 class Mechanism(Protocol):
-    """
-    Typed interface for regulator parameters.
-    """
+    """Semantic representation of a regulatory mechanism."""
 
-    def to_vector(self) -> list[float]: ...
-
-    @classmethod
-    def from_vector(cls, x: list[float]) -> "Mechanism": ...
+    def to_vector(self) -> list[float]:
+        """Convert semantic mechanism to normalized vector in [0,1]^d."""
+        ...
 
 
 @dataclass(frozen=True)

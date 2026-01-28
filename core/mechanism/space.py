@@ -1,21 +1,34 @@
-from asyncio import Protocol
-
+from abc import abstractmethod
+from typing import Protocol
 import numpy as np
-
 from core.mechanism.base import Mechanism
 
-
+# TODO why not have these methods be abstract ?
 class MechanismSpace(Protocol):
+    """Geometry + constraints over a mechanism manifold."""
     dimension: int
 
-    def sample(self) -> Mechanism: ...
+    def _validate(self, x: np.ndarray) -> np.ndarray:
+        x = np.asarray(x, dtype=np.float32)
 
-    def project(self, x: np.ndarray) -> Mechanism: ...
+        if x.shape != (self.dimension,):
+            raise ValueError(f"Expected shape ({self.dimension},), got {x.shape}")
 
-    def clip(self, x: Mechanism) -> Mechanism: ...
+        if not np.isfinite(x).all():
+            raise ValueError(f"Non-finite values in vector: {x}")
 
-    def from_vector(self, x: np.ndarray) -> Mechanism: ...
+        return x
 
-    def batch_size(self, action) -> int: ...
+    @abstractmethod
+    def encode(self, m: Mechanism) -> np.ndarray:
+        ...
 
-    def broadcast(self, scalar: float, batch_size: int) -> np.ndarray: ...
+    @abstractmethod
+    def decode(self, x: np.ndarray) -> Mechanism:
+        ...
+
+    def clip(self, m: Mechanism) -> Mechanism:
+        ...
+
+    def sample(self) -> Mechanism:
+        ...

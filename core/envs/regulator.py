@@ -105,11 +105,10 @@ class RegulatorEnv(BaseEnv):
 
     @override(BaseEnv)
     def reward(self, reward: SupportsFloat = 0.0) -> SupportsFloat:
-        
         # analytic path
         if self.inner is None:
             return reward
-    
+
         ctx_registry = ray.get(self.world.get_ctx_registry.remote())
 
         # TODO introduce windowing later to allow only to aggregate rewards from this mechanism
@@ -134,7 +133,7 @@ class RegulatorEnv(BaseEnv):
         # analytic path
         if self.inner is None:
             return action
-        
+
         # 1) Mechanism space path (preferred)
         if self.mechanism_space is not None:
             if isinstance(action, (list, tuple)):
