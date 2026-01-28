@@ -1,5 +1,5 @@
 import uuid
-from typing import KeysView, Optional, Self
+from typing import Optional, Self
 
 import ray
 from ray.actor import ActorHandle
@@ -9,10 +9,8 @@ from ray.tune.registry import register_env
 
 from core.adaptors.ray.optimizer import RayOptimizer
 from core.annotations import override
-from core.envs.base import BaseEnv
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
-from core.types import OptimizerID
 from core.utils import generate_uuid
 from core.world.base import World
 
@@ -105,22 +103,22 @@ class RayOptimizerConfig(OptimizerConfig):
     def experimental(self, **kwargs) -> Self:
         self.ray_cfg = self.ray_cfg.experimental(**kwargs)
         return self
-    
-    @override(OptimizerConfig)
-    def _env_creator(
-        self,
-        *,
-        world: Optional[World] = None,
-        opt_id: Optional[OptimizerID] = None,
-        **kwargs,
-    ) -> BaseEnv:
-        return self.env(
-            world=world,
-            opt_id=opt_id,
-            train_iters=self.train_iters,
-            eval_iters=self.eval_iters,
-            **self.env_config,
-        )
+
+    # @override(OptimizerConfig)
+    # def _env_creator(
+    #     self,
+    #     *,
+    #     world: Optional[World] = None,
+    #     opt_id: Optional[OptimizerID] = None,
+    #     **kwargs,
+    # ) -> BaseEnv:
+    #     return self.env(
+    #         world=world,
+    #         opt_id=opt_id,
+    #         train_iters=self.train_iters,
+    #         eval_iters=self.eval_iters,
+    #         **self.env_config,
+    #     )
 
     @override(OptimizerConfig)
     def build_optimizer(
@@ -139,32 +137,34 @@ class RayOptimizerConfig(OptimizerConfig):
 
         if world is not None:
             if world_name is None:
-                raise ValueError("world_name must be provided when using Ray world actor")
+                raise ValueError(
+                    "world_name must be provided when using Ray world actor"
+                )
             self.world_name = world_name
             registry = ray.get(world.get_opt_registry.remote())
             # Register the new ID and get the result
-            opt_id = ray.get(world._set_new_opt_id.remote(opt_id=generate_uuid(registry)))
+            opt_id = ray.get(
+                world._set_new_opt_id.remote(opt_id=generate_uuid(registry))
+            )
 
         def env_creator(env_ctx):
             world = ray.get_actor(env_ctx["world_name"])
             opt_id = env_ctx["opt_id"]
-            
+
             return cfg._env_creator(
                 world=world,
                 inner_opt=inner_opt,
                 opt_id=opt_id,
-               **{
-                    k: v for k, v in env_ctx.items()
+                **{
+                    k: v
+                    for k, v in env_ctx.items()
                     if k not in ("world_name", "opt_id")
                 },
             )
 
         register_env(env_name, env_creator)
         self.ray_cfg = self.ray_cfg.environment(
-            env=env_name,
-            env_config={
-                "world_name": self.world_name,
-                "opt_id": opt_id}
+            env=env_name, env_config={"world_name": self.world_name, "opt_id": opt_id}
         )
 
         algo = self.ray_cfg.build_algo(**kwargs)

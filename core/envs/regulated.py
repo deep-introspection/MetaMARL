@@ -9,11 +9,8 @@ from core.world.base import World
 
 class RegulatedEnv(BaseEnv):
     def __init__(
-            self, 
-            *, 
-            world: World, 
-            opt_id: OptimizerID | None = None,
-            **kwargs) -> None:
+        self, *, world: World, opt_id: OptimizerID | None = None, **kwargs
+    ) -> None:
         super().__init__(world=world, opt_id=opt_id, **kwargs)
 
     @abstractmethod

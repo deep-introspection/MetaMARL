@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import concurrent
 import logging
 from typing import TYPE_CHECKING, Optional
 
 from ray.rllib.algorithms.algorithm import Algorithm
-from ray.rllib.utils.typing import ResultDict
 from ray.train._internal.checkpoint_manager import _TrainingResult
 
 from core.annotations import override
@@ -28,16 +26,16 @@ class RayOptimizer(Optimizer):
         self.algo = algo
 
     @override(Optimizer)
-    def run(self) -> ResultDict:
-        result = self.algo.train()
-        return result
+    def run(self) -> None:
+        self.algo.train()
 
     # @override(Optimizer)
     def evaluate(
         self,
-        parallel_train_future: Optional[concurrent.futures.ThreadPoolExecutor] = None,
-    ) -> ResultDict:
-        return self.algo.evaluate(parallel_train_future)
+        # parallel_train_future: Optional[concurrent.futures.ThreadPoolExecutor] = None,
+    ) -> float:
+        result = self.algo.evaluate()
+        return float(result["evaluation"]["episode_reward_mean"])
 
     # @override(Optimizer)
     def stop(self) -> None:

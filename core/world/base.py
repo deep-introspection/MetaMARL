@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, KeysView
 
+import ray
+
+from core.mechanism.base import Mechanism
 from core.types import ContextID, OptimizerID
 from core.utils import generate_uuid
-from core.world.context import Context, ContextSchema
-
-import ray
+from core.world.context import Context, ContextSchema, MechanismContext
 
 if TYPE_CHECKING:
     from core.optimizers.base import Optimizer
+
 
 @ray.remote
 class World:
@@ -26,12 +28,15 @@ class World:
     """
 
     def __init__(self):
-        # Maps optimizer IDs to the set of context IDs they own
+        # Maps optimizer IDs to the list of context IDs they own
         # TODO replace with registry
-        self._opt_ctx_map: dict[OptimizerID, set[ContextID]] = {}
+        self._opt_ctx_map: dict[OptimizerID, list[ContextID]] = {}
 
         # Maps context IDs to Context objects
         self._contexts: dict[ContextID, Context] = {}
+
+        # Track laterst mechanism
+        self._latest_mechanism: Mechanism | None = None
 
     def __deepcopy__(self, memo):
         return self
@@ -40,18 +45,21 @@ class World:
         return self
 
     # Accessors
+    def get_ctx_registry(self) -> dict[ContextID, Context]:
+        return self._contexts
+
     def get_opt_registry(self) -> KeysView[OptimizerID]:
         return self._opt_ctx_map.keys()
-    
+
     def get_context(self, ctx_id: ContextID) -> Context | None:
         """Access a context stored in world with an ID"""
         return self._contexts.get(ctx_id, None)
 
-    def get_opt_ctx_ids(self, opt_id: OptimizerID) -> set[ContextID]:
+    def get_opt_ctx_ids(self, opt_id: OptimizerID) -> list[ContextID]:
         """
         Return all context IDs registered under a given optimizer.
         """
-        return self._opt_ctx_map.get(opt_id, set())
+        return list(self._opt_ctx_map.get(opt_id, []))
 
     def get_ctx_ids(self) -> set[ContextID]:
         """
@@ -64,6 +72,11 @@ class World:
         Return all optimizer IDs known to the world.
         """
         return set(self._opt_ctx_map.keys())
+
+    def get_latest_mechanism(self) -> Mechanism:
+        if self._latest_mechanism is None:
+            raise RuntimeError("No MechanismContext published yet")
+        return self._latest_mechanism
 
     def _validate_ctx_schema_exists(self, schema: type[ContextSchema]) -> None:
         """
@@ -87,8 +100,10 @@ class World:
     def _set_new_opt_id(self, opt_id: OptimizerID) -> OptimizerID:
         if opt_id is None:
             opt_id = generate_uuid(registry=self._opt_ctx_map.keys())
+
         if opt_id not in self._opt_ctx_map:
-            self._opt_ctx_map[opt_id] = set()
+            self._opt_ctx_map[opt_id] = []
+
         return opt_id
 
     def set_new_context(self, ctx: Context, singleton: bool = False) -> ContextID:
@@ -114,10 +129,15 @@ class World:
 
         self._contexts[ctx.id] = ctx
 
+        # Track latest mechanism globally
+        if isinstance(ctx.payload, MechanismContext):
+            self._latest_mechanism = ctx.payload.theta
+
         if ctx.opt_id is not None:
             if ctx.opt_id not in self._opt_ctx_map:
                 self._set_new_opt_id(ctx.opt_id)
-            self._opt_ctx_map[ctx.opt_id].add(ctx.id)
+
+            self._opt_ctx_map[ctx.opt_id].append(ctx.id)
 
         return ctx.id
 
@@ -130,6 +150,9 @@ class World:
 
         self._contexts[ctx.id] = ctx
 
+        if isinstance(ctx.payload, MechanismContext):
+            self._latest_mechanism = ctx.payload.theta
+
     def remove_context(self, ctx: Context) -> None:
         """
         Remove a context from the world.
@@ -138,6 +161,9 @@ class World:
             self._contexts.pop(ctx.id)
 
         if ctx.opt_id in self._opt_ctx_map:
-            self._opt_ctx_map[ctx.opt_id].discard(ctx.id)
-            if not self._opt_ctx_map[ctx.opt_id]:
+            lst = self._opt_ctx_map[ctx.opt_id]
+            if ctx.id in lst:
+                lst.remove(ctx.id)
+
+            if not lst:
                 del self._opt_ctx_map[ctx.opt_id]

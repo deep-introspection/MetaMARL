@@ -1,6 +1,7 @@
 from abc import abstractmethod
 from typing import Any, SupportsFloat
 
+import ray
 from gymnasium import Env
 from gymnasium.core import ActType, ObsType, WrapperActType, WrapperObsType
 
@@ -9,13 +10,13 @@ from core.types import ContextID, OptimizerID
 from core.world.base import World
 from core.world.context import Context, ContextSchema, EnvStepContext
 
-import ray
-
 
 class BaseEnv(Env):
     """Base environment that directly interacts with the World."""
 
-    def __init__(self, *, world: World, opt_id: OptimizerID | None = None, **kwargs) -> None:
+    def __init__(
+        self, *, world: World, opt_id: OptimizerID | None = None, **kwargs
+    ) -> None:
         super().__init__()
         self.world = world
         self._opt_id = opt_id
@@ -54,7 +55,12 @@ class BaseEnv(Env):
     def step(
         self, action: ActType = None
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-        obs, reward, terminated, truncated, info = self._step(self.action(action))
+        raw_obs, raw_reward, terminated, truncated, info = self._step(
+            self.action(action)
+        )
+
+        obs = self.observation(raw_obs)
+        reward = self.reward(raw_reward)
 
         # Publish env context to World
         self._publish(
@@ -65,13 +71,7 @@ class BaseEnv(Env):
             )
         )
 
-        return (
-            self.observation(obs),
-            self.reward(reward),
-            terminated,
-            truncated,
-            info,
-        )
+        return obs, reward, terminated, truncated, info
 
     @override(Env)
     def reset(self, *, seed=None, options=None):

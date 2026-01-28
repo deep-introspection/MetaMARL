@@ -1,14 +1,21 @@
 from asyncio import Protocol
 
+import numpy as np
+
 from core.mechanism.base import Mechanism
 
 
 class MechanismSpace(Protocol):
-    def sample(self) -> Mechanism:
-        pass
+    dimension: int
 
-    def project(self, theta: Mechanism) -> Mechanism:
-        pass
+    def sample(self) -> Mechanism: ...
 
-    def clip(self, theta: Mechanism) -> Mechanism:
-        pass
+    def project(self, x: np.ndarray) -> Mechanism: ...
+
+    def clip(self, x: Mechanism) -> Mechanism: ...
+
+    def from_vector(self, x: np.ndarray) -> Mechanism: ...
+
+    def batch_size(self, action) -> int: ...
+
+    def broadcast(self, scalar: float, batch_size: int) -> np.ndarray: ...

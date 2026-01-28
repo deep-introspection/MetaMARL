@@ -4,11 +4,12 @@ import copy
 from abc import ABC
 from typing import TYPE_CHECKING, Optional, Self, Type, Union
 
+import ray
 from gymnasium import Space
 from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 
 from core.envs.base import BaseEnv
-from core.types import EnvConfigDict, EnvType
+from core.types import EnvConfigDict, EnvType, OptimizerID
 from core.world.base import World
 
 if TYPE_CHECKING:
@@ -119,11 +120,12 @@ class OptimizerConfig(_Config, ABC):
         self,
         *,
         world: Optional[World] = None,
+        opt_id: Optional[OptimizerID] = None,
         inner_opt: Optional[Optimizer] = None,
-        **kwargs,
     ) -> BaseEnv:
         return self.env(
             world=world,
+            opt_id=opt_id,
             optimizer=inner_opt,
             train_iters=self.train_iters,
             eval_iters=self.eval_iters,
@@ -151,11 +153,10 @@ class OptimizerConfig(_Config, ABC):
 
         # register optimizer in world to link contexts to optimizers
         if world is not None:
-            opt_id = world.register_optimizer(opt)
+            opt_id = ray.get(world.register_optimizer.remote(opt))
             opt.set_id(opt_id)
 
-        env = cfg._env_creator(world=world, inner_opt=inner_opt)
-        env.set_opt_id(opt.id)
+        env = cfg._env_creator(world=world, opt_id=opt_id, inner_opt=inner_opt)
         opt.env = env
 
         return opt
