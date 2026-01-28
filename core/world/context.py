@@ -1,7 +1,10 @@
 from dataclasses import dataclass
+from typing import Any
 
-from pydantic import BaseModel
+import numpy as np
+from pydantic import BaseModel, SkipValidation
 
+from core.mechanism.base import Mechanism
 from core.types import ContextID, OptimizerID
 
 
@@ -11,7 +14,18 @@ from core.types import ContextID, OptimizerID
 class ContextSchema(BaseModel):
     """Base schema for shared world context."""
 
-    pass
+    model_config = {"arbitrary_types_allowed": True}
+
+
+class MechanismContext(ContextSchema):
+    theta: SkipValidation[Mechanism]
+
+
+# TODO strict type annotations rm Any
+class EnvStepContext(ContextSchema):
+    observation: Any
+    reward: float | np.ndarray
+    action: Any
 
 
 @dataclass

@@ -4,10 +4,12 @@ import copy
 from abc import ABC
 from typing import TYPE_CHECKING, Optional, Self, Type, Union
 
+import ray
 from gymnasium import Space
 from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 
-from core.types import EnvConfigDict, EnvType
+from core.envs.base import BaseEnv
+from core.types import EnvConfigDict, EnvType, OptimizerID
 from core.world.base import World
 
 if TYPE_CHECKING:
@@ -37,15 +39,16 @@ class OptimizerConfig(_Config, ABC):
         self._is_frozen = False
 
         # --- world / environment ---
-        self._world: Optional[World] = None
         self.env: Optional[Union[str, EnvType]] = None
+        self.train_iters: Optional[int] = None
+        self.eval_iters: Optional[int] = None
         self.env_config: dict = {}
         self.observation_space: Optional[Space] = None
         self.action_space: Optional[Space] = None
         self.disable_env_checking: bool = False
 
         # --- training ---
-        self.seed: int = 0
+        self.seed: int = None
 
         # --- eval ---
         self.evaluation_config: Optional["OptimizerConfig"] = None
@@ -113,21 +116,57 @@ class OptimizerConfig(_Config, ABC):
             data = yaml.safe_load(f)
         return cls.from_dict(data)
 
+    def _env_creator(
+        self,
+        *,
+        world: Optional[World] = None,
+        opt_id: Optional[OptimizerID] = None,
+        inner_opt: Optional[Optimizer] = None,
+    ) -> BaseEnv:
+        return self.env(
+            world=world,
+            opt_id=opt_id,
+            optimizer=inner_opt,
+            train_iters=self.train_iters,
+            eval_iters=self.eval_iters,
+            **self.env_config,
+        )
+
     # TODO deep copy allows on may be toggled later with use_copy
     # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
     # TODO move optimizer registration to executor in future
     # TODO enable multiple world registration
-    def build_optimizer(self) -> Optimizer:
+    def build_optimizer(
+        self,
+        *,
+        world: Optional[World] = None,
+        inner_opt: Optional[Optimizer] = None,
+        **kwargs,
+    ) -> Optimizer:
         """Builds an Optimizer from this OptimizerConfig (or a copy thereof)."""
         cfg = self.copy(copy_frozen=True)
         if cfg.opt_class is None:
             raise ValueError("OptimizerConfig has no opt_class")
-        return cfg.opt_class(config=cfg)
+
+        # TODO remove this in the future and create registry for world and optimizer. keep for now as safety guard
+        opt = cfg.opt_class(config=cfg)
+
+        # register optimizer in world to link contexts to optimizers
+        if world is not None:
+            opt_id = ray.get(world.register_optimizer.remote(opt))
+            opt.set_id(opt_id)
+
+        env = cfg._env_creator(world=world, opt_id=opt_id, inner_opt=inner_opt)
+        opt.env = env
+
+        return opt
 
     # TODO EnvConfigDict
     def environment(
         self,
         env: Optional[Union[str, EnvType]] = None,
+        train_iters: Optional[int] = None,
+        eval_iters: Optional[int] = None,
         *,
         env_config: Optional[EnvConfigDict] = None,
         observation_space: Optional[Space] = None,
@@ -148,6 +187,10 @@ class OptimizerConfig(_Config, ABC):
         """
         if env is not None:
             self.env = env
+        if train_iters is not None:
+            self.train_iters = train_iters
+        if eval_iters is not None:
+            self.eval_iters = eval_iters
         if env_config is not None:
             self.env_config = env_config
         if observation_space is not None:

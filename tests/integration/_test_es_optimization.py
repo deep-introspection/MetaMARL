@@ -2,7 +2,7 @@ from core.world.base import World
 from src.es.config import ESConfig
 
 # TODO move dummy classes
-from tests.integration.test_framework import (
+from tests.integration._test_framework import (
     DummyContextWrapper,
     DummyEnv,
     DummyOptimizerConfig,
@@ -78,3 +78,26 @@ def test_es_optimizer_integration():
     )
 
     """
+
+
+# @pytest.mark.integration
+# def test_ppo_regulator_cartpole():
+#     world = World()
+
+#     cfg = (
+#         PPOptimizerConfig()
+#         .environment(env="CartPole-v1")
+#         .framework(framework="torch")
+#         .resources(num_gpus=0)
+#         .training(train_batch_size=200, gamma=0.99)
+#     )
+
+#     ppo = cfg.build_optimizer()
+
+#     env = DummyRegulatorEnv(world, ppo, iters=2)
+
+#     for _ in range(3):
+#         env.step()
+
+#     ctxs = world.get_ctx_ids()
+#     assert len(ctxs) > 0

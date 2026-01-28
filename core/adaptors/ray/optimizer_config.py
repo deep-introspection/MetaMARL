@@ -1,11 +1,18 @@
-from typing import Self
+import uuid
+from typing import Optional, Self
 
+import ray
+from ray.actor import ActorHandle
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
+from ray.tune.registry import register_env
 
 from core.adaptors.ray.optimizer import RayOptimizer
 from core.annotations import override
+from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
+from core.utils import generate_uuid
+from core.world.base import World
 
 
 class RayOptimizerConfig(OptimizerConfig):
@@ -18,7 +25,18 @@ class RayOptimizerConfig(OptimizerConfig):
             raise ValueError(f"{self.__class__.__name__} must define `algo_class`")
         super().__init__(opt_class=RayOptimizer)
 
-        self.ray_cfg: AlgorithmConfig = self.algo_class.get_default_config()
+        # TODO termporary setting until find out how to share world context accross runners
+        self.ray_cfg: AlgorithmConfig = (
+            self.algo_class.get_default_config()
+            .environment(None)
+            .env_runners(
+                num_env_runners=0,
+                create_local_env_runner=True,
+                create_env_on_local_worker=True,
+            )
+        )
+
+        self.world_name: Optional[str] = None
 
     def validate(self) -> None:
         self.ray_cfg.validate()
@@ -70,10 +88,6 @@ class RayOptimizerConfig(OptimizerConfig):
         self.ray_cfg = self.ray_cfg.reporting(**kwargs)
         return self
 
-    def reporting(self, **kwargs) -> Self:
-        self.ray_cfg = self.ray_cfg.reporting(**kwargs)
-        return self
-
     def checkpointing(self, **kwargs) -> Self:
         self.ray_cfg = self.ray_cfg.checkpointing(**kwargs)
         return self
@@ -90,10 +104,77 @@ class RayOptimizerConfig(OptimizerConfig):
         self.ray_cfg = self.ray_cfg.experimental(**kwargs)
         return self
 
+    # @override(OptimizerConfig)
+    # def _env_creator(
+    #     self,
+    #     *,
+    #     world: Optional[World] = None,
+    #     opt_id: Optional[OptimizerID] = None,
+    #     **kwargs,
+    # ) -> BaseEnv:
+    #     return self.env(
+    #         world=world,
+    #         opt_id=opt_id,
+    #         train_iters=self.train_iters,
+    #         eval_iters=self.eval_iters,
+    #         **self.env_config,
+    #     )
+
     @override(OptimizerConfig)
-    def build_optimizer(self, **kwargs):
-        algo = self.ray_cfg.build(**kwargs)
-        return RayOptimizer(algo=algo, config=self)
+    def build_optimizer(
+        self,
+        *,
+        world: Optional[ActorHandle[World]] = None,
+        world_name: Optional[str] = None,
+        inner_opt: Optional[Optimizer] = None,
+        **kwargs,
+    ):
+        cfg = self.copy(copy_frozen=True)
+        if cfg.opt_class is None:
+            raise ValueError("OptimizerConfig has no opt_class")
+
+        env_name = f"regulated_env_{uuid.uuid4().hex}"
+
+        if world is not None:
+            if world_name is None:
+                raise ValueError(
+                    "world_name must be provided when using Ray world actor"
+                )
+            self.world_name = world_name
+            registry = ray.get(world.get_opt_registry.remote())
+            # Register the new ID and get the result
+            opt_id = ray.get(
+                world._set_new_opt_id.remote(opt_id=generate_uuid(registry))
+            )
+
+        def env_creator(env_ctx):
+            world = ray.get_actor(env_ctx["world_name"])
+            opt_id = env_ctx["opt_id"]
+
+            return cfg._env_creator(
+                world=world,
+                inner_opt=inner_opt,
+                opt_id=opt_id,
+                **{
+                    k: v
+                    for k, v in env_ctx.items()
+                    if k not in ("world_name", "opt_id")
+                },
+            )
+
+        register_env(env_name, env_creator)
+        self.ray_cfg = self.ray_cfg.environment(
+            env=env_name, env_config={"world_name": self.world_name, "opt_id": opt_id}
+        )
+
+        algo = self.ray_cfg.build_algo(**kwargs)
+        opt = RayOptimizer(algo=algo, config=cfg)
+
+        # register optimizer in world to link contexts to optimizers
+        if world is not None:
+            opt.set_id(opt_id)
+
+        return opt
 
     @override(OptimizerConfig)
     def freeze(self) -> None:
@@ -105,6 +186,6 @@ class RayOptimizerConfig(OptimizerConfig):
         return self
 
     @override(OptimizerConfig)
-    def environment(self, **kwargs) -> Self:
-        self.ray_cfg = self.ray_cfg.environment(**kwargs)
+    def environment(self, *, env=None, **kwargs) -> Self:
+        self.env = env
         return self

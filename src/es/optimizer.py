@@ -175,6 +175,11 @@ class ESOptimizer(Optimizer):
         else:
             # TODO case when the fitness is not none
             fitness = "????"
+
+        # TODO broadcasting in env
+        if np.isscalar(fitness):
+            fitness = np.full(len(population), fitness, dtype=np.float32)
+
         self._update_parameters(population, fitness)
 
         self.metrics.log_dict(

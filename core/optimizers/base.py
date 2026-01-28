@@ -4,10 +4,9 @@ from typing import Any, Callable, Optional
 
 from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 
+from core.envs.base import BaseEnv
 from core.optimizers.config import OptimizerConfig
 from core.types import OptimizerID
-from core.world.base import World
-from core.wrappers.context_wrapper import ContextWrapper
 
 
 class Optimizer(ABC):
@@ -48,7 +47,7 @@ class Optimizer(ABC):
 
         # Optional environment (may be None for meta-optimizers)
         # TODO review
-        self.env: ContextWrapper = getattr(config, "_env", None)
+        self.env: BaseEnv | None = config.env
 
         # Optional metrics hook
         self.metrics: MetricsLogger = MetricsLogger(
@@ -112,7 +111,7 @@ class Optimizer(ABC):
 
     # TODO change this to training step
     @abstractmethod
-    def run(self, world: Optional[World] = None) -> None:
+    def run(self) -> None:
         """
         Implementations may publish Context objects to the World, invoke downstream
         optimizers via `self._downstream`, and retrieve or aggregate contexts from
@@ -147,12 +146,13 @@ class Optimizer(ABC):
         """
         raise NotImplementedError
 
-    # @abstractmethod
-    # def evaluate(self, world: Optional[World]) -> None:
-    #     """Evaluate Optimizer Performance"""
-    #     raise NotImplementedError
+    def evaluate(self) -> None:
+        """Evaluate Optimizer Performance"""
+        pass
 
-    # @abstractmethod
-    # def save_checkpoint(self) -> None:
-    #     """Persist Optimizer State"""
-    #     raise NotImplementedError
+    def save(self) -> None:
+        """Persist Optimizer State"""
+        pass
+
+    def stop(self) -> None:
+        pass
