@@ -26,7 +26,7 @@ class EnvStepContext(ContextSchema):
     observation: Any
     reward: float | np.ndarray
     action: Any
-
+    info: dict
 
 @dataclass
 class Context:

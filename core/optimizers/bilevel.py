@@ -1,10 +1,15 @@
 import uuid
 from typing import Optional, Self
 
+from core.adaptors.ray.config import DeviceType, RayRuntimeConfig
 from core.annotations import override
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
 from core.world.base import World
+
+
+from ray import init as ray_init
+from ray import shutdown as ray_shutdown
 
 
 class BilevelConfig(OptimizerConfig):
@@ -15,6 +20,7 @@ class BilevelConfig(OptimizerConfig):
         self.outer_iters = 10
         self.seed = None
         self.world_name: Optional[str] = None
+        self.ray_cfg = None
 
     def inner(self, cfg: OptimizerConfig = None) -> Self:
         if cfg is not None:
@@ -37,11 +43,36 @@ class BilevelConfig(OptimizerConfig):
         if seed is not None:
             self.seed = seed
         return self
+    
+    def ray(
+        self,
+        *,
+        device: DeviceType = "cpu",
+        num_cpus: Optional[int] = None,
+        num_gpus: Optional[int] = None,
+        omp_threads: int = 1,
+        logging_level: str = "ERROR",
+        runtime_env: Optional[dict] = None,
+        **kwargs,
+    ) -> Self:
+
+        self.ray_cfg = RayRuntimeConfig(
+            device=device,
+            num_cpus=num_cpus,
+            num_gpus=num_gpus,
+            omp_threads=omp_threads,
+            logging_level=logging_level,
+            runtime_env=runtime_env,
+            init_kwargs=kwargs,
+        )
+        return self
 
     @override(OptimizerConfig)
     def build_optimizer(self):
         world = World.options(name=self.world_name).remote()
 
+        if self.ray_cfg is not None :
+            self.ray_cfg.initialize()
         inner_opt = self.inner_cfg.build_optimizer(
             world=world, world_name=self.world_name
         )

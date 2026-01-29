@@ -89,6 +89,11 @@ class World:
                 )
 
     # Mutators
+    def append_context(self, ctx: Context):
+        ctx.id = generate_uuid(self._ctx_registry)
+        self._ctx_registry[ctx.id] = ctx
+        return ctx.id
+
     def register_optimizer(self, opt: Optimizer) -> OptimizerID:
         """
         Register a new optimizer ID in the world.
