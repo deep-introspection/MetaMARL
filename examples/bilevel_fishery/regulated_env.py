@@ -43,14 +43,14 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         }
 
     def intrinsic_utility(
-        self, action: ActType, S_t: dict[str, MultiAgentDict]
+        self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
         return float(action) * S_t["fish"]
 
     # TODO this returns a float
     # TODO observation must be a param here not self
     def violation_signal(
-        self, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
+        self, agent_id: AgentID, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
         quota = max(0.0, u_i - min(self.m.fixed_quota, self.m.prop_quota * S_t["fish"]))
         ban = float(S_t["fish"] < self.m.min_stock) * u_i

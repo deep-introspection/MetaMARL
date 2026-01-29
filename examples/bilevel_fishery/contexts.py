@@ -1,5 +1,4 @@
 from typing import SupportsFloat
-from pydantic import BaseModel
 
 from core.world.context import ContextSchema
 
@@ -35,10 +34,7 @@ class FitnessContext(ContextSchema):
         Construct fitness context from evaluation metrics.
         """
 
-        objective = float(
-            mean_reward
-            - sustainability_weight * sustainability_penalty
-        )
+        objective = float(mean_reward - sustainability_weight * sustainability_penalty)
 
         return cls(
             objective_score=objective,

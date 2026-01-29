@@ -7,7 +7,6 @@ from gymnasium.core import ObsType
 from core.annotations import override
 from core.envs.regulator import RegulatorEnv
 from core.world.context import EnvStepContext
-from examples.bilevel_fishery.contexts import FitnessContext
 
 
 class FisheryRegulatorEnv(RegulatorEnv):
@@ -39,7 +38,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
     @override(RegulatorEnv)
     def aggregate_rewards(self, rewards: list[SupportsFloat]) -> SupportsFloat:
         """
-        Combine inner-loop EnvStepContexts (step observations, rewards and actions) into one scalar 
+        Combine inner-loop EnvStepContexts (step observations, rewards and actions) into one scalar
         fitness.
 
         Strategy:

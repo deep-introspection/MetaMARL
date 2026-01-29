@@ -104,9 +104,6 @@ class FisheryMechnaismSpace(MechanismSpace):
             fine_amount=float(np.clip(m.fine_amount, 0, 2)),
             ban_period=int(np.clip(m.ban_period, 0, 10)),
         )
-    
-    def from_dict(self, cfg: dict) -> FisheryMechanism:
-        return FisheryMechanism(
-            **cfg
-        )
 
+    def from_dict(self, cfg: dict) -> FisheryMechanism:
+        return FisheryMechanism(**cfg)

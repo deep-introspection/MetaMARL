@@ -1,10 +1,9 @@
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Literal
 import os
-import torch
+from dataclasses import dataclass, field
+from typing import Any, Dict, Literal, Optional
+
 import ray
-
-
+import torch
 
 DeviceType = Literal["cpu", "cuda", "mps"]
 
@@ -25,7 +24,6 @@ class RayRuntimeConfig:
     init_kwargs: Dict[str, Any] = field(default_factory=dict)
 
     def _apply_env_vars(self):
-    
         if self.device == "cpu":
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
             os.environ["RLLIB_NUM_GPUS"] = "0"

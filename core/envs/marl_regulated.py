@@ -24,11 +24,21 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         world: World,
         opt_id: OptimizerID,
         mechanism_space: MechanismSpace,
+        agent_populations: dict[str, int],
         **kwargs,
     ):
         super().__init__(world=world, opt_id=opt_id, **kwargs)
         self.m_space: MechanismSpace = mechanism_space
         self.m: Mechanism = None
+
+        self.agent_populations = agent_populations
+        self.agents = self._build_agents()
+
+    def _build_agents(self):
+        agents = []
+        for agent_type, count in self.agent_populations.items():
+            agents.extend([f"{agent_type}:{i}" for i in range(count)])
+        return agents
 
     @abstractmethod
     def transition_kernel(
@@ -77,13 +87,12 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
     @override(Env)
     def reward(self, agent_id: AgentID, action: ActType) -> SupportsFloat:
-        o_i = self.observation(agent_id=agent_id)
+        o_i = self.observation(agent_id=agent_id, S_t=self.S_t)
         u_i = self.intrinsic_utility(agent_id=agent_id, action=action, observation=o_i)
-        return u_i - self.penalty(agent_id, o_i, u_i) * self.violation_signal(
+        return u_i - self.penalty() * self.violation_signal(
             agent_id=agent_id, reward=u_i, observation=o_i
         )
 
-    @abstractmethod
     def _step(
         self, action_dict: dict[AgentID, ActType]
     ) -> Tuple[
@@ -105,8 +114,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         self.S_t = self.transition_kernel(A_t=action_dict, S_t=self.S_t)
 
         obs = {
-            agent_id: self.observation(agent_id, self.S_t)
-            for agent_id in self.agents
+            agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
         }
 
         # check terminated and truncated conditions

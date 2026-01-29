@@ -6,7 +6,7 @@ from gymnasium import Env
 from gymnasium.core import ActType, ObsType, WrapperActType, WrapperObsType
 
 from core.annotations import override
-from core.types import ContextID, OptimizerID
+from core.types import OptimizerID
 from core.world.base import World
 from core.world.context import Context, ContextSchema, EnvStepContext
 
@@ -58,12 +58,7 @@ class BaseEnv(Env):
 
         # Publish env context to World
         self._publish(
-            EnvStepContext(
-                observation=obs,
-                reward=reward,
-                action=action,
-                info=info
-            )
+            EnvStepContext(observation=obs, reward=reward, action=action, info=info)
         )
 
         return obs, reward, terminated, truncated, info

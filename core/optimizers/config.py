@@ -122,6 +122,7 @@ class OptimizerConfig(_Config, ABC):
         world: Optional[World] = None,
         opt_id: Optional[OptimizerID] = None,
         inner_opt: Optional[Optimizer] = None,
+        **kwargs,
     ) -> BaseEnv:
         return self.env(
             world=world,
@@ -130,6 +131,7 @@ class OptimizerConfig(_Config, ABC):
             train_iters=self.train_iters,
             eval_iters=self.eval_iters,
             **self.env_config,
+            **kwargs,
         )
 
     # TODO deep copy allows on may be toggled later with use_copy

@@ -35,7 +35,7 @@ class RayOptimizerConfig(OptimizerConfig):
                 create_env_on_local_worker=True,
             )
         )
-
+        self.agent_specs: Optional[dict] = None  # TODO default
         self.world_name: Optional[str] = None
 
     def validate(self) -> None:
@@ -104,6 +104,36 @@ class RayOptimizerConfig(OptimizerConfig):
         self.ray_cfg = self.ray_cfg.experimental(**kwargs)
         return self
 
+    # TODO agent spec for stricter schema enforcement
+    def agents(self, agents: dict) -> Self:
+        # TODO : default agent
+        if agents is not None:
+            self.agent_specs = agents
+            policies = {}
+            agent_type_map = {}
+
+            for agent_type, spec in self.agent_specs.items():
+                policy_name = spec["policy"]
+
+                policies[policy_name] = (
+                    None,
+                    spec["observation_space"],
+                    spec["action_space"],
+                    {},
+                )
+
+                for i in range(spec["count"]):
+                    agent_type_map[f"{agent_type}:{i}"] = policy_name
+
+            def policy_mapping_fn(agent_id, *args, **kwargs):
+                return agent_type_map[agent_id]
+
+            self.ray_cfg = self.ray_cfg.multi_agent(
+                policies=policies,
+                policy_mapping_fn=policy_mapping_fn,
+                policies_to_train=list(set(agent_type_map.values())),
+            )
+
     # @override(OptimizerConfig)
     # def _env_creator(
     #     self,
@@ -155,6 +185,9 @@ class RayOptimizerConfig(OptimizerConfig):
                 world=world,
                 inner_opt=inner_opt,
                 opt_id=opt_id,
+                agent_populations={k: v["count"] for k, v in self.agent_specs.items()}
+                if self.agent_specs
+                else None,
                 **{
                     k: v
                     for k, v in env_ctx.items()

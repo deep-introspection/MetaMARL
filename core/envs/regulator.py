@@ -86,13 +86,11 @@ class RegulatorEnv(BaseEnv):
         for theta in thetas:
             self._publish(MechanismContext(theta=theta))
 
-        ctx_registry_before = set(
-            ray.get(self.world.get_ctx_registry.remote()).keys()
-        )
+        ctx_registry_before = set(ray.get(self.world.get_ctx_registry.remote()).keys())
 
         for _ in range(self.train_iters):
             self.inner.run()
-        
+
         self.inner.evaluate()
 
         ctx_registry_after = ray.get(self.world.get_ctx_registry.remote())

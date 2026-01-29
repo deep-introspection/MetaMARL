@@ -8,10 +8,6 @@ from core.optimizers.config import OptimizerConfig
 from core.world.base import World
 
 
-from ray import init as ray_init
-from ray import shutdown as ray_shutdown
-
-
 class BilevelConfig(OptimizerConfig):
     def __init__(self, opt_class=None):
         super().__init__(opt_class=opt_class or BilevelOptimizer)
@@ -43,7 +39,7 @@ class BilevelConfig(OptimizerConfig):
         if seed is not None:
             self.seed = seed
         return self
-    
+
     def ray(
         self,
         *,
@@ -55,7 +51,6 @@ class BilevelConfig(OptimizerConfig):
         runtime_env: Optional[dict] = None,
         **kwargs,
     ) -> Self:
-
         self.ray_cfg = RayRuntimeConfig(
             device=device,
             num_cpus=num_cpus,
@@ -71,7 +66,7 @@ class BilevelConfig(OptimizerConfig):
     def build_optimizer(self):
         world = World.options(name=self.world_name).remote()
 
-        if self.ray_cfg is not None :
+        if self.ray_cfg is not None:
             self.ray_cfg.initialize()
         inner_opt = self.inner_cfg.build_optimizer(
             world=world, world_name=self.world_name
