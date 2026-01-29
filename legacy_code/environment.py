@@ -11,7 +11,7 @@ import numpy as np
 from gymnasium import spaces
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
-from examples.config import (
+from legacy_code.config import (
     ACTION_BOUNDS,
     DEFAULT_ECOLOGY_CONFIG,
     DEFAULT_MECHANISM_CONFIG,

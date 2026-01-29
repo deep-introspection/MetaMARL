@@ -11,9 +11,9 @@ from ray import shutdown as ray_shutdown
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.tune.registry import register_env
 
-from contexts.mechanism import MechanismParameters
+from legacy_code.mechanism import MechanismParameters
 from legacy_code.environment import FisheryEnvFixed
-from examples.config import PPO_CONFIG
+from legacy_code.config import PPO_CONFIG
 
 
 def initialize_ray(logging_level: str = "ERROR") -> None:

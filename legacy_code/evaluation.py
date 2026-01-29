@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from legacy_code.environment import FisheryEnvFixed
-from examples.config import EPS
+from legacy_code.config import EPS
 
 
 @dataclass

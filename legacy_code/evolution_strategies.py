@@ -9,7 +9,7 @@ from typing import List, Tuple
 
 import numpy as np
 
-from examples.config import EPS, ES_CONFIG
+from legacy_code.config import EPS, ES_CONFIG
 
 
 class EvolutionStrategies:
