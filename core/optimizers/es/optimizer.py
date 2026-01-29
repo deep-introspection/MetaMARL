@@ -8,7 +8,7 @@ import numpy as np
 from core.optimizers.base import Optimizer
 
 if TYPE_CHECKING:
-    from src.es.config import ESConfig
+    from core.optimizers.es.config import ESConfig
 
 
 # TODO move this into constants
