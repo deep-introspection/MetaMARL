@@ -20,7 +20,6 @@ class BaseEnv(Env):
         super().__init__()
         self.world = world
         self._opt_id = opt_id
-        self._ctx_id: ContextID | None = None
 
     # Setter
     def set_opt_id(self, opt_id: OptimizerID) -> None:
@@ -29,16 +28,11 @@ class BaseEnv(Env):
     # private methods
     def _publish(self, payload: ContextSchema):
         ctx = Context(
-            id=self._ctx_id,
+            id=None,
             opt_id=self._opt_id,
             payload=payload,
         )
-
-        if self._ctx_id is None:
-            self._ctx_id = ray.get(self.world.set_new_context.remote(ctx))
-        else:
-            ctx.id = self._ctx_id
-            ray.get(self.world.update_context.remote(ctx))
+        ray.get(self.world.update_context.remote(ctx))
 
     @abstractmethod
     def _step(
@@ -68,6 +62,7 @@ class BaseEnv(Env):
                 observation=obs,
                 reward=reward,
                 action=action,
+                info=info
             )
         )
 
@@ -84,6 +79,7 @@ class BaseEnv(Env):
                 observation=obs,
                 reward=0.0,
                 action=None,
+                info=None,
             )
         )
 

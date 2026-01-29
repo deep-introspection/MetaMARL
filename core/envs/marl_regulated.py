@@ -73,7 +73,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         return self._t >= self.horizon
 
     @abstractmethod
-    def aggreagate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict: ...
+    def aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict: ...
 
     @override(Env)
     def reward(self, agent_id: AgentID, action: ActType) -> SupportsFloat:
@@ -93,29 +93,26 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         m_params: np.ndarray = ray.get(self.world.get_latest_mechanism.remote())
         self.m: Mechanism = self.m_space.decode(m_params)
 
-        # get current observations
-        # TODO ???
+        rewards = {}
+        for agent_id in self.agents:
+            u = self.intrinsic_utility(agent_id, action_dict[agent_id], self.S_t)
+            v = self.violation_signal(agent_id, u, self.S_t)
+            rewards[agent_id] = u - self.penalty() * v
 
-        # get intrinsic reward dict (instrinsic reward may implement different intrinsic rewards per agent types)
-        rewards = {
-            agent_id: self.reward(agent_id=agent_id, action=action_dict[agent_id])
+        rewards = self.aggregate_rewards(rewards)
+
+        # update obsevations
+        self.S_t = self.transition_kernel(A_t=action_dict, S_t=self.S_t)
+
+        obs = {
+            agent_id: self.observation(agent_id, self.S_t)
             for agent_id in self.agents
         }
 
-        # apply regulatory mechanism for each agent and aggregate rewards
-        rewards = self.aggreagate_rewards(rewards)
-
-        # update obsevations
-        observations = self.transition_kernel(
-            action=action_dict, rewards=rewards, observation=observations
-        )
-
         # check terminated and truncated conditions
-        terminated = {fisher_id: False for fisher_id in self.agents}
-        truncated = {fisher_id: self._t >= self.horizon for fisher_id in self.agents}
-        terminated["__all__"] = all(terminated.values())
-        truncated["__all__"] = any(truncated.values())
+        terminated = {"__all__": self.is_terminated()}
+        truncated = {"__all__": False}
 
         self._t = 1
 
-        return observations, rewards, terminated, truncated, {}
+        return obs, rewards, terminated, truncated, {}

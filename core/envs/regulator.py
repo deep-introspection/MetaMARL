@@ -24,14 +24,12 @@ class RegulatorEnv(BaseEnv):
         opt_id: OptimizerID | None = None,
         optimizer: Optional[Optimizer] = None,
         train_iters: int = 5,
-        eval_iters: int = 2,
         mechanism_space: MechanismSpace = None,
         **kwargs,
     ):
         super().__init__(world=world, opt_id=opt_id, **kwargs)
         self.inner: Optimizer = optimizer
         self.train_iters: int = train_iters
-        self.eval_iters: int = eval_iters
         self.mechanism_space: MechanismSpace = mechanism_space
 
         self._validate()
@@ -88,10 +86,28 @@ class RegulatorEnv(BaseEnv):
         for theta in thetas:
             self._publish(MechanismContext(theta=theta))
 
+        ctx_registry_before = set(
+            ray.get(self.world.get_ctx_registry.remote()).keys()
+        )
+
         for _ in range(self.train_iters):
             self.inner.run()
+        
+        self.inner.evaluate()
 
-        return None, 0.0, False, False, {}
+        ctx_registry_after = ray.get(self.world.get_ctx_registry.remote())
+
+        new_ctxs = [
+            ctx.payload
+            for cid, ctx in ctx_registry_after.items()
+            if cid not in ctx_registry_before
+            and ctx.opt_id == self.inner.opt_id
+            and isinstance(ctx.payload, EnvStepContext)
+        ]
+
+        reward = self.reward(new_ctxs)
+
+        return None, reward, False, False, {}
 
     # @abstractmethod
     # @override(BaseEnv)
