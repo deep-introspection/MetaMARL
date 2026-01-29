@@ -92,11 +92,3 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]):
         """We assume complete transparency"""
         return np.array([S_t["fish"], S_t["algae"]], dtype=np.float32)
-    
-# TODO : publish the fitness context
-# fitness_ctx = FitnessContext.from_metrics(
-#     mean_reward=metrics.mean_reward,
-#     collapse_rate=metrics.collapse_rate,
-#     sustainability_penalty=metrics.sustainability_penalty,
-#     sustainability_weight=self.sustainability_weight,
-# )

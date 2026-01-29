@@ -1,10 +1,12 @@
 from typing import Any, SupportsFloat
 
+import numpy as np
 import ray
 from gymnasium.core import ObsType
 
 from core.annotations import override
 from core.envs.regulator import RegulatorEnv
+from core.world.context import EnvStepContext
 from examples.bilevel_fishery.contexts import FitnessContext
 
 
@@ -37,41 +39,36 @@ class FisheryRegulatorEnv(RegulatorEnv):
     @override(RegulatorEnv)
     def aggregate_rewards(self, rewards: list[SupportsFloat]) -> SupportsFloat:
         """
-        Combine inner-loop EnvStep rewards into one scalar fitness.
+        Combine inner-loop EnvStepContexts (step observations, rewards and actions) into one scalar 
+        fitness.
 
         Strategy:
           - Mean episodic reward
         """
         ctx_registry = ray.get(self.world.get_ctx_registry.remote())
 
-        fitness_ctxs = [
+        steps = [
             ctx.payload
             for ctx in ctx_registry.values()
-            if isinstance(ctx.payload, FitnessContext)
+            if ctx.opt_id == self.inner.opt_id
+            and isinstance(ctx.payload, EnvStepContext)
         ]
 
-        if not fitness_ctxs:
-            raise RuntimeError("No FitnessContext published by inner optimizer")
+        # extract metrics
+        rewards = np.array([s.reward for s in steps])
+        fish = np.array([s.info["fish"] for s in steps])
 
-        f = fitness_ctxs[-1]
-        return float(f.objective_score)
+        mean_reward = rewards.mean()
+        min_fish = fish.min()
 
+        collapse = min_fish < self.sustainability_threshold
 
-# @override(BaseEnv)
-# def reward(self, reward: SupportsFloat = 0.0) -> SupportsFloat:
-#     if self.inner is None:
-#         return reward
+        sustainability_penalty = max(
+            0.0,
+            (self.sustainability_threshold - min_fish)
+            / max(1e-6, self.sustainability_threshold),
+        )
 
-#     ctx_registry = ray.get(self.world.get_ctx_registry.remote())
+        fitness = mean_reward - self.sustainability_weight * sustainability_penalty
 
-#     fitness_ctxs = [
-#         ctx.payload
-#         for ctx in ctx_registry.values()
-#         if ctx.opt_id == self.inner.opt_id
-#         and isinstance(ctx.payload, FitnessContext)
-#     ]
-
-#     if not fitness_ctxs:
-#         raise RuntimeError("No FitnessContext published by inner optimizer")
-
-#     return float(fitness_ctxs[-1].objective_score)
+        return float(fitness)

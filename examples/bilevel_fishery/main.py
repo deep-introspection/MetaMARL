@@ -11,6 +11,12 @@ from examples.bilevel_fishery.mechanism import FisheryMechnaismSpace
 from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
+
+# TODO the default mechanism config and fisherman, and observation spaces and action spaces part of config
+# TODO where to do ray initialization ? gpu vs cpu - needs to happen when we build optimizer
+# TODO num_fisherman
+# TODO wire up the evaluation cfg
+
 # Default mechanism parameters
 DEFAULT_MECHANISM_CONFIG = {
     "fixed_quota": 0.2,  # Fixed harvest quota
@@ -71,7 +77,6 @@ bilevel_optimizer: BilevelOptimizer = (
                 "ecology_cfg": {"sus_weight": 5.0, "sus_threshold": 0.1},
             },
             train_iters=100,
-            eval_iters=5,
         )
     )
     .inner(
@@ -97,7 +102,18 @@ bilevel_optimizer: BilevelOptimizer = (
         .env_runners(
             num_env_runners=0,  # num_workers
         )
-        .training(gramma=0.99, train_batch_size=4000, minibatch_size=512, lr=3e-4)
+        .resources(num_gpus=0, num_cpus_for_driver=1, num_cpu_per_worker=1)
+        .training(gramma=0.99, train_batch_size=1000, minibatch_size=128, lr=3e-4)
+        .evaluation(
+            evaluation_interval=1,
+            evaluation_duration=5, #eval iters
+            evaluation_duration_unit="episodes",
+            evaluation_parallel_to_training=False,
+            always_attach_evaluation_results=True,
+            evaluation_config={
+                "explore": False,
+            },
+        )
         .multi_agent(
             policies={"fisher_policy": (None, OBSERVATION_SPACES, ACTION_SPACES, {})},
             policy_mapping_fn=lambda agent_id, *args, **kwargs: "fisher_policy",
@@ -109,6 +125,18 @@ bilevel_optimizer: BilevelOptimizer = (
         .fault_tolerance(restart_failed_env_runners=False)
     )
     .training(outer_iters=10)
+    .ray(
+        device="cpu",
+        num_cpus=8,
+        omp_threads=1,
+        logging_level="ERROR",
+        runtime_env={
+            "excludes": [
+                "wandb/", ".git/", ".venv/", "__pycache__/",
+                "ray_results/", "runs/"
+            ]
+        },
+    )
 )
 
 
