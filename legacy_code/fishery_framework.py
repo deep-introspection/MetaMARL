@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from typing import Any, Optional
 
 from gymnasium import Env
-from src.optimizers.ppo.training import build_ppo_algorithm, train_algorithm
+from legacy_code.training import build_ppo_algorithm, train_algorithm
 
 from contexts.evaluation import evaluate_mechanism_with_metrics
 from contexts.mechanism import MechanismParameters, map_unit_vector_to_mechanism

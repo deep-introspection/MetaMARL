@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from envs.environment import FisheryEnvFixed
+from legacy_code.environment import FisheryEnvFixed
 from examples.config import EPS
 
 

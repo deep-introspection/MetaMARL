@@ -12,7 +12,7 @@ from ray.rllib.algorithms.ppo import PPOConfig
 from ray.tune.registry import register_env
 
 from contexts.mechanism import MechanismParameters
-from envs.environment import FisheryEnvFixed
+from legacy_code.environment import FisheryEnvFixed
 from examples.config import PPO_CONFIG
 
 
