@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import SupportsFloat
+from typing import Optional, SupportsFloat
 
 from core.annotations import override
 from core.envs.base import BaseEnv
@@ -9,16 +9,22 @@ from core.world.base import World
 
 class RegulatedEnv(BaseEnv):
     def __init__(
-        self, *, world: World, opt_id: OptimizerID | None = None, **kwargs
+        self,
+        *,
+        world: World,
+        opt_id: OptimizerID | None = None,
+        horizon: Optional[int] = None,
+        **kwargs,
     ) -> None:
         super().__init__(world=world, opt_id=opt_id, **kwargs)
+        self.horizon = horizon
 
     @abstractmethod
-    def violation_signal(self) -> float:
+    def violation_signal(self, reward: Optional[SupportsFloat] = None) -> float:
         raise NotImplementedError
 
     @abstractmethod
-    def violation_penalty(self) -> float:
+    def violation_penalty(self, reward: Optional[SupportsFloat] = None) -> float:
         raise NotImplementedError
 
     @override(BaseEnv)
@@ -31,4 +37,4 @@ class RegulatedEnv(BaseEnv):
         Returns:
             The modified `reward`
         """
-        return reward - self.violation_penalty() * self.violation_signal()
+        return reward - self.violation_penalty(reward) * self.violation_signal(reward)

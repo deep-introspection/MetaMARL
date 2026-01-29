@@ -1,8 +1,9 @@
 from typing import Optional, Self
 
+from src.es.optimizer import ESOptimizer
+
 from core.annotations import override
 from core.optimizers.config import OptimizerConfig
-from src.es.optimizer import ESOptimizer
 
 
 class ESConfig(OptimizerConfig):
