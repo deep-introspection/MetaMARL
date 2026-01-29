@@ -34,8 +34,9 @@ class RayOptimizer(Optimizer):
         self,
         # parallel_train_future: Optional[concurrent.futures.ThreadPoolExecutor] = None,
     ) -> float:
+        # TODO if this lags implement this function manuallyu
         result = self.algo.evaluate()
-        return float(result["evaluation"]["episode_reward_mean"])
+        return result["evaluation"]
 
     # @override(Optimizer)
     def stop(self) -> None:
