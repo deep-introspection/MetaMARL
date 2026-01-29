@@ -52,7 +52,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def violation_signal(
         self, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
-        quota = (0.0, u_i - min(self.m.fixed_quota, self.m.prop_quota * S_t["fish"]))
+        quota = max(0.0, u_i - min(self.m.fixed_quota, self.m.prop_quota * S_t["fish"]))
         ban = float(S_t["fish"] < self.m.min_stock) * u_i
         return quota + ban
 
@@ -60,14 +60,14 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         return self.m.fine_amount
 
     def transition_kernel(
-        self, A_t: MultiAgentEnv, S_t: dict[str, MultiAgentDict]
-    ) -> MultiAgentEnv:
+        self, A_t: MultiAgentEnv, S_t: dict[str, float]
+    ) -> dict[str, float]:
         fish = self.S_t["fish"]
         algae = self.S_t["algae"]
 
         # Total Harvest
         H = sum(
-            self.intrinsic_utility(action=A_t[agent_id], S_t=S_t[agent_id])
+            self.intrinsic_utility(action=A_t[agent_id], S_t=S_t)
             for agent_id in self.agents
         )
 
@@ -83,6 +83,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         return {"fish": fish_next, "algae": algae_next}
 
     # TODO abstract this to multiagentenv
+    @override(MultiAgentRegulatedEnv)
     def aggregate_rewards(self, rewards: list[SupportsFloat]) -> SupportsFloat:
         return np.sum(rewards) / len(self.agents)
 
@@ -91,41 +92,3 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]):
         """We assume complete transparency"""
         return np.array([S_t["fish"], S_t["algae"]], dtype=np.float32)
-
-        # # TODO separate state space from observation space
-        # self.observation_spaces: dict[AgentID, spaces.Dict] = {
-        #     fisher_id: spaces.Dict[
-        #         "fish" : spaces.Box(
-        #             low=0.0,
-        #             high=np.finfo(np.float32).max,
-        #             shape=(1, 0),
-        #             dtype=np.float32,
-        #         ),
-        #         "algae" : spaces.Box(
-        #             low=0.0,
-        #             high=np.finfo(np.float32).max,
-        #             shape=(1, 0),
-        #             dtype=np.float32,
-        #         ),
-        #     ]
-        #     for fisher_id in fishermen
-        # }
-
-        # self.action_space: dict[AgentID, spaces.Dict] = {
-        #     fisher_id: spaces.Dict[
-        #         "fish_harvest" : spaces.Box(
-        #             low=0.0,
-        #             high=np.finfo(np.float32).max,
-        #             shape=(1, 0),
-        #             dtype=np.float32,
-        #         )
-        #     ]
-        #     for fisher_id in fishermen
-        # }
-
-        # # Current state
-        # self._t = 0
-        # self.S_t: dict[str, np.float32] = {
-        #     "fish": self.fish_init,
-        #     "algae": self.algae_init,
-        # }

@@ -58,7 +58,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
     @abstractmethod
     @override(RegulatedEnv)
-    def penalty(self, **kwargs) -> SupportsFloat:
+    def penalty(self) -> SupportsFloat:
         """λ = λ(M)"""
         ...
 
@@ -69,7 +69,8 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         ...
 
     @abstractmethod
-    def is_terminated(self, S_t: dict[str, MultiAgentDict]) -> bool: ...
+    def is_terminated(self) -> bool:
+        return self._t >= self.horizon
 
     @abstractmethod
     def aggreagate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict: ...
@@ -112,7 +113,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         # check terminated and truncated conditions
         terminated = {fisher_id: False for fisher_id in self.agents}
         truncated = {fisher_id: self._t >= self.horizon for fisher_id in self.agents}
-        terminated["__all__"] = False
+        terminated["__all__"] = all(terminated.values())
         truncated["__all__"] = any(truncated.values())
 
         self._t = 1
