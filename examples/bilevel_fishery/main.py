@@ -1,12 +1,12 @@
-# TODO Rename PPOptimizerConfig to PPOConfig
 import numpy as np
 from gymnasium import spaces
 
+# core optimizers
 from core.optimizers.bilevel import BilevelConfig, BilevelOptimizer
 from core.optimizers.es.config import ESConfig
-
-# TODO Move both th config and the optimizer into same file
 from core.optimizers.ppo.config import PPOptimizerConfig
+
+# Fishery-specific objects
 from examples.bilevel_fishery.mechanism import FisheryMechnaismSpace
 from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
@@ -23,33 +23,29 @@ DEFAULT_MECHANISM_CONFIG = {
 # Observation/action space bounds
 FISHERMEN = ["f0"]
 
-OBSERVATION_SPACES = spaces.Dict(
-    {
-        "fish": spaces.Box(
+OBSERVATION_SPACES = spaces.Dict({
+        "fish" : spaces.Box(
             low=0.0,
             high=np.finfo(np.float32).max,
-            shape=(1,),
+            shape=(1, ),
             dtype=np.float32,
         ),
-        "algae": spaces.Box(
+        "algae" : spaces.Box(
             low=0.0,
             high=np.finfo(np.float32).max,
             shape=(1, 0),
             dtype=np.float32,
         ),
-    }
-)
+})
 
-ACTION_SPACES = spaces.Dict(
-    {
-        "fish_harvest": spaces.Box(
+ACTION_SPACES = spaces.Dict({
+        "fish_harvest" : spaces.Box(
             low=0.0,
             high=np.finfo(np.float32).max,
-            shape=(1,),
+            shape=(1, ),
             dtype=np.float32,
         )
-    }
-)
+    })
 
 
 bilevel_optimizer: BilevelOptimizer = (
