@@ -1,6 +1,6 @@
 from typing import Optional, Self
 
-from src.es.optimizer import ESOptimizer
+from core.optimizers.es.optimizer import ESOptimizer
 
 from core.annotations import override
 from core.optimizers.config import OptimizerConfig
