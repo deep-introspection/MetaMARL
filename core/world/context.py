@@ -18,7 +18,11 @@ class ContextSchema(BaseModel):
 
 
 class MechanismContext(ContextSchema):
+    env_id: str
     theta: SkipValidation[Mechanism]
+
+class BatchMechanismContext(ContextSchema):
+    thetas: list[MechanismContext]
 
 
 # TODO strict type annotations rm Any
@@ -37,4 +41,6 @@ class Context:
 
     id: ContextID | None
     opt_id: OptimizerID
+    step: int
+    env: str
     payload: ContextSchema
