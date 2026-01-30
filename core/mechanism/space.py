@@ -23,6 +23,10 @@ class MechanismSpace(Protocol):
 
         return x
 
+    @classmethod
+    def default(cls) -> "Mechanism":
+        raise NotImplementedError
+
     @abstractmethod
     def encode(self, m: Mechanism) -> np.ndarray: ...
 
