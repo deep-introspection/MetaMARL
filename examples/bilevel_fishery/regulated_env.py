@@ -31,9 +31,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         self.delta = ecology_cfg["delta"]
         self.gamma = ecology_cfg["gamma"]
         self.dt = ecology_cfg["dt"]
+        self.horizon = ecology_cfg["horizon"]
 
     def _reset(self):
-        self._t = 0
         self.S_t = {
             "fish": self.fish_init,
             "algae": self.algae_init,
@@ -41,6 +41,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         return {
             agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
         }
+
+    def _is_terminated(self) -> bool:
+        return self._t >= self.ecological_horizon
 
     def intrinsic_utility(
         self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
@@ -84,8 +87,10 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
     # TODO abstract this to multiagentenv
     @override(MultiAgentRegulatedEnv)
-    def aggregate_rewards(self, rewards: list[SupportsFloat]) -> SupportsFloat:
-        return np.sum(rewards) / len(self.agents)
+    def aggregate_rewards(self, rewards: list[SupportsFloat]) -> MultiAgentDict:
+        fitness = np.sum(rewards) / len(self.agents)
+        # same fitness for all agents
+        return {agent_id: fitness for agent_id in self.agents}
 
     # TODO canonical observation in base multiagent env
     @override(BaseEnv)

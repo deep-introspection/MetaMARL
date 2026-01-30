@@ -1,7 +1,6 @@
 from typing import Any, SupportsFloat
 
 import numpy as np
-import ray
 from gymnasium.core import ObsType
 
 from core.annotations import override
@@ -36,7 +35,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
         return 0.0
 
     @override(RegulatorEnv)
-    def aggregate_rewards(self, rewards: list[SupportsFloat]) -> SupportsFloat:
+    def aggregate_rewards(self, ctxs: list[EnvStepContext]) -> SupportsFloat:
         """
         Combine inner-loop EnvStepContexts (step observations, rewards and actions) into one scalar
         fitness.
@@ -44,20 +43,12 @@ class FisheryRegulatorEnv(RegulatorEnv):
         Strategy:
           - Mean episodic reward
         """
-        ctx_registry = ray.get(self.world.get_ctx_registry.remote())
-
-        steps = [
-            ctx.payload
-            for ctx in ctx_registry.values()
-            if ctx.opt_id == self.inner.opt_id
-            and isinstance(ctx.payload, EnvStepContext)
-        ]
 
         # extract metrics
-        rewards = np.array([s.reward for s in steps])
-        fish = np.array([s.info["fish"] for s in steps])
+        rewards = np.array([s.reward for s in ctxs])
+        fish = np.array([s.observation["fish"] for s in ctxs])
 
-        mean_reward = rewards.mean()
+        mean_reward = np.mean(rewards)
         min_fish = fish.min()
 
         collapse = min_fish < self.sustainability_threshold

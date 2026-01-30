@@ -1,12 +1,14 @@
+from dataclasses import dataclass
+
 import numpy as np
-from beartype import beartype
-from jaxtyping import Array, Float
+from numpy.typing import NDArray
 
 from core.annotations import override
 from core.mechanism.base import Mechanism
 from core.mechanism.space import MechanismSpace
 
 
+@dataclass(frozen=True)
 class FisheryMechanism(Mechanism):
     """Regulatory mechanism parameters for the fishery.
 
@@ -46,7 +48,7 @@ class FisheryMechanism(Mechanism):
         )
 
 
-class FisheryMechnaismSpace(MechanismSpace):
+class FisheryMechanismSpace(MechanismSpace):
     def __init__(self, use_stochastic_roundting: bool = True):
         super().__init__()
         self.use_stochastic_roundting = use_stochastic_roundting
@@ -76,12 +78,20 @@ class FisheryMechnaismSpace(MechanismSpace):
             "ban_period_cont": float(u[4]) * 10.0,
         }
 
-    @beartype
-    def encode(self, m: FisheryMechanism) -> Float[Array, "5"]:
+    @classmethod
+    def default(cls) -> FisheryMechanism:
+        return FisheryMechanism(
+            fixed_quota=0.2,
+            prop_quota=0.1,
+            min_stock=0.1,
+            fine_amount=1.0,
+            ban_period=2,
+        )
+
+    def encode(self, m: FisheryMechanism) -> NDArray[np.float32]:
         return m.to_vector()
 
-    @beartype
-    def decode(self, x: Float[Array, "5"]) -> Mechanism:
+    def decode(self, x: NDArray[np.float32]) -> Mechanism:
         # insure input is valid
         u = np.clip(self._validate(x), 0.0, 1.0)
 
@@ -95,7 +105,6 @@ class FisheryMechnaismSpace(MechanismSpace):
 
         return self.clip(mech)
 
-    @beartype
     def clip(self, m: FisheryMechanism) -> FisheryMechanism:
         return FisheryMechanism(
             fixed_quota=float(np.clip(m.fixed_quota, 0, 1)),
