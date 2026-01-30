@@ -104,6 +104,11 @@ class BilevelConfig(OptimizerConfig):
         inner_opt = inner_cfg.build_optimizer(world=world, world_name=self.world_name)
         outer_opt = outer_cfg.build_optimizer(world=world, inner_opt=inner_opt)
 
+        # what if outer_opt does not have that property ??
+        # override outer_opt population size with inner_opt batch_size
+        # set inner batch capacity to be the same as inner for batch sampling
+        outer_opt.batch_capacity = inner_opt.batch_capacity
+
         return self.opt_class(config=self, outer=outer_opt, inner=inner_opt)
 
 

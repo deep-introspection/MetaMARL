@@ -54,7 +54,6 @@ bilevel_opt_cfg: BilevelConfig = (
     .outer(
         ESConfig()
         .training(  # TODO dimension inferred from mechanism ?
-            pop_size=4,
             sigma=0.15,
             mean_lr=0.1,
             sigma_lr=0.05,
@@ -100,6 +99,7 @@ bilevel_opt_cfg: BilevelConfig = (
             num_env_runners=1,
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
+            num_envs_per_env_runner=2,
         )
         .training(
             gamma=0.99,

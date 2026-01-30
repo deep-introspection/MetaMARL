@@ -52,7 +52,10 @@ class Optimizer(ABC):
         # Optional metrics hook
         self.metrics: MetricsLogger = MetricsLogger(
             root=True, stats_cls_lookup=config.stats_cls_lookup
-        )
+        )   
+
+        # batch sampling for mechanism
+        self._batch_capacity: int = 1
 
         # Optimizer Graph connectivity
         self._downstream: set["Optimizer"] = set()
@@ -66,6 +69,10 @@ class Optimizer(ABC):
         if self.opt_id is None:
             raise RuntimeError("Optimizer ID not set")
         return self.opt_id
+    
+    @property
+    def batch_capacity(self) -> int:
+        return self._batch_capacity
 
     # TODO make id immutable
     def set_id(self, id: OptimizerID) -> None:

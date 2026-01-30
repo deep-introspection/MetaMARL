@@ -35,8 +35,8 @@ class World:
         # Maps context IDs to Context objects
         self._contexts: dict[ContextID, Context] = {}
 
-        # Track laterst mechanism
-        self._latest_mechanism: Mechanism | None = None
+        # Mechanism registry
+        self._mechanism_registry: dict[str, Mechanism] = {}
 
     def __deepcopy__(self, memo):
         return self
@@ -73,10 +73,10 @@ class World:
         """
         return set(self._opt_ctx_map.keys())
 
-    def get_latest_mechanism(self) -> Mechanism:
-        if self._latest_mechanism is None:
-            raise RuntimeError("No MechanismContext published yet")
-        return self._latest_mechanism
+    def get_mechanism(self, env_id: str) -> Mechanism:
+        if env_id not in self._mechanism_registry:
+            raise KeyError(f"No mechanism registered for env_id={env_id}")
+        return self._mechanism_registry[env_id]
 
     def _validate_ctx_schema_exists(self, schema: type[ContextSchema]) -> None:
         """
@@ -135,8 +135,12 @@ class World:
         self._contexts[ctx.id] = ctx
 
         # Track latest mechanism globally
+        # Track per-env mechanism
         if isinstance(ctx.payload, MechanismContext):
-            self._latest_mechanism = ctx.payload.theta
+            if ctx.payload.env_id is None:
+                raise ValueError("MechanismContext must include env_id")
+            self._mechanism_registry[ctx.payload.env_id] = ctx.payload.theta
+
 
         if ctx.opt_id is not None:
             if ctx.opt_id not in self._opt_ctx_map:
@@ -156,7 +160,10 @@ class World:
         self._contexts[ctx.id] = ctx
 
         if isinstance(ctx.payload, MechanismContext):
-            self._latest_mechanism = ctx.payload.theta
+            if ctx.payload.env_id is None:
+                raise ValueError("MechanismContext must include env_id")
+            self._mechanism_registry[ctx.payload.env_id] = ctx.payload.theta
+
 
     def remove_context(self, ctx: Context) -> None:
         """

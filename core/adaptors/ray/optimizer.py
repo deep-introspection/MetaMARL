@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Optional
 
 from ray.rllib.algorithms.algorithm import Algorithm
+from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 from ray.train._internal.checkpoint_manager import _TrainingResult
 
 from core.annotations import override
@@ -24,6 +25,11 @@ class RayOptimizer(Optimizer):
     ):
         super().__init__(config)
         self.algo = algo
+
+    @property
+    @override(Optimizer)
+    def batch_capacity(self) -> int:
+        return self.config.num_envs_per_env_runner
 
     @override(Optimizer)
     def run(self) -> None:

@@ -87,7 +87,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
         # update institution mechanism from world
-        m_params: np.ndarray = ray.get(self.world.get_latest_mechanism.remote())
+        m_params: np.ndarray = ray.get(self.world.get_mechanism.remote(self.env_id))
         self.m: Mechanism = self.m_space.decode(m_params)
 
         rewards = {}

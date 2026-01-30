@@ -12,7 +12,6 @@ class ESConfig(OptimizerConfig):
         # Add default or from default
         # ES training hyperparameters
         self.dimension: int = None
-        self.pop_size: int = 8
         self.sigma: int = 0.15
         self.mean_lr: float = 0.1
         self.sigma_lr: float = 0.05
@@ -24,7 +23,6 @@ class ESConfig(OptimizerConfig):
     def training(
         self,
         *,
-        pop_size: Optional[int] = None,
         sigma: Optional[int] = None,
         mean_lr: Optional[float] = None,
         sigma_lr: Optional[float] = None,
@@ -53,8 +51,6 @@ class ESConfig(OptimizerConfig):
         """
         super().training(**kwargs)
 
-        if pop_size is not None:
-            self.pop_size = pop_size
         if sigma is not None:
             self.sigma = sigma
         if mean_lr is not None:

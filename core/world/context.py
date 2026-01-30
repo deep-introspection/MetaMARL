@@ -21,9 +21,6 @@ class MechanismContext(ContextSchema):
     env_id: str
     theta: SkipValidation[Mechanism]
 
-class BatchMechanismContext(ContextSchema):
-    thetas: list[MechanismContext]
-
 
 # TODO strict type annotations rm Any
 class EnvStepContext(ContextSchema):

@@ -21,7 +21,6 @@ class ESOptimizer(Optimizer):
 
         # --- hyperparameters --
         self.dimension = config.dimension
-        self.population_size = config.pop_size
         self.mean_lr = config.mean_lr
         self.sigma_lr = config.sigma_lr
         self.min_sigma = config.min_sigma
@@ -42,6 +41,22 @@ class ESOptimizer(Optimizer):
         self.best_fitness = -float("inf")
         self.best_candidate = self.mean.copy()
 
+    @property
+    def batch_capacity(self) -> int:
+        return self._batch_capacity
+
+    @batch_capacity.setter
+    def batch_capacity(self, value: int) -> None:
+        if value <= 0:
+            raise ValueError("population_size must be positive")
+
+        if not self.break_symmetry and value % 2 != 0:
+            raise ValueError(
+                f"Antithetic ES requires even batch size, got {value}. "
+                "Either increase num_envs_per_env_runner or enable break_symmetry."
+            )
+        self._batch_capacity = value
+
     # TODO refactor this to Env_Runner sampler
     def _sample_population(self) -> np.ndarray:
         """Sample population for current generation using antithetic sampling.
@@ -53,8 +68,8 @@ class ESOptimizer(Optimizer):
             Population matrix of shape (population_size, dimension)
         """
         # Ensure even population size for antithetic sampling
-        half_pop = self.population_size // 2
-        remaining = self.population_size - (2 * half_pop)
+        half_pop = self._batch_capacity // 2
+        remaining = self._batch_capacity - (2 * half_pop)
 
         # Sample noise for half the population
         noise_half = self.rng.standard_normal(
@@ -74,7 +89,7 @@ class ESOptimizer(Optimizer):
             )
             noise_matrix = np.vstack([noise_matrix, extra_noise])
 
-        if self.break_symmetry and self.population_size % 2 == 0 and half_pop > 0:
+        if self.break_symmetry and self._batch_capacity % 2 == 0 and half_pop > 0:
             noise_matrix[-1] = self.rng.standard_normal(
                 (self.dimension,), dtype=np.float32
             )
@@ -124,7 +139,7 @@ class ESOptimizer(Optimizer):
         half = N // 2
 
         # Detect if strict antithetic symmetry holds
-        strict_antithetic = self.population_size % 2 == 0
+        strict_antithetic = self._batch_capacity % 2 == 0
 
         if self.break_symmetry and strict_antithetic and half > 0:
             f_pos = fitness[:half]
@@ -167,23 +182,6 @@ class ESOptimizer(Optimizer):
             self.best_candidate = population[best_idx].copy()
 
         self.generation += 1
-
-    def _step_population(self, thetas: np.ndarray) -> np.ndarray:
-        # TODO
-        """
-        Spawns N environment replicas
-        Assigns each θ to one env
-        Runs PPO once
-        Collects reward from each env
-        Returns vector fitness
-
-        self.inner.rllib_cfg = (
-            self.inner.rllib_cfg
-                .environment(env=RegulatedEnv)
-                .rollouts(num_envs_per_env_runner=N)
-        )
-        """
-        pass
 
     def run(self) -> None:
         population = self._sample_population()

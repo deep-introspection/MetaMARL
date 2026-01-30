@@ -46,7 +46,7 @@ class RegulatorEnv(BaseEnv):
 
     @override(BaseEnv)
     def _step(
-        self, thetas: list[Mechanism]
+        self, theta: Mechanism
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
         if self.inner is None:
             raise NotImplementedError(
@@ -54,14 +54,16 @@ class RegulatorEnv(BaseEnv):
                 f"Override `_step()` for analytic reward computation."
             )
 
-        if not isinstance(thetas, list):
+        if not isinstance(theta, Mechanism):
             raise TypeError(
-                f"{self.__class__.__name__} expected list[Mechanism] after action(), "
-                f"got {type(thetas)}"
+                f"{self.__class__.__name__} expected Mechanism, got {type(theta)}"
             )
 
-        for theta in thetas:
-            self._publish(MechanismContext(theta=theta))
+        # TODO PARALLELIZE Vectorize environment across θ candidates and train one ppo policy over mehcanism candidates
+        # TODO other techiniques can also speed this up
+        # for theta in thetas:
+        #     self._publish(MechanismContext(theta=theta))
+        self._publish(MechanismContext(env_id=self.env_id, theta=theta))
 
         ctx_registry_before = set(ray.get(self.world.get_ctx_registry.remote()).keys())
 
