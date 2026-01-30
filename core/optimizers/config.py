@@ -9,7 +9,7 @@ from gymnasium import Space
 from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 
 from core.envs.base import BaseEnv
-from core.types import EnvConfigDict, EnvType, OptimizerID
+from core.types import EnvConfigDict, EnvType
 from core.world.base import World
 
 if TYPE_CHECKING:
@@ -40,12 +40,7 @@ class OptimizerConfig(_Config, ABC):
 
         # --- world / environment ---
         self.env: Optional[Union[str, EnvType]] = None
-        self.train_iters: Optional[int] = None
-        self.eval_iters: Optional[int] = None
         self.env_config: dict = {}
-        self.observation_space: Optional[Space] = None
-        self.action_space: Optional[Space] = None
-        self.disable_env_checking: bool = False
 
         # --- training ---
         self.seed: int = None
@@ -65,6 +60,14 @@ class OptimizerConfig(_Config, ABC):
                     "OptimizerConfig!"
                 )
         super().__setattr__(name, value)
+
+    # TODO generalize this function
+    def _merge_env_config(self, extra: dict) -> Self:
+        self.env_config = {
+            **(self.env_config or {}),
+            **extra,
+        }
+        return self
 
     # TODO freezing for nested configs
     def freeze(self) -> None:
@@ -118,21 +121,15 @@ class OptimizerConfig(_Config, ABC):
 
     def _env_creator(
         self,
-        *,
-        world: Optional[World] = None,
-        opt_id: Optional[OptimizerID] = None,
-        inner_opt: Optional[Optimizer] = None,
-        **kwargs,
+        **env_ctx,
     ) -> BaseEnv:
-        return self.env(
-            world=world,
-            opt_id=opt_id,
-            optimizer=inner_opt,
-            train_iters=self.train_iters,
-            eval_iters=self.eval_iters,
-            **self.env_config,
-            **kwargs,
-        )
+        # overlap = self.env_config.keys() & env_ctx.keys()
+        # if overlap:
+        #     raise RuntimeError(
+        #         f"env_config keys leaked into env_ctx twice: {overlap}"
+        #     )
+
+        return self.env(**env_ctx)
 
     # TODO deep copy allows on may be toggled later with use_copy
     # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
@@ -158,7 +155,9 @@ class OptimizerConfig(_Config, ABC):
             opt_id = ray.get(world.register_optimizer.remote(opt))
             opt.set_id(opt_id)
 
-        env = cfg._env_creator(world=world, opt_id=opt_id, inner_opt=inner_opt)
+        env = cfg._env_creator(
+            world=world, opt_id=opt_id, optimizer=inner_opt, **self.env_config
+        )
         opt.env = env
 
         return opt
@@ -168,39 +167,76 @@ class OptimizerConfig(_Config, ABC):
         self,
         env: Optional[Union[str, EnvType]] = None,
         train_iters: Optional[int] = None,
-        eval_iters: Optional[int] = None,
         *,
         env_config: Optional[EnvConfigDict] = None,
         observation_space: Optional[Space] = None,
         action_space: Optional[Space] = None,
         disable_env_checking: Optional[bool] = None,
     ):
-        """Defines the environment interface for the Optimizer
+        """Sets the config's RL-environment settings.
 
         Args:
-            env: Environment identifier or callable. May be a Gymnasium env, a Ray-registered env
-                name, or a custom environment class.
-            env_config: Domain-specific configuration passed to the environment constructor.
-            observation_space: Observation space describing environment outputs. Optional for
-                for optimizers that do not consume observation.
-            action_space: Action space describing valid environment inputs.
-            disable_env_checking: If True, disable environment validation checks. Userful for
-                custom or partially compliant environments.
+            env: The environment specifier. This can either be a tune-registered env,
+                via `tune.register_env([name], lambda env_ctx: [env object])`,
+                or a string specifier of an RLlib supported type. In the latter case,
+                RLlib tries to interpret the specifier as either an Farama-Foundation
+                gymnasium env, a PyBullet env, or a fully qualified classpath to an Env
+                class, e.g. "ray.rllib.examples.envs.classes.random_env.RandomEnv".
+            env_config: Arguments dict passed to the env creator as an EnvContext
+                object (which is a dict plus the properties: `num_env_runners`,
+                `worker_index`, `vector_index`, and `remote`).
+            observation_space: The observation space for the Policies of this Algorithm.
+            action_space: The action space for the Policies of this Algorithm.
+            horizon: Rollout steps taken by the environment before termination.
+            render_env: If True, try to render the environment on the local worker or on
+                worker 1 (if num_env_runners > 0). For vectorized envs, this usually
+                means that only the first sub-environment is rendered.
+                In order for this to work, your env has to implement the
+                `render()` method which either:
+                a) handles window generation and rendering itself (returning True) or
+                b) returns a numpy uint8 image of shape [height x width x 3 (RGB)].
+            clip_rewards: Whether to clip rewards during Policy's postprocessing.
+                None (default): Clip for Atari only (r=sign(r)).
+                True: r=sign(r): Fixed rewards -1.0, 1.0, or 0.0.
+                False: Never clip.
+                [float value]: Clip at -value and + value.
+                Tuple[value1, value2]: Clip at value1 and value2.
+            normalize_actions: If True, RLlib learns entirely inside a normalized
+                action space (0.0 centered with small stddev; only affecting Box
+                components). RLlib unsquashes actions (and clip, just in case) to the
+                bounds of the env's action space before sending actions back to the env.
+            clip_actions: If True, the RLlib default ModuleToEnv connector clips
+                actions according to the env's bounds (before sending them into the
+                `env.step()` call).
+            disable_env_checking: Disable RLlib's env checks after a gymnasium.Env
+                instance has been constructed in an EnvRunner. Note that the checks
+                include an `env.reset()` and `env.step()` (with a random action), which
+                might tinker with your env's logic and behavior and thus negatively
+                influence sample collection- and/or learning behavior.
+            is_atari: This config can be used to explicitly specify whether the env is
+                an Atari env or not. If not specified, RLlib tries to auto-detect
+                this.
+            action_mask_key: If observation is a dictionary, expect the value by
+                the key `action_mask_key` to contain a valid actions mask (`numpy.int8`
+                array of zeros and ones). Defaults to "action_mask".
+
+        Returns:
+            This updated AlgorithmConfig object.
         """
+        self.env_config: dict = {}
         if env is not None:
             self.env = env
         if train_iters is not None:
-            self.train_iters = train_iters
-        if eval_iters is not None:
-            self.eval_iters = eval_iters
-        if env_config is not None:
-            self.env_config = env_config
+            self.env_config.update({"train_iters": train_iters})
         if observation_space is not None:
-            self.observation_space = observation_space
+            self.env_config.update({"observation_space": observation_space})
         if action_space is not None:
-            self.action_space = action_space
+            self.env_config.update({"action_space": action_space})
+        if env_config is not None:
+            self.env_config.update(env_config)
         if disable_env_checking is not None:
             self.disable_env_checking = disable_env_checking
+
         return self
 
     def training(self, *, seed: Optional[float] = None) -> Self:

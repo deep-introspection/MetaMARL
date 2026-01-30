@@ -1,8 +1,10 @@
 import uuid
 from typing import Optional, Self
 
-from core.adaptors.ray.config import DeviceType, RayRuntimeConfig
+from core.adaptors.ray.runtime import DeviceType, RayRuntime, RayRuntimeConfig
 from core.annotations import override
+from core.mechanism.base import Mechanism
+from core.mechanism.space import MechanismSpace
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
 from core.world.base import World
@@ -14,9 +16,13 @@ class BilevelConfig(OptimizerConfig):
         self.outer_cfg = None
         self.inner_cfg = None
         self.outer_iters = 10
+
+        # TODO what is the point of having seed here
         self.seed = None
         self.world_name: Optional[str] = None
         self.ray_cfg = None
+        self.mechanism_space: Optional[MechanismSpace] = None
+        self.default_mechanism: Optional[Mechanism] = None
 
     def inner(self, cfg: OptimizerConfig = None) -> Self:
         if cfg is not None:
@@ -28,9 +34,17 @@ class BilevelConfig(OptimizerConfig):
             self.outer_cfg = cfg
         return self
 
-    def world(self, *world_name: str, **kwargs) -> Self:
+    def world(self, *, world_name: str, **kwargs) -> Self:
         if world_name is not None:
             self.world_name = f"{world_name}_{uuid.uuid4().hex[:8]}"
+        return self
+
+    def mechanism(
+        self, *, space: MechanismSpace, default: Mechanism = None, **kwargs
+    ) -> Self:
+        if space is not None:
+            self.mechanism_space = space
+            self.default_mechanism = default or space.default()
         return self
 
     def training(self, *, outer_iters: int, seed=None, **kwargs) -> Self:
@@ -64,16 +78,33 @@ class BilevelConfig(OptimizerConfig):
 
     @override(OptimizerConfig)
     def build_optimizer(self):
+        RayRuntime.ensure_initialized(self.ray_cfg or RayRuntimeConfig())
         world = World.options(name=self.world_name).remote()
 
-        if self.ray_cfg is not None:
-            self.ray_cfg.initialize()
-        inner_opt = self.inner_cfg.build_optimizer(
-            world=world, world_name=self.world_name
-        )
-        outer_opt = self.outer_cfg.build_optimizer(world=world, inner_opt=inner_opt)
+        inner_cfg = self.inner_cfg.copy()
+        outer_cfg = self.outer_cfg.copy()
 
-        return self.opt_class(cfg=self, outer=outer_opt, inner=inner_opt)
+        if self.mechanism_space is not None:
+            outer_cfg.dimension = self.mechanism_space().dimension
+
+            inner_cfg = inner_cfg._merge_env_config(
+                {
+                    "mechanism_space": self.mechanism_space,
+                    "default_mechanism": self.default_mechanism,
+                }
+            )
+
+        outer_cfg = outer_cfg._merge_env_config(
+            {
+                "mechanism_space": self.mechanism_space,
+                "default_mechanism": self.default_mechanism,
+            }
+        )
+
+        inner_opt = inner_cfg.build_optimizer(world=world, world_name=self.world_name)
+        outer_opt = outer_cfg.build_optimizer(world=world, inner_opt=inner_opt)
+
+        return self.opt_class(config=self, outer=outer_opt, inner=inner_opt)
 
 
 class BilevelOptimizer(Optimizer):

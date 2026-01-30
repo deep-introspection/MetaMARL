@@ -9,8 +9,9 @@ class ESConfig(OptimizerConfig):
     def __init__(self, opt_class=None):
         super().__init__(opt_class=opt_class or ESOptimizer)
 
+        # Add default or from default
         # ES training hyperparameters
-        self.dimension: int = 5
+        self.dimension: int = None
         self.pop_size: int = 8
         self.sigma: int = 0.15
         self.mean_lr: float = 0.1
@@ -23,7 +24,6 @@ class ESConfig(OptimizerConfig):
     def training(
         self,
         *,
-        dimension: Optional[int] = None,
         pop_size: Optional[int] = None,
         sigma: Optional[int] = None,
         mean_lr: Optional[float] = None,
@@ -37,8 +37,6 @@ class ESConfig(OptimizerConfig):
         """Sets the training related configs for Evolution Strategies (ES).
 
         Args:
-            dimenstion: Dimensionality of the search space which corresponds to the number of
-                parameters being optimized (e.g., number of mechanism params in the outer loop).
             pop_size: Number of candidate solutions sampled per ES generation. Larger population
                 provide more stable gradient estimates at the cost of increased computation.
             sigma: Initial standard deviation (std) of the search distribution.
@@ -55,8 +53,6 @@ class ESConfig(OptimizerConfig):
         """
         super().training(**kwargs)
 
-        if dimension is not None:
-            self.dimension = dimension
         if pop_size is not None:
             self.pop_size = pop_size
         if sigma is not None:

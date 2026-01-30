@@ -30,7 +30,7 @@ class ESOptimizer(Optimizer):
 
         # --- runtime state ---
         # Initialize search distribution at center of unit cube
-        self.mean = np.full(config.dimension, 0.5, dtype=np.float32)
+        self.mean = np.full(shape=config.dimension, fill_value=0.5, dtype=np.float32)
         self.sigma = float(config.sigma)
 
         # Random number generator
@@ -167,6 +167,23 @@ class ESOptimizer(Optimizer):
             self.best_candidate = population[best_idx].copy()
 
         self.generation += 1
+
+    def _step_population(self, thetas: np.ndarray) -> np.ndarray:
+        # TODO
+        """
+        Spawns N environment replicas
+        Assigns each θ to one env
+        Runs PPO once
+        Collects reward from each env
+        Returns vector fitness
+
+        self.inner.rllib_cfg = (
+            self.inner.rllib_cfg
+                .environment(env=RegulatedEnv)
+                .rollouts(num_envs_per_env_runner=N)
+        )
+        """
+        pass
 
     def run(self) -> None:
         population = self._sample_population()
