@@ -29,7 +29,6 @@ class RayRuntimeConfig:
             os.environ["RLLIB_NUM_GPUS"] = "0"
             os.environ["USE_CUDA"] = "0"
             os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
-            os.environ["NVML_DISABLED"] = "1"
 
             if self.disable_mps:
                 os.environ["RAY_USE_MPS"] = "0"
@@ -44,11 +43,19 @@ class RayRuntimeConfig:
 
     def initialize(self):
         self._apply_env_vars()
+        ray.init(
+            ignore_reinit_error=True,
+            logging_level=self.logging_level,
+            runtime_env=self.runtime_env,
+            **self.init_kwargs,
+        )
 
+
+class RayRuntime:
+    _initialized = False
+
+    @classmethod
+    def ensure_initialized(cls, cfg: RayRuntimeConfig):
         if not ray.is_initialized():
-            ray.init(
-                ignore_reinit_error=True,
-                logging_level=self.logging_level,
-                runtime_env=self.runtime_env,
-                **self.init_kwargs,
-            )
+            cfg.initialize()
+            cls._initialized = True
