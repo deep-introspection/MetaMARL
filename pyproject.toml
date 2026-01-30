@@ -31,8 +31,6 @@ dependencies = [
     "seaborn>=0.13.2",
     "torch>=2.10.0",
     "wandb>=0.24.0",
-    "jaxtyping>=0.3.6",
-    "beartype>=0.22.9",
 ]
 
 [project.urls]
