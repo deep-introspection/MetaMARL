@@ -13,18 +13,16 @@ class RegulatedEnv(BaseEnv):
         *,
         world: World,
         opt_id: OptimizerID | None = None,
-        horizon: Optional[int] = None,
         **kwargs,
     ) -> None:
         super().__init__(world=world, opt_id=opt_id, **kwargs)
-        self.horizon = horizon
 
     @abstractmethod
     def violation_signal(self, reward: Optional[SupportsFloat] = None) -> float:
         raise NotImplementedError
 
     @abstractmethod
-    def violation_penalty(self, reward: Optional[SupportsFloat] = None) -> float:
+    def penalty(self, reward: Optional[SupportsFloat] = None) -> float:
         raise NotImplementedError
 
     @override(BaseEnv)

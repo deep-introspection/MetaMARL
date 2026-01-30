@@ -3,14 +3,14 @@ from typing import SupportsFloat, Tuple
 
 import numpy as np
 import ray
-from gymnasium.core import ActType, Env, ObsType
+from gymnasium.core import ActType, ObsType
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.typing import AgentID, MultiAgentDict
 
 from core.annotations import override
+from core.envs.base import BaseEnv
 from core.envs.regulated import RegulatedEnv
 from core.mechanism.base import Mechanism
-from core.mechanism.space import MechanismSpace
 from core.types import OptimizerID
 from core.world.base import World
 
@@ -23,22 +23,11 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         *,
         world: World,
         opt_id: OptimizerID,
-        mechanism_space: MechanismSpace,
-        agent_populations: dict[str, int],
+        agents: list[AgentID],
         **kwargs,
     ):
         super().__init__(world=world, opt_id=opt_id, **kwargs)
-        self.m_space: MechanismSpace = mechanism_space
-        self.m: Mechanism = None
-
-        self.agent_populations = agent_populations
-        self.agents = self._build_agents()
-
-    def _build_agents(self):
-        agents = []
-        for agent_type, count in self.agent_populations.items():
-            agents.extend([f"{agent_type}:{i}" for i in range(count)])
-        return agents
+        self.agents = agents
 
     @abstractmethod
     def transition_kernel(
@@ -73,19 +62,18 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         ...
 
     @abstractmethod
-    @override(Env)
+    @override(BaseEnv)
     def observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]) -> ObsType:
         """o_i = O_i(S_t)"""
         ...
 
     @abstractmethod
-    def is_terminated(self) -> bool:
-        return self._t >= self.horizon
+    def _is_terminated(self) -> bool: ...
 
     @abstractmethod
     def aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict: ...
 
-    @override(Env)
+    @override(BaseEnv)
     def reward(self, agent_id: AgentID, action: ActType) -> SupportsFloat:
         o_i = self.observation(agent_id=agent_id, S_t=self.S_t)
         u_i = self.intrinsic_utility(agent_id=agent_id, action=action, observation=o_i)
@@ -120,7 +108,5 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         # check terminated and truncated conditions
         terminated = {"__all__": self.is_terminated()}
         truncated = {"__all__": False}
-
-        self._t = 1
 
         return obs, rewards, terminated, truncated, {}

@@ -9,7 +9,6 @@ from gymnasium.core import ActType, ObsType
 from core.annotations import override
 from core.envs.base import BaseEnv
 from core.mechanism.base import Mechanism, VectorMechanism
-from core.mechanism.space import MechanismSpace
 from core.optimizers.base import Optimizer
 from core.types import OptimizerID
 from core.world.base import World
@@ -24,13 +23,11 @@ class RegulatorEnv(BaseEnv):
         opt_id: OptimizerID | None = None,
         optimizer: Optional[Optimizer] = None,
         train_iters: int = 5,
-        mechanism_space: MechanismSpace = None,
         **kwargs,
     ):
         super().__init__(world=world, opt_id=opt_id, **kwargs)
         self.inner: Optimizer = optimizer
         self.train_iters: int = train_iters
-        self.mechanism_space: MechanismSpace = mechanism_space
 
         self._validate()
 
@@ -41,31 +38,11 @@ class RegulatorEnv(BaseEnv):
         if self.train_iters <= 0:
             raise ValueError("train_iters must be >= 1 when optimizer is provided")
 
-        if self.eval_iters <= 0:
-            raise ValueError("eval_iters must be >= 1 when optimizer is provided")
-
     @override(BaseEnv)
     def _reset(self):
         if self.observation_space is None:
             return 0.0
         return np.zeros(self.observation_space.shape, dtype=np.float32)
-
-    # TODO
-    # @override(BaseEnv)
-    # def _step(
-    #     self, theta: Mechanism
-    # ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-
-    #     # Always publish mechanism
-    #     self._publish(MechanismContext(theta=theta))
-
-    #     return self._inner_step(theta)
-
-    # @abstractmethod
-    # def _inner_step(
-    #     self, theta: Mechanism
-    # ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-    #     ...
 
     @override(BaseEnv)
     def _step(
@@ -103,7 +80,7 @@ class RegulatorEnv(BaseEnv):
             and isinstance(ctx.payload, EnvStepContext)
         ]
 
-        reward = self.reward(new_ctxs)
+        reward = self.aggregate_rewards(new_ctxs)
 
         return None, reward, False, False, {}
 
@@ -114,32 +91,12 @@ class RegulatorEnv(BaseEnv):
     #     raise NotImplementedError
 
     @abstractmethod
-    def aggregate_rewards(self, rewards: list[SupportsFloat]) -> SupportsFloat:
+    def aggregate_rewards(self, ctx: list[EnvStepContext]) -> SupportsFloat:
         return NotImplementedError
 
     @override(BaseEnv)
-    def reward(self, reward: SupportsFloat = 0.0) -> SupportsFloat:
-        # analytic path
-        if self.inner is None:
-            return reward
-
-        ctx_registry = ray.get(self.world.get_ctx_registry.remote())
-
-        # TODO introduce windowing later to allow only to aggregate rewards from this mechanism
-        # Keep only EnvStepContexts produced by inner optimizer
-        inner_ctxs = [
-            ctx
-            for ctx in ctx_registry.values()
-            if ctx.opt_id == self.inner.opt_id
-            and isinstance(ctx.payload, EnvStepContext)
-        ]
-
-        if not inner_ctxs:
-            raise RuntimeError("No EnvStepContext published by inner optimizer")
-
-        rewards = [float(ctx.payload.reward) for ctx in inner_ctxs]
-
-        return self.aggregate_rewards(rewards)
+    def reward(self, rewards: list[SupportsFloat]) -> SupportsFloat:
+        pass
 
     # @abstractmethod
     @override(BaseEnv)
@@ -149,16 +106,18 @@ class RegulatorEnv(BaseEnv):
             return action
 
         # 1) Mechanism space path (preferred)
-        if self.mechanism_space is not None:
+        if self.m_space is not None:
             if isinstance(action, (list, tuple)):
                 action = np.asarray(action, dtype=np.float32)
 
             if isinstance(action, np.ndarray):
                 if action.ndim == 1:
                     action = action[None, :]  # (d,) -> (1, d)
+
+                # TODO parallelize
                 return [
-                    self.mechanism_space.project(self.mechanism_space.from_vector(v))
-                    for v in action
+                    self.m_space.decode(x)
+                    for x in action
                 ]
 
             if torch.is_tensor(action):

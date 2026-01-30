@@ -1,11 +1,14 @@
 from abc import abstractmethod
-from typing import Any, SupportsFloat
+from typing import Any, Optional, SupportsFloat
 
+import numpy as np
 import ray
 from gymnasium import Env
 from gymnasium.core import ActType, ObsType, WrapperActType, WrapperObsType
 
 from core.annotations import override
+from core.mechanism.base import Mechanism
+from core.mechanism.space import MechanismSpace
 from core.types import OptimizerID
 from core.world.base import World
 from core.world.context import Context, ContextSchema, EnvStepContext
@@ -15,11 +18,21 @@ class BaseEnv(Env):
     """Base environment that directly interacts with the World."""
 
     def __init__(
-        self, *, world: World, opt_id: OptimizerID | None = None, **kwargs
+        self,
+        *,
+        world: World,
+        opt_id: OptimizerID | None = None,
+        mechanism_space: MechanismSpace = None,
+        vector_index: Optional[int] = None,
+        **kwargs,
     ) -> None:
         super().__init__()
         self.world = world
         self._opt_id = opt_id
+        self._t = 0
+        self.m_space: MechanismSpace = mechanism_space()
+        self.m: Mechanism = mechanism_space.default()
+        self.env_id = vector_index
 
     # Setter
     def set_opt_id(self, opt_id: OptimizerID) -> None:
@@ -30,9 +43,11 @@ class BaseEnv(Env):
         ctx = Context(
             id=None,
             opt_id=self._opt_id,
+            step=self._t,
+            env=self.__class__.__name__,
             payload=payload,
         )
-        ray.get(self.world.update_context.remote(ctx))
+        ray.get(self.world.append_context.remote(ctx))
 
     @abstractmethod
     def _step(
@@ -58,14 +73,20 @@ class BaseEnv(Env):
 
         # Publish env context to World
         self._publish(
-            EnvStepContext(observation=obs, reward=reward, action=action, info=info)
+            EnvStepContext(
+                observation=obs,
+                reward=reward,
+                action=action,
+                info=info,
+            )
         )
-
+        self._t += 1
         return obs, reward, terminated, truncated, info
 
     @override(Env)
     def reset(self, *, seed=None, options=None):
-        super().reset(seed=seed)
+        self.rng = np.random.default_rng(seed)
+        self._t = 0
 
         obs = self._reset()
 
