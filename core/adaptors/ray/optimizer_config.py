@@ -43,6 +43,9 @@ class RayOptimizerConfig(OptimizerConfig):
         self.rllib_cfg: AlgorithmConfig | None = None
         self.agent_specs: Optional[dict] = None  # TODO default
         self.world_name: Optional[str] = None
+        self.eval_episodes: Optional[int] = None
+        self.eval_base_seed: Optional[int] = None
+        self.rollout_fragment_length: Optional[int] = None
 
     def rllib_config_mutator(fn):
         def wrapper(self, *args, **kwargs):
@@ -478,196 +481,15 @@ class RayOptimizerConfig(OptimizerConfig):
         """
         return cfg.callbacks(**kwargs)
 
-    @rllib_config_mutator
-    def evaluation(cfg, **kwargs) -> None:
-        """Sets the config's evaluation settings.
-
-        Args:
-            evaluation_interval: Evaluate with every `evaluation_interval` training
-                iterations. The evaluation stats are reported under the "evaluation"
-                metric key. Set to None (or 0) for no evaluation.
-            evaluation_duration: Duration for which to run evaluation each
-                `evaluation_interval`. The unit for the duration can be set via
-                `evaluation_duration_unit` to either "episodes" (default) or
-                "timesteps". If using multiple evaluation workers (EnvRunners) in the
-                `evaluation_num_env_runners > 1` setting, the amount of
-                episodes/timesteps to run are split amongst these.
-                A special value of "auto" can be used in case
-                `evaluation_parallel_to_training=True`. This is the recommended way when
-                trying to save as much time on evaluation as possible. The Algorithm
-                then runs as many timesteps via the evaluation workers as possible,
-                while not taking longer than the parallely running training step and
-                thus, never wasting any idle time on either training- or evaluation
-                workers. When using this setting (`evaluation_duration="auto"`), it is
-                strongly advised to set `evaluation_interval=1` and
-                `evaluation_force_reset_envs_before_iteration=True` at the same time.
-            evaluation_duration_unit: The unit, with which to count the evaluation
-                duration. Either "episodes" (default) or "timesteps". Note that this
-                setting is ignored if `evaluation_duration="auto"`.
-            evaluation_auto_duration_min_env_steps_per_sample: If `evaluation_duration`
-                is "auto" (in which case `evaluation_duration_unit` is always
-                "timesteps"), at least how many timesteps should be done per remote
-                `sample()` call.
-            evaluation_auto_duration_max_env_steps_per_sample: If `evaluation_duration`
-                is "auto" (in which case `evaluation_duration_unit` is always
-                "timesteps"), at most how many timesteps should be done per remote
-                `sample()` call.
-            evaluation_sample_timeout_s: The timeout (in seconds) for evaluation workers
-                to sample a complete episode in the case your config settings are:
-                `evaluation_duration != auto` and `evaluation_duration_unit=episode`.
-                After this time, the user receives a warning and instructions on how
-                to fix the issue.
-            evaluation_parallel_to_training: Whether to run evaluation in parallel to
-                the `Algorithm.training_step()` call, using threading. Default=False.
-                E.g. for evaluation_interval=1 -> In every call to `Algorithm.train()`,
-                the `Algorithm.training_step()` and `Algorithm.evaluate()` calls
-                run in parallel. Note that this setting - albeit extremely efficient b/c
-                it wastes no extra time for evaluation - causes the evaluation results
-                to lag one iteration behind the rest of the training results. This is
-                important when picking a good checkpoint. For example, if iteration 42
-                reports a good evaluation `episode_return_mean`, be aware that these
-                results were achieved on the weights trained in iteration 41, so you
-                should probably pick the iteration 41 checkpoint instead.
-            evaluation_force_reset_envs_before_iteration: Whether all environments
-                should be force-reset (even if they are not done yet) right before
-                the evaluation step of the iteration begins. Setting this to True
-                (default) makes sure that the evaluation results aren't polluted with
-                episode statistics that were actually (at least partially) achieved with
-                an earlier set of weights. Note that this setting is only
-                supported on the new API stack w/ EnvRunners and ConnectorV2
-                (`config.enable_rl_module_and_learner=True` AND
-                `config.enable_env_runner_and_connector_v2=True`).
-            evaluation_config: Typical usage is to pass extra args to evaluation env
-                creator and to disable exploration by computing deterministic actions.
-                IMPORTANT NOTE: Policy gradient algorithms are able to find the optimal
-                policy, even if this is a stochastic one. Setting "explore=False" here
-                results in the evaluation workers not using this optimal policy!
-            off_policy_estimation_methods: Specify how to evaluate the current policy,
-                along with any optional config parameters. This only has an effect when
-                reading offline experiences ("input" is not "sampler").
-                Available keys:
-                {ope_method_name: {"type": ope_type, ...}} where `ope_method_name`
-                is a user-defined string to save the OPE results under, and
-                `ope_type` can be any subclass of OffPolicyEstimator, e.g.
-                ray.rllib.offline.estimators.is::ImportanceSampling
-                or your own custom subclass, or the full class path to the subclass.
-                You can also add additional config arguments to be passed to the
-                OffPolicyEstimator in the dict, e.g.
-                {"qreg_dr": {"type": DoublyRobust, "q_model_type": "qreg", "k": 5}}
-            ope_split_batch_by_episode: Whether to use SampleBatch.split_by_episode() to
-                split the input batch to episodes before estimating the ope metrics. In
-                case of bandits you should make this False to see improvements in ope
-                evaluation speed. In case of bandits, it is ok to not split by episode,
-                since each record is one timestep already. The default is True.
-            evaluation_num_env_runners: Number of parallel EnvRunners to use for
-                evaluation. Note that this is set to zero by default, which means
-                evaluation is run in the algorithm process (only if
-                `evaluation_interval` is not 0 or None). If you increase this, also
-                increases the Ray resource usage of the algorithm since evaluation
-                workers are created separately from those EnvRunners used to sample data
-                for training.
-            custom_evaluation_function: Customize the evaluation method. This must be a
-                function of signature (algo: Algorithm, eval_workers: EnvRunnerGroup) ->
-                (metrics: dict, env_steps: int, agent_steps: int) (metrics: dict if
-                `enable_env_runner_and_connector_v2=True`), where `env_steps` and
-                `agent_steps` define the number of sampled steps during the evaluation
-                iteration. See the Algorithm.evaluate() method to see the default
-                implementation. The Algorithm guarantees all eval workers have the
-                latest policy state before this function is called.
-            offline_evaluation_interval: Evaluate offline with every
-                `offline_evaluation_interval` training iterations. The offline evaluation
-                stats are reported under the "evaluation/offline_evaluation" metric key. Set
-                to None (or 0) for no offline evaluation.
-            num_offline_eval_runners: Number of OfflineEvaluationRunner actors to create
-                for parallel evaluation. Setting this to 0 forces sampling to be done in the
-                local OfflineEvaluationRunner (main process or the Algorithm's actor when
-                using Tune).
-            offline_evaluation_type: Type of offline evaluation to run. Either `"eval_loss"`
-                for evaluating the validation loss of the policy, `"is"` for importance
-                sampling, or `"pdis"` for per-decision importance sampling. If you want to
-                implement your own offline evaluation method write an `OfflineEvaluationRunner`
-                and use the `AlgorithmConfig.offline_eval_runner_class`.
-            offline_eval_runner_class: An `OfflineEvaluationRunner` class that implements
-                custom offline evaluation logic.
-            offline_loss_for_module_fn: A callable to compute the loss per `RLModule` in
-                offline evaluation. If not provided the training loss function (
-                `Learner.compute_loss_for_module`) is used. The signature must be (
-                runner: OfflineEvaluationRunner, module_id: ModuleID, config: AlgorithmConfig,
-                batch: Dict[str, Any], fwd_out: Dict[str, TensorType]).
-            offline_eval_batch_size_per_runner: Evaluation batch size per individual
-                OfflineEvaluationRunner worker. This setting only applies to the new API
-                stack. The number of OfflineEvaluationRunner workers can be set via
-                `config.evaluation(num_offline_eval_runners=...)`. The total effective batch
-                size is then `num_offline_eval_runners` x
-                `offline_eval_batch_size_per_runner`.
-            dataset_num_iters_per_offline_eval_runner: Number of batches to evaluate in each
-                OfflineEvaluationRunner during a single evaluation. If None, each learner runs a
-                complete epoch over its data block (the dataset is partitioned into
-                at least as many blocks as there are runners). The default is `1`.
-            offline_eval_rl_module_inference_only: If `True`, the module spec is used in an
-                inference-only setting (no-loss) and the RLModule can thus be built in
-                its light version (if available). For example, the `inference_only`
-                version of an RLModule might only contain the networks required for
-                computing actions, but misses additional target- or critic networks.
-                Also, if `True`, the module does NOT contain those (sub) RLModules that have
-                their `learner_only` flag set to True.
-            num_cpus_per_offline_eval_runner: Number of CPUs to allocate per
-                OfflineEvaluationRunner.
-            num_gpus_per_offline_eval_runner: Number of GPUs to allocate per
-                OfflineEvaluationRunner. This can be fractional. This is usually needed only if
-                your (custom) loss function itself requires a GPU (i.e., it contains GPU-
-                intensive computations), or model inference is unusually expensive.
-            custom_resources_per_eval_runner: Any custom Ray resources to allocate per
-                OfflineEvaluationRunner.
-            offline_evaluation_timeout_s: The timeout in seconds for calling `run()` on remote
-                OfflineEvaluationRunner workers. Results (episode list) from workers that take
-                longer than this time are discarded.
-            max_requests_in_flight_per_offline_eval_runner: Max number of in-flight requests
-                to each OfflineEvaluationRunner (actor)). See the
-                `ray.rllib.utils.actor_manager.FaultTolerantActorManager` class for more
-                details.
-                Tuning these values is important when running experiments with
-                large evaluation batches, where there is the risk that the object store may
-                fill up, causing spilling of objects to disk. This can cause any
-                asynchronous requests to become very slow, making your experiment run
-                slowly as well. You can inspect the object store during your experiment
-                through a call to `ray memory` on your head node, and by using the Ray
-                dashboard. If you're seeing that the object store is filling up,
-                turn down the number of remote requests in flight or enable compression
-                or increase the object store memory through, for example:
-                `ray.init(object_store_memory=10 * 1024 * 1024 * 1024)  # =10 GB`.
-            broadcast_offline_eval_runner_states: True, if merged OfflineEvaluationRunner
-                states (from the central connector pipelines) should be broadcast back to
-                all remote OfflineEvaluationRunner actors.
-            validate_offline_eval_runners_after_construction: Whether to validate that each
-                created remote OfflineEvaluationRunner is healthy after its construction process.
-            restart_failed_offline_eval_runners: Whether - upon an OfflineEvaluationRunner
-                failure - RLlib tries to restart the lost OfflineEvaluationRunner(s) as an
-                identical copy of the failed one(s). You should set this to True when training
-                on SPOT instances that may preempt any time and/or if you need to evaluate always a
-                complete dataset b/c OfflineEvaluationRunner(s) evaluate through streaming split
-                iterators on disjoint batches. The new, recreated OfflineEvaluationRunner(s) only
-                differ from the failed one in their `self.recreated_worker=True` property value
-                and have the same `worker_index` as the original(s). If this setting is True, the
-                value of the `ignore_offline_eval_runner_failures` setting is ignored.
-            ignore_offline_eval_runner_failures: Whether to ignore any OfflineEvalautionRunner
-                failures and continue running with the remaining OfflineEvaluationRunners. This
-                setting is ignored, if `restart_failed_offline_eval_runners=True`.
-            max_num_offline_eval_runner_restarts: The maximum number of times any
-                OfflineEvaluationRunner is allowed to be restarted (if
-                `restart_failed_offline_eval_runners` is True).
-            offline_eval_runner_health_probe_timeout_s: Max amount of time in seconds, we should
-                spend waiting for OfflineEvaluationRunner health probe calls
-                (`OfflineEvaluationRunner.ping.remote()`) to respond. Health pings are very cheap,
-                however, we perform the health check via a blocking `ray.get()`, so the
-                default value should not be too large.
-            offline_eval_runner_restore_timeout_s: Max amount of time we should wait to restore
-                states on recovered OfflineEvaluationRunner actors. Default is 30 mins.
-
-        Returns:
-            This updated AlgorithmConfig object.
-        """
-        return cfg.evaluation(**kwargs)
+    def evaluation(self, *, episodes: int = None, rollout_fragment_length: int, base_seed: Optional[int]=None, **kwargs) -> Self:
+        if episodes is not None:
+            self.eval_episodes = episodes
+        if base_seed is not None:
+            self.eval_base_seed = base_seed
+        # TODO to infer from horizon
+        if rollout_fragment_length is not None:
+            self.rollout_fragment_length = rollout_fragment_length
+        return self
 
     @rllib_config_mutator
     def offline_data(cfg, **kwargs) -> None:
@@ -919,8 +741,13 @@ class RayOptimizerConfig(OptimizerConfig):
         policies = {}
         agent_type_map = {}
         agents: list[AgentID] = []
+        observation_spaces = {}
+        action_spaces = {}
 
         for agent_type, spec in self.agent_specs.items():
+            obs_space = spec.get("observation_space")
+            act_space = spec.get("action_space")
+
             policies[spec.get("policy")] = (
                 None,
                 spec.get("observation_space"),
@@ -932,6 +759,11 @@ class RayOptimizerConfig(OptimizerConfig):
                 agent_id = f"{agent_type}:{i}"
                 agents.append(agent_id)
                 agent_type_map[agent_id] = spec.get("policy")
+                observation_spaces[agent_id] = obs_space
+                action_spaces[agent_id] = act_space
+
+        self.env_config.update({"observation_spaces": observation_spaces})
+        self.env_config.update({"action_spaces": action_spaces})
 
         def policy_mapping_fn(agent_id, *args, **kwargs):
             return agent_type_map[agent_id]
@@ -962,7 +794,6 @@ class RayOptimizerConfig(OptimizerConfig):
             for op in self._cfg_ops:
                 self.rllib_cfg = op(self.rllib_cfg)
 
-        cfg = self.rllib_cfg.copy(copy_frozen=True)
         if self.opt_class is None:
             raise ValueError("OptimizerConfig has no opt_class")
 
@@ -993,7 +824,13 @@ class RayOptimizerConfig(OptimizerConfig):
         )
 
         algo = self.rllib_cfg.build_algo(**kwargs)
-        opt = RayOptimizer(algo=algo, config=cfg)
+
+        cfg = self.copy(copy_frozen=True)
+        # TODO do not give world to ray optimizer. temp solution until environment factory
+        opt = RayOptimizer(algo=algo, config=cfg, world=world)
+
+        # TODO refactor to env Factory later
+        opt.world=world
 
         # register optimizer in world to link contexts to optimizers
         if world is not None:

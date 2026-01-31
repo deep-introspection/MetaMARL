@@ -85,8 +85,9 @@ class RegulatorEnv(BaseEnv):
         # One policy conditioned on Theta (theta-conditioned RL)
         self.inner.run()
 
+        # todo : the total episodes must be same as numer mechanisms
         # reset mechanism contexts
-        for _ in range(self.inner.config.evaluation_duration):
+        for _ in range(self.inner.config.eval_episodes):
             for idx, m in enumerate(mechanisms):
                 self._publish(
                     MechanismContext(

@@ -48,7 +48,6 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         self.delta = ecology_cfg["delta"]
         self.gamma = ecology_cfg["gamma"]
         self.dt = ecology_cfg["dt"]
-        self.horizon = ecology_cfg["horizon"]
 
     def _reset(self):
         self.S_t = {

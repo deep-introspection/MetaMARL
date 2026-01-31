@@ -36,7 +36,7 @@ bilevel_opt_cfg: BilevelConfig = (
             ban_period=2,
         ),
     )
-    .training(outer_iters=20)
+    .training(outer_iters=1) #20
     .ray(
         device="cpu",
         num_cpus=4,
@@ -70,7 +70,7 @@ bilevel_opt_cfg: BilevelConfig = (
                     "sus_threshold": 0.1,
                 },
             },
-            horizon=200,
+            horizon=3, #200
             train_iters=1,
         )
     )
@@ -101,25 +101,25 @@ bilevel_opt_cfg: BilevelConfig = (
                     # "horizon": 200,  
                 },
                 "seed": 0},
-            horizon=200 # must be the same as regulator 200
+            horizon=3 # must be the same as regulator 200
         )
         .env_runners(
             num_env_runners=1,
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
-            num_envs_per_env_runner=16, # batch evaluated mechanism or population size for ES 16
-            rollout_fragment_length=200,  # must be same as env horizon 200
+            num_envs_per_env_runner=2, # batch evaluated mechanism or population size for ES 16
+            rollout_fragment_length=2,  # must be same as env horizon 200
             batch_mode="complete_episodes",
         )
         .training(
             gamma=0.99,
             lr=3e-4,
-            train_batch_size=3200, #3200
-            minibatch_size=512, #512
+            train_batch_size=20, #3200
+            minibatch_size=1, #512
         )
         .evaluation(
-            episodes=10, #10
-            rollout_fragment_length=200,  #must be same as horizon 200
+            episodes=2, #10
+            rollout_fragment_length=2,  #must be same as horizon 200
             base_seed=None,
         )
         .agents(

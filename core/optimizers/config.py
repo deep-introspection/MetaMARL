@@ -41,6 +41,7 @@ class OptimizerConfig(_Config, ABC):
         # --- world / environment ---
         self.env: Optional[Union[str, EnvType]] = None
         self.env_config: dict = {}
+        self.horizon: int = None #TODO default value
 
         # --- training ---
         self.seed: int = None
@@ -123,12 +124,6 @@ class OptimizerConfig(_Config, ABC):
         self,
         **env_ctx,
     ) -> BaseEnv:
-        # overlap = self.env_config.keys() & env_ctx.keys()
-        # if overlap:
-        #     raise RuntimeError(
-        #         f"env_config keys leaked into env_ctx twice: {overlap}"
-        #     )
-
         return self.env(**env_ctx)
 
     # TODO deep copy allows on may be toggled later with use_copy
@@ -167,6 +162,7 @@ class OptimizerConfig(_Config, ABC):
         self,
         env: Optional[Union[str, EnvType]] = None,
         train_iters: Optional[int] = None,
+        horizon: Optional[int] = None,
         *,
         env_config: Optional[EnvConfigDict] = None,
         observation_space: Optional[Space] = None,
@@ -232,6 +228,8 @@ class OptimizerConfig(_Config, ABC):
             self.env_config.update({"observation_space": observation_space})
         if action_space is not None:
             self.env_config.update({"action_space": action_space})
+        if horizon is not None:
+            self.env_config.update({"horizon": horizon})
         if env_config is not None:
             self.env_config.update(env_config)
         if disable_env_checking is not None:

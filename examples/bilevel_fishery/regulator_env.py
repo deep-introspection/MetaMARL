@@ -14,6 +14,11 @@ from core.world.context import (
 )
 from examples.bilevel_fishery.contexts import FitnessContext
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 
 class FisheryRegulatorEnv(RegulatorEnv):
     """
@@ -33,7 +38,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.horizon: int = ecology_cfg.get("horizon")
         self.sustainability_weight = ecology_cfg.get("sus_weight", 5.0)
         self.sustainability_threshold = ecology_cfg.get("sus_threshold", 0.1)
 
@@ -56,59 +60,75 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
         step_ctxs = [ctx for ctx in ctxs if isinstance(ctx.payload, EnvStepContext)]
 
+        logger.info(
+            "[Regulator] aggregate_rewards called | "
+            f"total_ctxs={len(ctxs)} | "
+            f"step_ctxs={len(step_ctxs)}"
+        )
+
         if not step_ctxs:
+            logger.warning(
+                "[Regulator] No EnvStepContext received — "
+                "inner loop likely produced no steps"
+            )
             return []
 
+        # --- group by mechanism index ---
         by_index: dict[int, list[Context]] = defaultdict(list)
 
         for ctx in step_ctxs:
             s = ctx.payload
             by_index[s.mechanism].append(ctx)
 
+        logger.info(
+            "[Regulator] Grouped step contexts | "
+            f"num_mechanisms={len(by_index)} | "
+            f"indices={sorted(by_index.keys())}"
+        )
+
+        # --- compute elastic truncation length ---
+        lengths = {idx: len(ctx_list) for idx, ctx_list in by_index.items()}
+        min_len = min(lengths.values())
+
+        logger.info(
+            "[Regulator] Elastic aggregation | "
+            f"min_len={min_len} | "
+            f"lengths={lengths}"
+        )
+
         max_idx = max(by_index)
         fitness = [float("-inf")] * (max_idx + 1)
 
+        # --- aggregate per mechanism ---
         for idx, ctx_list in by_index.items():
             ctx_list.sort(key=lambda c: c.step)
 
-            steps = [c.payload for c in ctx_list]
+            # truncate uniformly
+            steps = [c.payload for c in ctx_list[:min_len]]
 
-            episodes = [
-                steps[i : i + self.horizon]
-                for i in range(0, len(steps), self.horizon)
-                if len(steps[i : i + self.horizon]) == self.horizon
-            ]
+            rewards: list[float] = []
+            fish_vals: list[float] = []
 
-            # if not episodes:
-            #     continue
+            for s in steps:
+                # --- reward ---
+                if isinstance(s.reward, dict):
+                    rewards.append(sum(float(r) for r in s.reward.values()))
+                else:
+                    rewards.append(float(s.reward))
 
-            episode_rewards: list[float] = []
-            episode_min_fish: list[float] = []
+                # --- fish stock ---
+                obs = s.observation
+                if isinstance(obs, dict):
+                    fish_vals.append(min(float(o[0]) for o in obs.values()))
+                else:
+                    fish_vals.append(float(obs[0]))
 
-            for ep in episodes:
-                rewards = []
-                fish_vals = []
+            mean_reward = float(np.mean(rewards))
 
-                for s in ep:
-                    # reward
-                    if isinstance(s.reward, dict):
-                        rewards.append(sum(float(r) for r in s.reward.values()))
-                    else:
-                        rewards.append(float(s.reward))
-
-                    # fish stock
-                    obs = s.observation
-                    if isinstance(obs, dict):
-                        fish_vals.append(min(float(o[0]) for o in obs.values()))
-                    else:
-                        fish_vals.append(float(obs[0]))
-
-                episode_rewards.append(float(np.mean(rewards)))
-                episode_min_fish.append(float(min(fish_vals)))
-
-            mean_reward = float(np.mean(episode_rewards))
             collapse_rate = float(
-                np.mean([mf < self.sustainability_threshold for mf in episode_min_fish])
+                np.mean(
+                    np.array(fish_vals) < self.sustainability_threshold
+                )
             )
 
             penalties = [
@@ -117,7 +137,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     (self.sustainability_threshold - mf)
                     / max(1e-6, self.sustainability_threshold),
                 )
-                for mf in episode_min_fish
+                for mf in fish_vals
             ]
 
             fitness_ctx = FitnessContext.from_metrics(
@@ -127,19 +147,25 @@ class FisheryRegulatorEnv(RegulatorEnv):
                 sustainability_weight=self.sustainability_weight,
             )
 
-            # publish result for this ES candidate
+            # publish result for this mechanism
             self._publish(
                 MechanismContext(
                     index=idx,
                     env_id=self.env_id,
                     status=MechanismStatus.done,
                     job=None,
-                    mechanism=None,  # optional now
+                    mechanism=None,  # optional
                     metrics=fitness_ctx,
                 )
             )
 
-            # TODO
+            logger.info(
+                f"[Regulator] Publishing fitness | "
+                f"idx={idx} | "
+                f"objective={fitness_ctx.objective_score:.4f} | "
+                f"collapse_rate={collapse_rate:.3f}"
+            )
+
             fitness[idx] = fitness_ctx.objective_score
 
         return fitness

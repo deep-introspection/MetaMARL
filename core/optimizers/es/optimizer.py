@@ -207,6 +207,22 @@ class ESOptimizer(Optimizer):
         _, fitness, _, _, _ = self.env.step(population)
         fitness = np.asarray(fitness, dtype=np.float32)
 
+        if not any(np.isfinite(f) for f in fitness):
+            logger.error(
+                "[Regulator] No valid fitness produced for ANY mechanism"
+            )
+
+        # TODO check why certain episodes return empty fitness
+        if fitness.size == 0:
+            logger.warning(
+                f"[ES] No fitness returned at gen={self.generation}. "
+                "Skipping update."
+            )
+            return {
+                "converged": False,
+                "best_fitness": self.best_fitness,
+            }
+
         if not np.all(np.isfinite(fitness)):
             raise RuntimeError("Non-finite fitness detected")
 

@@ -260,3 +260,14 @@ bilevel_opt_cfg: BilevelConfig = (
 # run the experiment
 bilevel_opt = bilevel_opt_cfg.build_optimizer()
 bilevel_opt.run()
+
+        # .evaluation(
+        #     evaluation_interval=0,
+        #     evaluation_duration=5,  # eval iters
+        #     evaluation_duration_unit="episodes",
+        #     evaluation_num_env_runners=2,  # TODO dynamically build this from training config
+        #     evaluation_sample_timeout_s=NotProvided,
+        #     evaluation_parallel_to_training=False,
+        #     evaluation_force_reset_envs_before_iteration=True, #TODO review this - fix : 
+        #     evaluation_config={"explore": False},
+        # )
