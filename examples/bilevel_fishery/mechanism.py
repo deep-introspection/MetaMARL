@@ -47,6 +47,15 @@ class FisheryMechanism(Mechanism):
             dtype=np.float32,
         )
 
+    def param_names(self) -> list[str]:
+        return [
+            "fixed_quota",
+            "prop_quota",
+            "min_stock",
+            "fine_amount",
+            "ban_period",
+        ]
+
 
 class FisheryMechanismSpace(MechanismSpace):
     def __init__(self, use_stochastic_roundting: bool = True):

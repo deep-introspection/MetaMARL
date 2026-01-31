@@ -21,6 +21,8 @@ from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 # TODO experimentation helpers
 # TODO review ray configz
 
+ray.shutdown()
+
 bilevel_opt_cfg: BilevelConfig = (
     BilevelConfig()
     .world(world_name="fishery_world")
@@ -34,10 +36,10 @@ bilevel_opt_cfg: BilevelConfig = (
             ban_period=2,
         ),
     )
-    .training(outer_iters=10)
+    .training(outer_iters=2)
     .ray(
         device="cpu",
-        num_cpus=8,
+        num_cpus=2,
         omp_threads=1,
         logging_level="ERROR",
         runtime_env={
@@ -56,16 +58,16 @@ bilevel_opt_cfg: BilevelConfig = (
         .training(  # TODO dimension inferred from mechanism ?
             sigma=0.15,
             mean_lr=0.1,
-            sigma_lr=0.05,
+            sigma_lr=0.0,
             min_sigma=1e-3,
             max_sigma=0.5,
         )
         .environment(
             env=FisheryRegulatorEnv,
             env_config={
-                "ecology_cfg": {"sus_weight": 5.0, "sus_threshold": 0.1},
+                "ecology_cfg": {"sus_weight": 5.0, "sus_threshold": 0.1, "horizon": 3,},
             },
-            train_iters=2,
+            train_iters=1,
         )
     )
     .inner(
@@ -85,12 +87,14 @@ bilevel_opt_cfg: BilevelConfig = (
                 "ecology_cfg": {
                     "algae_init": 1.0,
                     "fish_init": 0.5,
-                    "alpha": 1.0,
-                    "beta": 0.5,
-                    "delta": 0.5,
-                    "gamma": 1.0,
-                    "dt": 0.05,
-                    "horizon": 30,
+                    "max_fish": 2.0,
+                    "max_algae": 2.0,
+                    "alpha": 0.5,
+                    "beta": 0.1,
+                    "delta": 0.1,
+                    "gamma": 0.5,
+                    "dt": 0.01,
+                    "horizon": 3, # must be the same as regulator
                 },
                 "seed": 0,
             },
@@ -100,17 +104,20 @@ bilevel_opt_cfg: BilevelConfig = (
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
             num_envs_per_env_runner=2,
+            rollout_fragment_length=3, # must be same as env horizon
+            batch_mode="complete_episodes"
         )
         .training(
             gamma=0.99,
             lr=3e-4,
-            train_batch_size=200,
-            minibatch_size=64,
+            train_batch_size=6,
+            minibatch_size=6,
         )
         .evaluation(
-            evaluation_interval=1,
+            evaluation_interval=0,
             evaluation_duration=2,  # eval iters
             evaluation_duration_unit="episodes",
+            evaluation_num_env_runners=2,  # TODO dynamically build this from training config
             evaluation_sample_timeout_s=NotProvided,
             evaluation_parallel_to_training=False,
             evaluation_config={"explore": False},
@@ -120,31 +127,19 @@ bilevel_opt_cfg: BilevelConfig = (
                 "fisher": {
                     "count": 2,
                     "policy": "fisher_policy",
-                    "observation_space": spaces.Dict(
-                        {
-                            "fish": spaces.Box(
-                                low=0.0,
-                                high=np.finfo(np.float32).max,
-                                shape=(1,),
-                                dtype=np.float32,
-                            ),
-                            "algae": spaces.Box(
-                                low=0.0,
-                                high=np.finfo(np.float32).max,
-                                shape=(1,),
-                                dtype=np.float32,
-                            ),
-                        }
+                    "observation_space": spaces.Box(
+                        low=-np.inf,
+                        high=np.inf,
+                        shape=(
+                            2 + FisheryMechanismSpace().dimension,
+                        ),  # fish and alage #mechanism conditioned-RL
+                        dtype=np.float32,
                     ),
-                    "action_space": spaces.Dict(
-                        {
-                            "fish_harvest": spaces.Box(
-                                low=0.0,
-                                high=np.finfo(np.float32).max,
-                                shape=(1,),
-                                dtype=np.float32,
-                            )
-                        }
+                    "action_space": spaces.Box(
+                        low=0.0,
+                        high=0.3,
+                        shape=(1,),
+                        dtype=np.float32,
                     ),
                 }
             }
@@ -153,6 +148,8 @@ bilevel_opt_cfg: BilevelConfig = (
     )
 )
 
+# TODO
+# custom_evaluation_function
 
 # run the experiment
 bilevel_opt = bilevel_opt_cfg.build_optimizer()
