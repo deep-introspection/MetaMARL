@@ -16,53 +16,51 @@ def _run_evaluation_runner(
 ):
     # Build agent → policy mapping
     agent_to_policy = {}
+    policy_to_agents = {}
+
     for agent_type, spec in config.agent_specs.items():
-        policy_id = spec["policy"]
+        pid = spec["policy"]
         for i in range(spec["count"]):
-            agent_to_policy[f"{agent_type}:{i}"] = policy_id
+            aid = f"{agent_type}:{i}"
+            agent_to_policy[aid] = pid
+            policy_to_agents.setdefault(pid, []).append(aid)
 
     agents = list(agent_to_policy.keys())
+
+    env = config._env_creator(
+        world=world,
+        opt_id=opt_id,
+        agents=agents,
+        **config.env_config,
+    )
 
     # Run evaluation episodes
     for ep in range(eval_episodes):
         seed = None if eval_base_seed is None else eval_base_seed + ep
-
-        env = config._env_creator(
-            world=world,
-            opt_id=opt_id,
-            agents=agents,
-            **config.env_config,
-        )
-
         observations, _ = env.reset(seed=seed)
-        terminated = {aid: False for aid in agents}
-        truncated = {aid: False for aid in agents}
-        step_count = 0
 
-        while (
-            not any(terminated.values())
-            and not any(truncated.values())
-            and step_count < env.horizon
-        ):
+        terminated = {a: False for a in agents}
+        truncated = {a: False for a in agents}
+
+        while not any(terminated.values()) and not any(truncated.values()):
             actions = {}
 
-            for agent_id in agents:
-                obs = observations[agent_id]
-                policy_id = agent_to_policy[agent_id]
-
-                # 🔑 Policy access via Ray actor (SAFE)
-                action = ray.get(
-                    policy_actor.compute_action.remote(policy_id, obs)
+            # -------------------------
+            # Batched per-policy inference
+            # -------------------------
+            for policy_id, agent_ids in policy_to_agents.items():
+                obs_batch = np.stack([observations[a] for a in agent_ids])
+                act_batch = ray.get(
+                    policy_actor.compute_actions.remote(policy_id, obs_batch)
                 )
 
-                act_space = config.env_config["action_spaces"][agent_id]
-                action = np.asarray(action, dtype=act_space.dtype)
-                action = np.clip(action, act_space.low, act_space.high)
+                for aid, act in zip(agent_ids, act_batch):
+                    space = config.env_config["action_spaces"][aid]
+                    act = np.asarray(act, dtype=space.dtype)
+                    act = np.clip(act, space.low, space.high)
+                    actions[aid] = act
 
-                actions[agent_id] = action
-
-            observations, rewards, terminated, truncated, infos = env.step(actions)
-            step_count += 1
+            observations, _, terminated, truncated, _ = env.step(actions)
 
         env.close()
 

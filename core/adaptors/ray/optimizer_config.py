@@ -481,15 +481,20 @@ class RayOptimizerConfig(OptimizerConfig):
         """
         return cfg.callbacks(**kwargs)
 
-    def evaluation(self, *, episodes: int = None, rollout_fragment_length: int, base_seed: Optional[int]=None, **kwargs) -> Self:
-        if episodes is not None:
-            self.eval_episodes = episodes
-        if base_seed is not None:
-            self.eval_base_seed = base_seed
-        # TODO to infer from horizon
-        if rollout_fragment_length is not None:
-            self.rollout_fragment_length = rollout_fragment_length
-        return self
+    # def evaluation(self, *, episodes: int = None, rollout_fragment_length: int, base_seed: Optional[int]=None, **kwargs) -> Self:
+    #     if episodes is not None:
+    #         self.eval_episodes = episodes
+    #     if base_seed is not None:
+    #         self.eval_base_seed = base_seed
+    #     # TODO to infer from horizon
+    #     if rollout_fragment_length is not None:
+    #         self.rollout_fragment_length = rollout_fragment_length
+    #     return self
+
+    @rllib_config_mutator
+    def evaluation(cfg, **kwargs) -> None:
+        return cfg.evaluation(**kwargs)
+
 
     @rllib_config_mutator
     def offline_data(cfg, **kwargs) -> None:

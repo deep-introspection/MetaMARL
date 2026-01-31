@@ -47,8 +47,13 @@ class RayRuntimeConfig:
             ignore_reinit_error=True,
             logging_level=self.logging_level,
             runtime_env=self.runtime_env,
-            local_mode=True,
-            log_to_driver=True,
+            local_mode=True, #for debugging only
+            log_to_driver=False,
+            include_dashboard=False,
+            _system_config={
+                "metrics_report_interval_ms": 0,
+                "enable_metrics_collection": False,
+            },
             **self.init_kwargs,
         )
 

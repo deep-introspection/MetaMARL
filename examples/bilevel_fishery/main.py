@@ -36,7 +36,7 @@ bilevel_opt_cfg: BilevelConfig = (
             ban_period=2,
         ),
     )
-    .training(outer_iters=20)
+    .training(outer_iters=100)
     .ray(
         device="cpu",
         num_cpus=4,
@@ -118,10 +118,24 @@ bilevel_opt_cfg: BilevelConfig = (
             minibatch_size=512, #512
         )
         .evaluation(
-            episodes=10, #10
-            rollout_fragment_length=200,  #must be same as horizon 200
-            base_seed=None,
-        )
+                evaluation_interval=None,
+                evaluation_duration=2000, #rollout_fragment_length X num_episodes
+                evaluation_duration_unit="timesteps",
+                evaluation_num_env_runners=1,
+                # evaluation_parallel_to_training=False,  # keep it simple/deterministic
+                        evaluation_config={
+                            "explore": False,                   # greedy eval actions
+                            "seed": 1234, 
+                            "num_envs_per_env_runner": 16, #same as training
+                            "rollout_fragment_length": 200, #same as training
+                            "batch_mode": "complete_episodes", #same as training
+                        },
+            )
+        # .evaluation(
+        #     episodes=10, #10
+        #     rollout_fragment_length=200,  #must be same as horizon 200
+        #     base_seed=None,
+        # )
         .agents(
             {
                 "fisher": {

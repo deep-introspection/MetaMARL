@@ -87,7 +87,7 @@ class RegulatorEnv(BaseEnv):
 
         # todo : the total episodes must be same as numer mechanisms
         # reset mechanism contexts
-        for _ in range(self.inner.config.eval_episodes):
+        for _ in range(self.inner.eval_episodes):
             for idx, m in enumerate(mechanisms):
                 self._publish(
                     MechanismContext(
@@ -103,7 +103,7 @@ class RegulatorEnv(BaseEnv):
         ctx_registry_before = set(ray.get(self.world.get_ctx_registry.remote()).keys())
 
         # TODO review env step geometry
-        self.inner.evaluate_async()
+        self.inner.evaluate()
 
         ctx_registry_after = ray.get(self.world.get_ctx_registry.remote())
 
@@ -114,11 +114,17 @@ class RegulatorEnv(BaseEnv):
             and ctx.opt_id == self.inner.opt_id
             and isinstance(ctx.payload, EnvStepContext)
         ]
+        consumed_ids = [cid for cid, _ in new_ctxs]
 
         # Evaluation metrics are defined by user and provided as a callable.
         # metrics = user_eval_fn(contexts)
 
         reward = self.aggregate_rewards(new_ctxs)
+
+        # flush consumed contexts
+
+        ray.get(self.world.remove_contexts.remote(consumed_ids))
+        ray.get(self.world.flush.remote(job=MechanismStatus.eval))
 
         return None, reward, False, False, {}
 
