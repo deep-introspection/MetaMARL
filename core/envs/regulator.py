@@ -103,7 +103,7 @@ class RegulatorEnv(BaseEnv):
         ctx_registry_before = set(ray.get(self.world.get_ctx_registry.remote()).keys())
 
         # TODO review env step geometry
-        self.inner.evaluate()
+        self.inner.evaluate_async()
 
         ctx_registry_after = ray.get(self.world.get_ctx_registry.remote())
 

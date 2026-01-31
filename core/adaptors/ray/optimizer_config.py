@@ -823,11 +823,12 @@ class RayOptimizerConfig(OptimizerConfig):
             env=env_name, env_config=self.env_config
         )
 
-        algo = self.rllib_cfg.build_algo(**kwargs)
+        # Building defferred to policyActor
+        # algo = self.rllib_cfg.build_algo(**kwargs)
 
         cfg = self.copy(copy_frozen=True)
         # TODO do not give world to ray optimizer. temp solution until environment factory
-        opt = RayOptimizer(algo=algo, config=cfg, world=world)
+        opt = RayOptimizer(config=cfg, world=world)
 
         # TODO refactor to env Factory later
         opt.world=world
