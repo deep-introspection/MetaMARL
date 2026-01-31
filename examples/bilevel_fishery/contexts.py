@@ -42,5 +42,3 @@ class FitnessContext(ContextSchema):
             collapse_rate=float(collapse_rate),
             sustainability_penalty=float(sustainability_penalty),
         )
-    
-    

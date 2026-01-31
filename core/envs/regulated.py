@@ -6,7 +6,6 @@ import ray
 
 from core.annotations import override
 from core.envs.base import BaseEnv
-from core.mechanism.base import Mechanism
 from core.types import OptimizerID
 from core.world.base import World
 from core.world.context import MechanismContext

@@ -65,7 +65,11 @@ bilevel_opt_cfg: BilevelConfig = (
         .environment(
             env=FisheryRegulatorEnv,
             env_config={
-                "ecology_cfg": {"sus_weight": 5.0, "sus_threshold": 0.1, "horizon": 3,},
+                "ecology_cfg": {
+                    "sus_weight": 5.0,
+                    "sus_threshold": 0.1,
+                    "horizon": 3,
+                },
             },
             train_iters=1,
         )
@@ -94,7 +98,7 @@ bilevel_opt_cfg: BilevelConfig = (
                     "delta": 0.1,
                     "gamma": 0.5,
                     "dt": 0.01,
-                    "horizon": 3, # must be the same as regulator
+                    "horizon": 3,  # must be the same as regulator
                 },
                 "seed": 0,
             },
@@ -104,8 +108,8 @@ bilevel_opt_cfg: BilevelConfig = (
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
             num_envs_per_env_runner=2,
-            rollout_fragment_length=3, # must be same as env horizon
-            batch_mode="complete_episodes"
+            rollout_fragment_length=3,  # must be same as env horizon
+            batch_mode="complete_episodes",
         )
         .training(
             gamma=0.99,

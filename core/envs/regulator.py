@@ -12,7 +12,12 @@ from core.mechanism.base import Mechanism, VectorMechanism
 from core.optimizers.base import Optimizer
 from core.types import OptimizerID
 from core.world.base import World
-from core.world.context import Context, EnvStepContext, MechanismContext, MechanismStatus
+from core.world.context import (
+    Context,
+    EnvStepContext,
+    MechanismContext,
+    MechanismStatus,
+)
 
 
 class RegulatorEnv(BaseEnv):
@@ -73,7 +78,7 @@ class RegulatorEnv(BaseEnv):
                     job=MechanismStatus.train,
                     env_id=None,
                     mechanism=m,
-                    metrics=None
+                    metrics=None,
                 )
             )
 
@@ -90,14 +95,14 @@ class RegulatorEnv(BaseEnv):
                         job=MechanismStatus.eval,
                         env_id=None,
                         mechanism=m,
-                        metrics=None
+                        metrics=None,
                     )
                 )
 
         ctx_registry_before = set(ray.get(self.world.get_ctx_registry.remote()).keys())
 
         # TODO review env step geometry
-        self.inner.evaluate() 
+        self.inner.evaluate()
 
         ctx_registry_after = ray.get(self.world.get_ctx_registry.remote())
 

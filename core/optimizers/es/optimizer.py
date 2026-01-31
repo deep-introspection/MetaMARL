@@ -195,11 +195,11 @@ class ESOptimizer(Optimizer):
             _, fitness, _, _, _ = self.env.step(population)
         else:
             raise RuntimeError("ESConfig needs a Regulator Env")
-        
+
         fitness = np.asarray(fitness, dtype=np.float32)
         if not np.all(np.isfinite(fitness)):
             raise RuntimeError("Non-finite fitness detected")
-        
+
         current_best = float(np.max(fitness))
 
         # Convergence logic
@@ -210,9 +210,7 @@ class ESOptimizer(Optimizer):
             self.no_improve_steps += 1
 
         if self.no_improve_steps >= self.convergence_patience:
-            print(
-                f"[ES] Converged at gen={gen}, best_fitness={self.best_fitness:.4f}"
-            )
+            print(f"[ES] Converged at gen={gen}, best_fitness={self.best_fitness:.4f}")
             break
 
         # TODO broadcasting in env

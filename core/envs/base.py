@@ -84,7 +84,7 @@ class BaseEnv(Env):
         if self.m_ctx is not None:
             m_idx = self.m_ctx.index
         m_idx = None
-        
+
         # Publish env context to World
         self._publish(
             EnvStepContext(

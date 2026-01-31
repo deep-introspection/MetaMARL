@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional, SupportsFloat
+from typing import Optional, SupportsFloat
 
 from gymnasium.core import ActType, ObsType
 from pydantic import BaseModel, SkipValidation

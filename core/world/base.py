@@ -87,7 +87,6 @@ class World:
 
         raise RuntimeError("no available mechanisms to train")
 
-
         # if env_id not in self._mechanism_registry:
         #     raise KeyError(f"No mechanism registered for env_id={env_id}")
         # return self._mechanism_registry[env_id]
@@ -210,7 +209,6 @@ class World:
                 del self._opt_ctx_map[ctx.opt_id]
 
     def flush(self, job: Optional[MechanismStatus] = None) -> None:
-        
         to_delete = []
 
         for ctx_id, m_ctx in self._mechanism_registry.items():

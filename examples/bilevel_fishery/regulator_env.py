@@ -1,14 +1,17 @@
 from collections import defaultdict
-from typing import Any, SupportsFloat
+from typing import Any
 
 import numpy as np
 from gymnasium.core import ObsType
-import ray
 
 from core.annotations import override
 from core.envs.regulator import RegulatorEnv
-from core.mechanism.base import Mechanism
-from core.world.context import Context, EnvStepContext, MechanismContext, MechanismStatus
+from core.world.context import (
+    Context,
+    EnvStepContext,
+    MechanismContext,
+    MechanismStatus,
+)
 from examples.bilevel_fishery.contexts import FitnessContext
 
 
@@ -51,10 +54,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
         - Aggregate exactly like legacy evaluator
         """
 
-        step_ctxs = [
-            ctx for ctx in ctxs
-            if isinstance(ctx.payload, EnvStepContext)
-        ]
+        step_ctxs = [ctx for ctx in ctxs if isinstance(ctx.payload, EnvStepContext)]
 
         if not step_ctxs:
             return []
