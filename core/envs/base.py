@@ -11,7 +11,7 @@ from core.mechanism.base import Mechanism
 from core.mechanism.space import MechanismSpace
 from core.types import OptimizerID
 from core.world.base import World
-from core.world.context import Context, ContextSchema, EnvStepContext
+from core.world.context import Context, ContextSchema, EnvStepContext, MechanismContext
 
 
 class BaseEnv(Env):
@@ -31,7 +31,8 @@ class BaseEnv(Env):
         self._opt_id = opt_id
         self._t = 0
         self.m_space: MechanismSpace = mechanism_space()
-        self.m: Mechanism = mechanism_space.default()
+        self.m_ctx: MechanismContext = None
+        self.m: Mechanism = None
         self.env_id = vector_index
 
     # Setter
@@ -56,6 +57,15 @@ class BaseEnv(Env):
         """Run one timestep of the environment's dynamics using the agent actions."""
         raise NotImplementedError
 
+    def _base_reset(self, *, seed=None):
+        self.rng = np.random.default_rng(seed)
+        self._t = 0
+        self._pre_reset()
+
+    @abstractmethod
+    def _pre_reset(self) -> None:
+        pass
+
     @abstractmethod
     def _reset(self):
         raise NotImplementedError
@@ -71,9 +81,14 @@ class BaseEnv(Env):
         obs = self.observation(raw_obs)
         reward = self.reward(raw_reward)
 
+        if self.m_ctx is not None:
+            m_idx = self.m_ctx.index
+        m_idx = None
+        
         # Publish env context to World
         self._publish(
             EnvStepContext(
+                mechanism=m_idx,  # TODO link with mechanismID rather than mechanism
                 observation=obs,
                 reward=reward,
                 action=action,
@@ -85,21 +100,18 @@ class BaseEnv(Env):
 
     @override(Env)
     def reset(self, *, seed=None, options=None):
-        self.rng = np.random.default_rng(seed)
-        self._t = 0
-
+        self._base_reset(seed=seed)
         obs = self._reset()
-
         self._publish(
             EnvStepContext(
+                mechanism=self.m_ctx.index,
                 observation=obs,
                 reward=0.0,
                 action=None,
-                info=None,
+                info={},
             )
         )
-
-        return obs, {}
+        return obs
 
     def observation(self, observation: ObsType) -> WrapperObsType:
         """Returns a modified observation.

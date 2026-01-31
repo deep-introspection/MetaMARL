@@ -12,7 +12,7 @@ from core.mechanism.base import Mechanism, VectorMechanism
 from core.optimizers.base import Optimizer
 from core.types import OptimizerID
 from core.world.base import World
-from core.world.context import EnvStepContext, MechanismContext
+from core.world.context import Context, EnvStepContext, MechanismContext, MechanismStatus
 
 
 class RegulatorEnv(BaseEnv):
@@ -46,7 +46,7 @@ class RegulatorEnv(BaseEnv):
 
     @override(BaseEnv)
     def _step(
-        self, theta: Mechanism
+        self, mechanisms: list[Mechanism]
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
         if self.inner is None:
             raise NotImplementedError(
@@ -54,33 +54,63 @@ class RegulatorEnv(BaseEnv):
                 f"Override `_step()` for analytic reward computation."
             )
 
-        if not isinstance(theta, Mechanism):
+        if not isinstance(mechanisms, list) or not all(
+            isinstance(t, Mechanism) for t in mechanisms
+        ):
             raise TypeError(
-                f"{self.__class__.__name__} expected Mechanism, got {type(theta)}"
+                f"{self.__class__.__name__} expected list[Mechanism], got {type(mechanisms)}"
             )
 
         # TODO PARALLELIZE Vectorize environment across θ candidates and train one ppo policy over mehcanism candidates
         # TODO other techiniques can also speed this up
         # for theta in thetas:
         #     self._publish(MechanismContext(theta=theta))
-        self._publish(MechanismContext(env_id=self.env_id, theta=theta))
+        for idx, m in enumerate(mechanisms):
+            self._publish(
+                MechanismContext(
+                    index=idx,
+                    status=MechanismStatus.published,
+                    job=MechanismStatus.train,
+                    env_id=None,
+                    mechanism=m,
+                    metrics=None
+                )
+            )
+
+        # One policy conditioned on Theta (theta-conditioned RL)
+        self.inner.run()
+
+        # reset mechanism contexts
+        for _ in range(self.inner.config.evaluation_duration):
+            for idx, m in enumerate(mechanisms):
+                self._publish(
+                    MechanismContext(
+                        index=idx,
+                        status=MechanismStatus.published,
+                        job=MechanismStatus.eval,
+                        env_id=None,
+                        mechanism=m,
+                        metrics=None
+                    )
+                )
 
         ctx_registry_before = set(ray.get(self.world.get_ctx_registry.remote()).keys())
 
-        for _ in range(self.train_iters):
-            self.inner.run()
-
-        self.inner.evaluate()
+        # TODO review env step geometry
+        self.inner.evaluate() 
 
         ctx_registry_after = ray.get(self.world.get_ctx_registry.remote())
 
         new_ctxs = [
-            ctx.payload
+            ctx
             for cid, ctx in ctx_registry_after.items()
             if cid not in ctx_registry_before
             and ctx.opt_id == self.inner.opt_id
             and isinstance(ctx.payload, EnvStepContext)
         ]
+
+        # Evaluation metrics are defined by user and provided as a callable.
+        # metrics = user_eval_fn(contexts)
 
         reward = self.aggregate_rewards(new_ctxs)
 
@@ -93,12 +123,8 @@ class RegulatorEnv(BaseEnv):
     #     raise NotImplementedError
 
     @abstractmethod
-    def aggregate_rewards(self, ctx: list[EnvStepContext]) -> SupportsFloat:
+    def aggregate_rewards(self, ctx: list[Context]) -> SupportsFloat:
         return NotImplementedError
-
-    @override(BaseEnv)
-    def reward(self, rewards: list[SupportsFloat]) -> SupportsFloat:
-        pass
 
     # @abstractmethod
     @override(BaseEnv)
@@ -117,10 +143,7 @@ class RegulatorEnv(BaseEnv):
                     action = action[None, :]  # (d,) -> (1, d)
 
                 # TODO parallelize
-                return [
-                    self.m_space.decode(x)
-                    for x in action
-                ]
+                return [self.m_space.decode(x) for x in action]
 
             if torch.is_tensor(action):
                 return self.action(action.detach().cpu().numpy())
