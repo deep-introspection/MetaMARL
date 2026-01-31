@@ -2,7 +2,6 @@ import asyncio
 
 import numpy as np
 import pytest
-
 from src.es.config import ESConfig
 from src.es.optimizer import ESOptimizer
 

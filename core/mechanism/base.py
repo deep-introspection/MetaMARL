@@ -1,18 +1,21 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 
 
+@runtime_checkable
 class Mechanism(Protocol):
-    """
-    Typed interface for regulator parameters.
-    """
+    """Semantic representation of a regulatory mechanism."""
 
-    def to_vector(self) -> list[float]: ...
+    def to_vector(self) -> list[float]:
+        """Convert semantic mechanism to normalized vector in [0,1]^d."""
+        ...
+
+    def param_names(self) -> list[str]: ...
 
     @classmethod
-    def from_vector(cls, x: list[float]) -> "Mechanism": ...
+    def default(cls) -> "Mechanism": ...
 
 
 @dataclass(frozen=True)

@@ -9,11 +9,15 @@ from gymnasium.core import ActType, ObsType
 from core.annotations import override
 from core.envs.base import BaseEnv
 from core.mechanism.base import Mechanism, VectorMechanism
-from core.mechanism.space import MechanismSpace
 from core.optimizers.base import Optimizer
 from core.types import OptimizerID
 from core.world.base import World
-from core.world.context import EnvStepContext, MechanismContext
+from core.world.context import (
+    Context,
+    EnvStepContext,
+    MechanismContext,
+    MechanismStatus,
+)
 
 
 class RegulatorEnv(BaseEnv):
@@ -24,15 +28,11 @@ class RegulatorEnv(BaseEnv):
         opt_id: OptimizerID | None = None,
         optimizer: Optional[Optimizer] = None,
         train_iters: int = 5,
-        eval_iters: int = 2,
-        mechanism_space: MechanismSpace = None,
         **kwargs,
     ):
         super().__init__(world=world, opt_id=opt_id, **kwargs)
         self.inner: Optimizer = optimizer
         self.train_iters: int = train_iters
-        self.eval_iters: int = eval_iters
-        self.mechanism_space: MechanismSpace = mechanism_space
 
         self._validate()
 
@@ -43,35 +43,15 @@ class RegulatorEnv(BaseEnv):
         if self.train_iters <= 0:
             raise ValueError("train_iters must be >= 1 when optimizer is provided")
 
-        if self.eval_iters <= 0:
-            raise ValueError("eval_iters must be >= 1 when optimizer is provided")
-
     @override(BaseEnv)
     def _reset(self):
         if self.observation_space is None:
             return 0.0
         return np.zeros(self.observation_space.shape, dtype=np.float32)
 
-    # TODO
-    # @override(BaseEnv)
-    # def _step(
-    #     self, theta: Mechanism
-    # ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-
-    #     # Always publish mechanism
-    #     self._publish(MechanismContext(theta=theta))
-
-    #     return self._inner_step(theta)
-
-    # @abstractmethod
-    # def _inner_step(
-    #     self, theta: Mechanism
-    # ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-    #     ...
-
     @override(BaseEnv)
     def _step(
-        self, thetas: list[Mechanism]
+        self, mechanisms: list[Mechanism]
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
         if self.inner is None:
             raise NotImplementedError(
@@ -79,19 +59,67 @@ class RegulatorEnv(BaseEnv):
                 f"Override `_step()` for analytic reward computation."
             )
 
-        if not isinstance(thetas, list):
+        if not isinstance(mechanisms, list) or not all(
+            isinstance(t, Mechanism) for t in mechanisms
+        ):
             raise TypeError(
-                f"{self.__class__.__name__} expected list[Mechanism] after action(), "
-                f"got {type(thetas)}"
+                f"{self.__class__.__name__} expected list[Mechanism], got {type(mechanisms)}"
             )
 
-        for theta in thetas:
-            self._publish(MechanismContext(theta=theta))
+        # TODO PARALLELIZE Vectorize environment across θ candidates and train one ppo policy over mehcanism candidates
+        # TODO other techiniques can also speed this up
+        # for theta in thetas:
+        #     self._publish(MechanismContext(theta=theta))
+        for idx, m in enumerate(mechanisms):
+            self._publish(
+                MechanismContext(
+                    index=idx,
+                    status=MechanismStatus.published,
+                    job=MechanismStatus.train,
+                    env_id=None,
+                    mechanism=m,
+                    metrics=None,
+                )
+            )
 
-        for _ in range(self.train_iters):
-            self.inner.run()
+        # One policy conditioned on Theta (theta-conditioned RL)
+        self.inner.run()
 
-        return None, 0.0, False, False, {}
+        # reset mechanism contexts
+        for _ in range(self.inner.config.evaluation_duration):
+            for idx, m in enumerate(mechanisms):
+                self._publish(
+                    MechanismContext(
+                        index=idx,
+                        status=MechanismStatus.published,
+                        job=MechanismStatus.eval,
+                        env_id=None,
+                        mechanism=m,
+                        metrics=None,
+                    )
+                )
+
+        ctx_registry_before = set(ray.get(self.world.get_ctx_registry.remote()).keys())
+
+        # TODO review env step geometry
+        self.inner.evaluate()
+
+        ctx_registry_after = ray.get(self.world.get_ctx_registry.remote())
+
+        new_ctxs = [
+            ctx
+            for cid, ctx in ctx_registry_after.items()
+            if cid not in ctx_registry_before
+            and ctx.opt_id == self.inner.opt_id
+            and isinstance(ctx.payload, EnvStepContext)
+        ]
+
+        # Evaluation metrics are defined by user and provided as a callable.
+        # metrics = user_eval_fn(contexts)
+
+        reward = self.aggregate_rewards(new_ctxs)
+
+        return None, reward, False, False, {}
 
     # @abstractmethod
     # @override(BaseEnv)
@@ -100,33 +128,8 @@ class RegulatorEnv(BaseEnv):
     #     raise NotImplementedError
 
     @abstractmethod
-    def aggregate_rewards(self, rewards: list[SupportsFloat]) -> SupportsFloat:
+    def aggregate_rewards(self, ctx: list[Context]) -> SupportsFloat:
         return NotImplementedError
-
-    @override(BaseEnv)
-    def reward(self, reward: SupportsFloat = 0.0) -> SupportsFloat:
-        
-        # analytic path
-        if self.inner is None:
-            return reward
-    
-        ctx_registry = ray.get(self.world.get_ctx_registry.remote())
-
-        # TODO introduce windowing later to allow only to aggregate rewards from this mechanism
-        # Keep only EnvStepContexts produced by inner optimizer
-        inner_ctxs = [
-            ctx
-            for ctx in ctx_registry.values()
-            if ctx.opt_id == self.inner.opt_id
-            and isinstance(ctx.payload, EnvStepContext)
-        ]
-
-        if not inner_ctxs:
-            raise RuntimeError("No EnvStepContext published by inner optimizer")
-
-        rewards = [float(ctx.payload.reward) for ctx in inner_ctxs]
-
-        return self.aggregate_rewards(rewards)
 
     # @abstractmethod
     @override(BaseEnv)
@@ -134,19 +137,18 @@ class RegulatorEnv(BaseEnv):
         # analytic path
         if self.inner is None:
             return action
-        
+
         # 1) Mechanism space path (preferred)
-        if self.mechanism_space is not None:
+        if self.m_space is not None:
             if isinstance(action, (list, tuple)):
                 action = np.asarray(action, dtype=np.float32)
 
             if isinstance(action, np.ndarray):
                 if action.ndim == 1:
                     action = action[None, :]  # (d,) -> (1, d)
-                return [
-                    self.mechanism_space.project(self.mechanism_space.from_vector(v))
-                    for v in action
-                ]
+
+                # TODO parallelize
+                return [self.m_space.decode(x) for x in action]
 
             if torch.is_tensor(action):
                 return self.action(action.detach().cpu().numpy())

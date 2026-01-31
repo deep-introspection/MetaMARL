@@ -2,16 +2,16 @@ from typing import Optional, Self
 
 from core.annotations import override
 from core.optimizers.config import OptimizerConfig
-from src.es.optimizer import ESOptimizer
+from core.optimizers.es.optimizer import ESOptimizer
 
 
 class ESConfig(OptimizerConfig):
     def __init__(self, opt_class=None):
         super().__init__(opt_class=opt_class or ESOptimizer)
 
+        # Add default or from default
         # ES training hyperparameters
-        self.dimension: int = 5
-        self.pop_size: int = 8
+        self.dimension: int = None
         self.sigma: int = 0.15
         self.mean_lr: float = 0.1
         self.sigma_lr: float = 0.05
@@ -19,12 +19,13 @@ class ESConfig(OptimizerConfig):
         self.max_sigma: float = 0.5
         self.break_symmetry: bool = False
 
+        self.convergence_eps: float = 1e-4
+        self.convergence_patience: int = 10
+
     @override(OptimizerConfig)
     def training(
         self,
         *,
-        dimension: Optional[int] = None,
-        pop_size: Optional[int] = None,
         sigma: Optional[int] = None,
         mean_lr: Optional[float] = None,
         sigma_lr: Optional[float] = None,
@@ -32,13 +33,13 @@ class ESConfig(OptimizerConfig):
         max_sigma: Optional[float] = None,
         generation: Optional[int] = None,
         break_symmetry: Optional[bool] = None,
+        convergence_eps: Optional[float] = None,
+        convergence_patience: Optional[int] = None,
         **kwargs,
     ) -> Self:
         """Sets the training related configs for Evolution Strategies (ES).
 
         Args:
-            dimenstion: Dimensionality of the search space which corresponds to the number of
-                parameters being optimized (e.g., number of mechanism params in the outer loop).
             pop_size: Number of candidate solutions sampled per ES generation. Larger population
                 provide more stable gradient estimates at the cost of increased computation.
             sigma: Initial standard deviation (std) of the search distribution.
@@ -55,10 +56,6 @@ class ESConfig(OptimizerConfig):
         """
         super().training(**kwargs)
 
-        if dimension is not None:
-            self.dimension = dimension
-        if pop_size is not None:
-            self.pop_size = pop_size
         if sigma is not None:
             self.sigma = sigma
         if mean_lr is not None:
@@ -73,6 +70,10 @@ class ESConfig(OptimizerConfig):
             self.generation = generation
         if break_symmetry is not None:
             self.break_symmetry = break_symmetry
+        if convergence_eps is not None:
+            self.convergence_eps = convergence_eps
+        if convergence_patience is not None:
+            self.convergence_patience = convergence_patience
 
         return self
 

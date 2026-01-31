@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, KeysView
+from typing import TYPE_CHECKING, KeysView, Optional
 
 import ray
 
-from core.mechanism.base import Mechanism
 from core.types import ContextID, OptimizerID
 from core.utils import generate_uuid
-from core.world.context import Context, ContextSchema, MechanismContext
+from core.world.context import Context, ContextSchema, MechanismContext, MechanismStatus
 
 if TYPE_CHECKING:
     from core.optimizers.base import Optimizer
@@ -35,8 +34,8 @@ class World:
         # Maps context IDs to Context objects
         self._contexts: dict[ContextID, Context] = {}
 
-        # Track laterst mechanism
-        self._latest_mechanism: Mechanism | None = None
+        # Mechanism registry
+        self._mechanism_registry: dict[str, MechanismContext] = {}
 
     def __deepcopy__(self, memo):
         return self
@@ -47,6 +46,9 @@ class World:
     # Accessors
     def get_ctx_registry(self) -> dict[ContextID, Context]:
         return self._contexts
+
+    def get_mechanism_registry(self) -> dict[str, MechanismContext]:
+        return self._mechanism_registry
 
     def get_opt_registry(self) -> KeysView[OptimizerID]:
         return self._opt_ctx_map.keys()
@@ -73,10 +75,21 @@ class World:
         """
         return set(self._opt_ctx_map.keys())
 
-    def get_latest_mechanism(self) -> Mechanism:
-        if self._latest_mechanism is None:
-            raise RuntimeError("No MechanismContext published yet")
-        return self._latest_mechanism
+    def get_mechanism(self, env_id: Optional[str] = None) -> MechanismContext:
+        for m_ctx in self._mechanism_registry.values():
+            if m_ctx.status == MechanismStatus.published:
+                m_ctx.status = MechanismStatus.assigned
+
+                if env_id is not None:
+                    m_ctx.env_id = env_id
+
+                return m_ctx
+
+        raise RuntimeError("no available mechanisms to train")
+
+        # if env_id not in self._mechanism_registry:
+        #     raise KeyError(f"No mechanism registered for env_id={env_id}")
+        # return self._mechanism_registry[env_id]
 
     def _validate_ctx_schema_exists(self, schema: type[ContextSchema]) -> None:
         """
@@ -89,6 +102,28 @@ class World:
                 )
 
     # Mutators
+    def append_context(self, ctx: Context, *, singleton: bool = False):
+        # Enforce singleton schemas if requested
+        if singleton:
+            self._validate_ctx_schema_exists(type(ctx.payload))
+
+        if ctx.id is not None and ctx.id in self._contexts:
+            raise ValueError(f"ContextID '{ctx.id}' already exists")
+
+        ctx.id = generate_uuid(self._contexts)
+        self._contexts[ctx.id] = ctx
+
+        if isinstance(ctx.payload, MechanismContext):
+            self._mechanism_registry[ctx.id] = ctx.payload
+
+        # Track optimizer → context mapping
+        if ctx.opt_id is not None:
+            if ctx.opt_id not in self._opt_ctx_map:
+                self._set_new_opt_id(ctx.opt_id)
+            self._opt_ctx_map[ctx.opt_id].append(ctx.id)
+
+        return ctx.id
+
     def register_optimizer(self, opt: Optimizer) -> OptimizerID:
         """
         Register a new optimizer ID in the world.
@@ -130,8 +165,11 @@ class World:
         self._contexts[ctx.id] = ctx
 
         # Track latest mechanism globally
+        # Track per-env mechanism
         if isinstance(ctx.payload, MechanismContext):
-            self._latest_mechanism = ctx.payload.theta
+            if ctx.payload.env_id is None:
+                raise ValueError("MechanismContext must include env_id")
+            self._mechanism_registry[ctx.payload.env_id] = ctx.payload.theta
 
         if ctx.opt_id is not None:
             if ctx.opt_id not in self._opt_ctx_map:
@@ -151,7 +189,9 @@ class World:
         self._contexts[ctx.id] = ctx
 
         if isinstance(ctx.payload, MechanismContext):
-            self._latest_mechanism = ctx.payload.theta
+            if ctx.payload.env_id is None:
+                raise ValueError("MechanismContext must include env_id")
+            self._mechanism_registry[ctx.payload.env_id] = ctx.payload.theta
 
     def remove_context(self, ctx: Context) -> None:
         """
@@ -167,3 +207,14 @@ class World:
 
             if not lst:
                 del self._opt_ctx_map[ctx.opt_id]
+
+    def flush(self, job: Optional[MechanismStatus] = None) -> None:
+        to_delete = []
+
+        for ctx_id, m_ctx in self._mechanism_registry.items():
+            if job is not None and m_ctx.job != job:
+                continue
+            to_delete.append(ctx_id)
+
+        for ctx_id in to_delete:
+            del self._mechanism_registry[ctx_id]

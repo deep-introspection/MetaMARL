@@ -20,16 +20,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from typing import Any, Optional
 
 from gymnasium import Env
-from src.optimizers.ppo.training import build_ppo_algorithm, train_algorithm
+from legacy_code.training import build_ppo_algorithm, train_algorithm
 
-from contexts.evaluation import evaluate_mechanism_with_metrics
-from contexts.mechanism import MechanismParameters, map_unit_vector_to_mechanism
-from core.optimizers.base import Optimizer
-from core.optimizers.config import BaseOptimizerConfig
-from core.world.base import World
-from core.world.context import Context, ContextSchema
-from core.wrappers.context_wrapper import ContextWrapper
-from examples.config import ES_CONFIG
+from legacy_code.evaluation import evaluate_mechanism_with_metrics
+from legacy_code.mechanism import MechanismParameters, map_unit_vector_to_mechanism
+from legacy_code.core.optimizers.base import Optimizer
+from legacy_code.core.optimizers.config import BaseOptimizerConfig
+from legacy_code.core.world.base import World
+from legacy_code.core.world.context import Context, ContextSchema
+from legacy_code.core.wrappers.context_wrapper import ContextWrapper
+from legacy_code.config import ES_CONFIG
 from legacy_code.evolution_strategies import EvolutionStrategies
 
 
@@ -370,7 +370,7 @@ def run_bilevel_optimization(config: dict[str, Any]) -> MechanismParameters:
     Returns:
         Best mechanism parameters found
     """
-    from optimizers.ppo.training import initialize_ray, shutdown_ray
+    from legacy_code.training import initialize_ray, shutdown_ray
 
     # Extract config values
     bilevel_cfg = config.get("bilevel", {})
@@ -414,7 +414,7 @@ def run_bilevel_optimization(config: dict[str, Any]) -> MechanismParameters:
             sigma_lr=es_cfg.get("lr_sigma", ES_CONFIG["lr_sigma"]),
             random_seed=random_seed,
         )
-        meta_opt = meta_cfg.build_optimizer()
+        meta_opt: MechanismOptimizer = meta_cfg.build_optimizer()
         meta_opt.set_id("mechanism_optimizer")
         meta_opt.set_downstream(child_opt)
         child_opt.set_upstream(meta_opt)
@@ -443,13 +443,19 @@ def run_bilevel_optimization(config: dict[str, Any]) -> MechanismParameters:
         shutdown_ray()
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run fishery bilevel optimization")
-    parser.add_argument(
-        "--config", type=str, required=True, help="Path to YAML config file"
-    )
-    args = parser.parse_args()
+# if __name__ == "__main__":
+#     parser = argparse.ArgumentParser(description="Run fishery bilevel optimization")
+#     parser.add_argument(
+#         "--config", type=str, required=True, help="Path to YAML config file"
+#     )
+#     args = parser.parse_args()
 
-    config = load_config(args.config)
-    best = run_bilevel_optimization(config)
-    print(f"\nFinal result: {best}")
+#     config = load_config(args.config)
+#     best = run_bilevel_optimization(config)
+#     print(f"\nFinal result: {best}")
+
+
+config_path = Path(__file__).parent / "config.yaml"
+config = load_config(str(config_path))
+best = run_bilevel_optimization(config)
+print(f"\nFinal result: {best}")

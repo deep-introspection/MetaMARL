@@ -4,9 +4,9 @@ from typing import Any, Callable, Optional
 
 from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 
-from core.envs.base import BaseEnv
-from core.optimizers.config import OptimizerConfig
-from core.types import OptimizerID
+from legacy_code.core.optimizers.config import OptimizerConfig
+from legacy_code.core.types import OptimizerID
+from legacy_code.core.world.base import World
 
 
 class Optimizer(ABC):
@@ -38,7 +38,7 @@ class Optimizer(ABC):
         # logger_creator: Optional[Callable[[], Logger]] = None,
         **kwargs,
     ):
-        from core.optimizers.config import OptimizerConfig
+        from legacy_code.core.optimizers.config import OptimizerConfig
 
         self.config: OptimizerConfig = config
 
@@ -47,15 +47,10 @@ class Optimizer(ABC):
 
         # Optional environment (may be None for meta-optimizers)
         # TODO review
-        self.env: BaseEnv | None = config.env
+        self.env = getattr(config, "_env", None)
 
         # Optional metrics hook
-        self.metrics: MetricsLogger = MetricsLogger(
-            root=True, stats_cls_lookup=config.stats_cls_lookup
-        )
-
-        # batch sampling for mechanism
-        self._batch_capacity: int = 1
+        self.metrics = None
 
         # Optimizer Graph connectivity
         self._downstream: set["Optimizer"] = set()
@@ -69,10 +64,6 @@ class Optimizer(ABC):
         if self.opt_id is None:
             raise RuntimeError("Optimizer ID not set")
         return self.opt_id
-
-    @property
-    def batch_capacity(self) -> int:
-        return self._batch_capacity
 
     # TODO make id immutable
     def set_id(self, id: OptimizerID) -> None:
@@ -116,9 +107,8 @@ class Optimizer(ABC):
     # def __setattr__(self, name, value) -> Any:
     #     return super().__setattr__(name, value)
 
-    # TODO change this to training step
     @abstractmethod
-    def run(self) -> None:
+    def run(self, world: Optional[World] = None) -> None:
         """
         Implementations may publish Context objects to the World, invoke downstream
         optimizers via `self._downstream`, and retrieve or aggregate contexts from
@@ -153,13 +143,12 @@ class Optimizer(ABC):
         """
         raise NotImplementedError
 
-    def evaluate(self) -> None:
+    @abstractmethod
+    def evaluate(self, world: Optional[World]) -> None:
         """Evaluate Optimizer Performance"""
-        pass
+        raise NotImplementedError
 
-    def save(self) -> None:
+    @abstractmethod
+    def save_checkpoint(self) -> None:
         """Persist Optimizer State"""
-        pass
-
-    def stop(self) -> None:
-        pass
+        raise NotImplementedError

@@ -25,17 +25,27 @@ class RayOptimizer(Optimizer):
         super().__init__(config)
         self.algo = algo
 
+    @property
+    @override(Optimizer)
+    def batch_capacity(self) -> int:
+        return self.config.num_envs_per_env_runner
+
     @override(Optimizer)
     def run(self) -> None:
-        self.algo.train()
+        logger.info("[PPO] Training step started")
+        result = self.algo.train()
+        logger.info(
+            f"[PPO] Training step completed | "
+            f"reward_mean={result.get('episode_reward_mean')}"
+        )
 
     # @override(Optimizer)
     def evaluate(
         self,
         # parallel_train_future: Optional[concurrent.futures.ThreadPoolExecutor] = None,
     ) -> float:
-        result = self.algo.evaluate()
-        return float(result["evaluation"]["episode_reward_mean"])
+        # TODO if this lags implement this function manuallyu
+        return self.algo.evaluate()
 
     # @override(Optimizer)
     def stop(self) -> None:

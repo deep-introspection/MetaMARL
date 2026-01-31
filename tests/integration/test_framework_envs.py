@@ -1,3 +1,5 @@
+import uuid
+
 import numpy as np
 import pytest
 import ray
@@ -11,8 +13,6 @@ from core.types import OptimizerID
 from core.world.base import World
 from src.es.config import ESConfig
 from src.ppo.config import PPOptimizerConfig
-
-import uuid
 
 
 @pytest.mark.integration
@@ -214,4 +214,3 @@ def test_full_bilevel_es_ppo_loop():
 
     assert len(ray.get(world.get_ctx_ids.remote())) > 1
     assert len(ray.get(world.get_opt_registry.remote())) > 1
-
