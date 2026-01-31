@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Optional, Self
 
@@ -8,6 +9,8 @@ from core.mechanism.space import MechanismSpace
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
 from core.world.base import World
+
+logger = logging.getLogger(__name__)
 
 
 class BilevelConfig(OptimizerConfig):
@@ -122,5 +125,18 @@ class BilevelOptimizer(Optimizer):
         self.inner = inner
 
     def run(self) -> None:
-        for _ in range(self.outer_iters):
-            self.outer.run()
+        logger.info(
+            f"[Bilevel] Starting run | outer_iters={self.outer_iters} | world={self.world_name}"
+        )
+
+        for outer_iter in range(self.outer_iters):
+            logger.info(f"[Bilevel] Outer iteration {outer_iter} started")
+
+            outer_metrics = self.outer.run()
+
+            if outer_metrics.get("converged", False):
+                logger.info(
+                    f"[Bilevel] Convergence signaled by outer optimizer "
+                    f"(best_fitness={outer_metrics['best_fitness']:.4f})"
+                )
+                break

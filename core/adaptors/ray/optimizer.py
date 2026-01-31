@@ -32,7 +32,12 @@ class RayOptimizer(Optimizer):
 
     @override(Optimizer)
     def run(self) -> None:
-        self.algo.train()
+        logger.info("[PPO] Training step started")
+        result = self.algo.train()
+        logger.info(
+            f"[PPO] Training step completed | "
+            f"reward_mean={result.get('episode_reward_mean')}"
+        )
 
     # @override(Optimizer)
     def evaluate(
