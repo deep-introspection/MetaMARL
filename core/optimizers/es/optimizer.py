@@ -22,6 +22,8 @@ class ESOptimizer(Optimizer):
         # --- hyperparameters --
         self.dimension = config.dimension
         self.mean_lr = config.mean_lr
+
+        # TODO sigma anneal
         self.sigma_lr = config.sigma_lr
         self.min_sigma = config.min_sigma
         self.max_sigma = config.max_sigma
@@ -40,6 +42,10 @@ class ESOptimizer(Optimizer):
         self.fitness_baseline = None
         self.best_fitness = -float("inf")
         self.best_candidate = self.mean.copy()
+
+        # TODO move this to generalized optimizer
+        self.convergence_eps = config.convergence_eps
+        self.convergence_patience = config.convergence_patience
 
     @property
     def batch_capacity(self) -> int:
@@ -188,8 +194,26 @@ class ESOptimizer(Optimizer):
         if self.env is not None:
             _, fitness, _, _, _ = self.env.step(population)
         else:
-            # TODO case when the fitness is not none
-            fitness = "????"
+            raise RuntimeError("ESConfig needs a Regulator Env")
+        
+        fitness = np.asarray(fitness, dtype=np.float32)
+        if not np.all(np.isfinite(fitness)):
+            raise RuntimeError("Non-finite fitness detected")
+        
+        current_best = float(np.max(fitness))
+
+        # Convergence logic
+        if current_best > self.best_fitness + self.convergence_eps:
+            self.best_fitness = current_best
+            self.no_improve_steps = 0
+        else:
+            self.no_improve_steps += 1
+
+        if self.no_improve_steps >= self.convergence_patience:
+            print(
+                f"[ES] Converged at gen={gen}, best_fitness={self.best_fitness:.4f}"
+            )
+            break
 
         # TODO broadcasting in env
         if np.isscalar(fitness):

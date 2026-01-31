@@ -52,7 +52,7 @@ class Optimizer(ABC):
         # Optional metrics hook
         self.metrics: MetricsLogger = MetricsLogger(
             root=True, stats_cls_lookup=config.stats_cls_lookup
-        )   
+        )
 
         # batch sampling for mechanism
         self._batch_capacity: int = 1
@@ -69,7 +69,7 @@ class Optimizer(ABC):
         if self.opt_id is None:
             raise RuntimeError("Optimizer ID not set")
         return self.opt_id
-    
+
     @property
     def batch_capacity(self) -> int:
         return self._batch_capacity
