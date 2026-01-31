@@ -1,11 +1,21 @@
 from dataclasses import dataclass
-from typing import Any
+from enum import Enum
+from typing import Any, Optional, SupportsFloat
 
-import numpy as np
+from gymnasium.core import ActType, ObsType
 from pydantic import BaseModel, SkipValidation
+from ray.rllib.utils.typing import MultiAgentDict
 
 from core.mechanism.base import Mechanism
 from core.types import ContextID, OptimizerID
+
+
+class MechanismStatus(Enum):
+    published = "published"
+    assigned = "assigned"
+    train = "train"
+    eval = "eval"
+    done = "done"
 
 
 # TODO some world contexts are singletons (mutable) others are simply mutable.
@@ -18,16 +28,21 @@ class ContextSchema(BaseModel):
 
 
 class MechanismContext(ContextSchema):
-    env_id: str
-    theta: SkipValidation[Mechanism]
+    index: int
+    env_id: Optional[str]
+    status: MechanismStatus
+    job: Optional[MechanismStatus]
+    mechanism: SkipValidation[Mechanism]
+    metrics: Optional[ContextSchema]
 
 
 # TODO strict type annotations rm Any
 class EnvStepContext(ContextSchema):
-    observation: Any
-    reward: float | np.ndarray
-    action: Any
-    info: dict
+    mechanism: Optional[int]
+    observation: ObsType | MultiAgentDict
+    reward: SupportsFloat | MultiAgentDict | list[float]
+    action: ActType | MultiAgentDict
+    info: dict | MultiAgentDict | None
 
 
 @dataclass
