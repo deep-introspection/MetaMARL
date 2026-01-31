@@ -47,6 +47,8 @@ class RayRuntimeConfig:
             ignore_reinit_error=True,
             logging_level=self.logging_level,
             runtime_env=self.runtime_env,
+            local_mode=True,
+            log_to_driver=True,
             **self.init_kwargs,
         )
 

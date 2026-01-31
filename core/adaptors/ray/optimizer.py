@@ -4,7 +4,6 @@ import logging
 from typing import TYPE_CHECKING, Optional
 
 from ray.rllib.algorithms.algorithm import Algorithm
-from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 from ray.train._internal.checkpoint_manager import _TrainingResult
 
 from core.annotations import override
@@ -41,8 +40,7 @@ class RayOptimizer(Optimizer):
         # parallel_train_future: Optional[concurrent.futures.ThreadPoolExecutor] = None,
     ) -> float:
         # TODO if this lags implement this function manuallyu
-        result = self.algo.evaluate()
-        return result["evaluation"]
+        return self.algo.evaluate()
 
     # @override(Optimizer)
     def stop(self) -> None:
