@@ -89,6 +89,14 @@ class RayOptimizerConfig(OptimizerConfig):
         """Sets the config's API stack settings."""
         return cfg.api_stack(**kwargs)
 
+    def model(self, **kwargs) -> Self:
+        """Sets the model configuration."""
+        def _set_model(cfg):
+            cfg.model.update(kwargs)
+            return cfg
+        self._cfg_ops.append(_set_model)
+        return self
+
     @rllib_config_mutator
     def env_runners(cfg, **kwargs) -> None:
         """Sets the rollout worker configuration."""
