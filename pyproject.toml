@@ -31,6 +31,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "torch>=2.10.0",
     "wandb>=0.24.0",
+    "ipykernel>=7.1.0",
 ]
 
 [project.urls]
@@ -46,4 +47,17 @@ dev = [
     "isort>=5.0.0",
     "mypy>=1.0.0",
     "flake8>=6.0.0",
+]
+
+[tool.uv.workspace]
+members = [
+    ".",
+]
+
+[tool.uv.sources]
+bilevel-fishery = { workspace = true, editable = true }
+
+[dependency-groups]
+dev = [
+    "bilevel-fishery",
 ]

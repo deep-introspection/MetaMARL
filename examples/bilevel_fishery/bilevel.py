@@ -7,7 +7,7 @@ from core.optimizers.es.config import ESConfig
 from core.optimizers.ppo.config import PPOptimizerConfig
 from core.registry import REGISTRY
 
-
+# TODO Generalize the config loader
 class BilevelConfigLoader:
     @staticmethod
     def from_yaml(path: str) -> BilevelConfig:
