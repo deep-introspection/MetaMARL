@@ -35,7 +35,7 @@ class World:
         self._contexts: dict[ContextID, Context] = {}
 
         # Mechanism registry
-        self._mechanism_registry: dict[str, MechanismContext] = {}
+        self._mechanism_registry: dict[int, MechanismContext] = {}
 
     def __deepcopy__(self, memo):
         return self
@@ -47,7 +47,7 @@ class World:
     def get_ctx_registry(self) -> dict[ContextID, Context]:
         return self._contexts
 
-    def get_mechanism_registry(self) -> dict[str, MechanismContext]:
+    def get_mechanism_registry(self) -> dict[int, MechanismContext]:
         return self._mechanism_registry
 
     def get_opt_registry(self) -> KeysView[OptimizerID]:
@@ -75,14 +75,10 @@ class World:
         """
         return set(self._opt_ctx_map.keys())
 
-    def get_mechanism(self, env_id: Optional[str] = None) -> MechanismContext:
+    def get_mechanism(self) -> MechanismContext:
         for m_ctx in self._mechanism_registry.values():
             if m_ctx.status == MechanismStatus.published:
                 m_ctx.status = MechanismStatus.assigned
-
-                if env_id is not None:
-                    m_ctx.env_id = env_id
-
                 return m_ctx
 
         raise RuntimeError("no available mechanisms to train")
@@ -90,6 +86,9 @@ class World:
         # if env_id not in self._mechanism_registry:
         #     raise KeyError(f"No mechanism registered for env_id={env_id}")
         # return self._mechanism_registry[env_id]
+
+    def get_mechanism_by_index(self, index: int) -> MechanismContext:
+        return self._mechanism_registry[index]
 
     def _validate_ctx_schema_exists(self, schema: type[ContextSchema]) -> None:
         """
@@ -114,7 +113,7 @@ class World:
         self._contexts[ctx.id] = ctx
 
         if isinstance(ctx.payload, MechanismContext):
-            self._mechanism_registry[ctx.id] = ctx.payload
+            self._mechanism_registry[ctx.payload.index] = ctx.payload
 
         # Track optimizer → context mapping
         if ctx.opt_id is not None:
@@ -169,7 +168,7 @@ class World:
         if isinstance(ctx.payload, MechanismContext):
             if ctx.payload.env_id is None:
                 raise ValueError("MechanismContext must include env_id")
-            self._mechanism_registry[ctx.payload.env_id] = ctx.payload.theta
+            self._mechanism_registry[ctx.payload.index] = ctx.payload
 
         if ctx.opt_id is not None:
             if ctx.opt_id not in self._opt_ctx_map:
@@ -191,7 +190,7 @@ class World:
         if isinstance(ctx.payload, MechanismContext):
             if ctx.payload.env_id is None:
                 raise ValueError("MechanismContext must include env_id")
-            self._mechanism_registry[ctx.payload.env_id] = ctx.payload.theta
+            self._mechanism_registry[ctx.payload.index] = ctx.payload
 
     def remove_context(self, ctx: Context) -> None:
         """
@@ -218,3 +217,7 @@ class World:
 
         for ctx_id in to_delete:
             del self._mechanism_registry[ctx_id]
+
+    def flush_ctx(self, ctx_ids: list[ContextID]):
+        for cid in ctx_ids:
+            self._contexts.pop(cid, None)

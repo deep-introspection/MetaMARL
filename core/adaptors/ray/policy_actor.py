@@ -5,8 +5,6 @@ import ray
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 
-from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
-
 
 @ray.remote(num_cpus=1)
 class PolicyActor:
@@ -19,10 +17,9 @@ class PolicyActor:
         # Build Algorithm INSIDE actor (critical)
         self.algo: Algorithm = algo_config.build()
 
-
     def train(self):
         return self.algo.train()
-    
+
     def evaluate(self):
         # self.algo.evaluation_config = (
         #     AlgorithmConfig()
@@ -48,7 +45,7 @@ class PolicyActor:
         #                 "delta": 0.1,
         #                 "gamma": 0.5,
         #                 "dt": 0.01,
-        #                 # "horizon": 200,  
+        #                 # "horizon": 200,
         #             },
         #             "seed": 0},
         #         horizon=200 # must be the same as regulator 200
@@ -67,10 +64,9 @@ class PolicyActor:
         #         train_batch_size=3200, #3200
         #         minibatch_size=512, #512
         #     )
-            
+
         # )
         return self.algo.evaluate()
-
 
     # def compute_action(self, policy_id: str, obs):
     #     try:
@@ -91,7 +87,6 @@ class PolicyActor:
     #         )
     #         return action
 
-    
     def compute_actions(
         self,
         policy_id: str,
@@ -114,7 +109,6 @@ class PolicyActor:
                 a, _, _ = policy.compute_single_action(obs, explore=False)
                 actions.append(a)
             return np.asarray(actions)
-
 
     def stop(self):
         self.algo.stop()

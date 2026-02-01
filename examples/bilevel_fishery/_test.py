@@ -1,7 +1,6 @@
 import numpy as np
 import ray
 from gymnasium import spaces
-from ray.rllib.utils.from_config import NotProvided
 
 # core optimizers
 from core.optimizers.bilevel import BilevelConfig
@@ -36,7 +35,7 @@ bilevel_opt_cfg: BilevelConfig = (
             ban_period=2,
         ),
     )
-    .training(outer_iters=1) #20
+    .training(outer_iters=1)  # 20
     .ray(
         device="cpu",
         num_cpus=4,
@@ -70,7 +69,7 @@ bilevel_opt_cfg: BilevelConfig = (
                     "sus_threshold": 0.1,
                 },
             },
-            horizon=3, #200
+            horizon=3,  # 200
             train_iters=1,
         )
     )
@@ -98,29 +97,39 @@ bilevel_opt_cfg: BilevelConfig = (
                     "delta": 0.1,
                     "gamma": 0.5,
                     "dt": 0.01,
-                    # "horizon": 200,  
+                    # "horizon": 200,
                 },
-                "seed": 0},
-            horizon=3 # must be the same as regulator 200
+                "seed": 0,
+            },
+            horizon=3,  # must be the same as regulator 200
         )
         .env_runners(
             num_env_runners=1,
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
-            num_envs_per_env_runner=2, # batch evaluated mechanism or population size for ES 16
+            num_envs_per_env_runner=2,  # batch evaluated mechanism or population size for ES 16
             rollout_fragment_length=2,  # must be same as env horizon 200
             batch_mode="complete_episodes",
         )
         .training(
             gamma=0.99,
             lr=3e-4,
-            train_batch_size=20, #3200
-            minibatch_size=1, #512
+            train_batch_size=20,  # 3200
+            minibatch_size=1,  # 512
         )
         .evaluation(
-            episodes=2, #10
-            rollout_fragment_length=2,  #must be same as horizon 200
-            base_seed=None,
+            evaluation_interval=None,
+            evaluation_duration=2000,  # rollout_fragment_length X num_episodes
+            evaluation_duration_unit="timesteps",
+            evaluation_num_env_runners=1,
+            # evaluation_parallel_to_training=False,  # keep it simple/deterministic
+            evaluation_config={
+                "explore": False,  # greedy eval actions
+                "seed": 1234,
+                "num_envs_per_env_runner": 16,  # same as training
+                "rollout_fragment_length": 200,  # same as training
+                "batch_mode": "complete_episodes",  # same as training
+            },
         )
         .agents(
             {

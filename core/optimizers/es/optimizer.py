@@ -47,8 +47,10 @@ class ESOptimizer(Optimizer):
         self.best_candidate = self.mean.copy()
 
         # TODO move this to generalized optimizer
-        self.convergence_eps = config.convergence_eps
+        self.no_improve_steps = 0
         self.convergence_patience = config.convergence_patience
+        self.convergence_eps = config.convergence_eps
+        self.converged_once = False
 
     @property
     def batch_capacity(self) -> int:
@@ -199,67 +201,73 @@ class ESOptimizer(Optimizer):
             self.sigma,
             float(np.linalg.norm(self.mean)),
         )
-        population = self._sample_population()
 
         if self.env is None:
             raise RuntimeError("ESOptimizer requires a RegulatorEnv")
 
+        population = self._sample_population()
         _, fitness, _, _, _ = self.env.step(population)
         fitness = np.asarray(fitness, dtype=np.float32)
 
         if not any(np.isfinite(f) for f in fitness):
-            logger.error(
-                "[Regulator] No valid fitness produced for ANY mechanism"
-            )
+            logger.error("[Regulator] No valid fitness produced for ANY mechanism")
 
         # TODO check why certain episodes return empty fitness
         if fitness.size == 0:
-            logger.warning(
-                f"[ES] No fitness returned at gen={self.generation}. "
-                "Skipping update."
-            )
-            return {
-                "converged": False,
-                "best_fitness": self.best_fitness,
-            }
+            logger.warning("[ES] No fitness returned — skipping update")
+            return {"converged": False, "best_fitness": self.best_fitness}
 
         if not np.all(np.isfinite(fitness)):
             raise RuntimeError("Non-finite fitness detected")
 
-        current_best = float(np.max(fitness))
-        improved = current_best > self.best_fitness + self.convergence_eps
+        best = float(fitness.max())
+        var = float(fitness.var())
+
+        improved = best > self.best_fitness + self.convergence_eps
 
         if improved:
-            self.best_fitness = current_best
-            self.best_candidate = population[int(np.argmax(fitness))].copy()
+            self.best_fitness = best
+            self.best_candidate = population[int(fitness.argmax())].copy()
             self.no_improve_steps = 0
         else:
             self.no_improve_steps += 1
 
+        self._update_parameters(population, fitness)
+        self.generation += 1
+
         converged = self.no_improve_steps >= self.convergence_patience
 
-        self._update_parameters(population, fitness)
+        if converged and not self.converged_once:
+            logger.info(
+                "[ES] CONVERGENCE REACHED | "
+                f"gen={self.generation} | "
+                f"best_fitness={self.best_fitness:.4f} | "
+                f"sigma={self.sigma:.4f} | "
+                f"var={var:.4f}"
+            )
+            self.converged_once = True
 
         self.metrics.log_dict(
             {
                 "es/generation": self.generation,
-                "es/mean_fitness": float(np.mean(fitness)),
-                "es/max_fitness": float(np.max(fitness)),
+                "es/best_fitness": self.best_fitness,
+                "es/mean_fitness": float(fitness.mean()),
+                "es/fitness_var": var,
                 "es/sigma": self.sigma,
                 "es/no_improve_steps": self.no_improve_steps,
             }
         )
+        logger.info(
+            "[ES] "
+            f"gen={self.generation} | "
+            f"best={self.best_fitness:.4f} | "
+            f"mean={fitness.mean():.4f}±{fitness.std():.4f} | "
+            f"var={var:.4f} | "
+            f"sigma={self.sigma:.4f} | "
+            f"no_improve={self.no_improve_steps}"
+        )
 
-        if improved:
-            logger.info(
-                f"[ES] Improvement | gen={self.generation} | "
-                f"best_fitness={self.best_fitness:.4f}"
-            )
-
-        if converged:
-            logger.info(
-                f"[ES] Convergence detected | best_fitness={self.best_fitness:.4f}"
-            )
+        # TODO log the best fitness mechanism ! IMP
 
         return {
             "converged": converged,

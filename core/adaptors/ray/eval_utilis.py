@@ -1,4 +1,5 @@
 from typing import Optional
+
 import numpy as np
 import ray
 
@@ -7,9 +8,9 @@ from core.world.base import World
 
 def _run_evaluation_runner(
     *,
-    policy_actor,          # Ray ActorHandle
+    policy_actor,  # Ray ActorHandle
     config,
-    world: World,          # Ray ActorHandle
+    world: World,  # Ray ActorHandle
     opt_id: str,
     eval_episodes: int,
     eval_base_seed: Optional[int],

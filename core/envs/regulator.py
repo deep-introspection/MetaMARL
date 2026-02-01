@@ -114,7 +114,7 @@ class RegulatorEnv(BaseEnv):
             and ctx.opt_id == self.inner.opt_id
             and isinstance(ctx.payload, EnvStepContext)
         ]
-        consumed_ids = [cid for cid, _ in new_ctxs]
+        consumed_ids = [ctx.id for ctx in new_ctxs]
 
         # Evaluation metrics are defined by user and provided as a callable.
         # metrics = user_eval_fn(contexts)
@@ -123,7 +123,7 @@ class RegulatorEnv(BaseEnv):
 
         # flush consumed contexts
 
-        ray.get(self.world.remove_contexts.remote(consumed_ids))
+        ray.get(self.world.flush_ctx.remote(consumed_ids))
         ray.get(self.world.flush.remote(job=MechanismStatus.eval))
 
         return None, reward, False, False, {}

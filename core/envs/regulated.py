@@ -28,9 +28,7 @@ class RegulatedEnv(BaseEnv):
         # update institution mechanism from world
         # Lazy fetch once per env lifetime
         if self.m_ctx is None:
-            self.m_ctx: MechanismContext = ray.get(
-                self.world.get_mechanism.remote(self.env_id)
-            )
+            self.m_ctx: MechanismContext = ray.get(self.world.get_mechanism.remote())
             self.m = self.m_ctx.mechanism
 
     @abstractmethod

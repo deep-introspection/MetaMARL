@@ -495,7 +495,6 @@ class RayOptimizerConfig(OptimizerConfig):
     def evaluation(cfg, **kwargs) -> None:
         return cfg.evaluation(**kwargs)
 
-
     @rllib_config_mutator
     def offline_data(cfg, **kwargs) -> None:
         return cfg.offline_data(**kwargs)
@@ -836,7 +835,7 @@ class RayOptimizerConfig(OptimizerConfig):
         opt = RayOptimizer(config=cfg, world=world)
 
         # TODO refactor to env Factory later
-        opt.world=world
+        opt.world = world
 
         # register optimizer in world to link contexts to optimizers
         if world is not None:

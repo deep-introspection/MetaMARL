@@ -41,7 +41,7 @@ class OptimizerConfig(_Config, ABC):
         # --- world / environment ---
         self.env: Optional[Union[str, EnvType]] = None
         self.env_config: dict = {}
-        self.horizon: int = None #TODO default value
+        self.horizon: int = None  # TODO default value
 
         # --- training ---
         self.seed: int = None
