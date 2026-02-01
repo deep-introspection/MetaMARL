@@ -45,6 +45,8 @@ class ESOptimizer(Optimizer):
         self.fitness_baseline = None
         self.best_fitness = -float("inf")
         self.best_candidate = self.mean.copy()
+        self.best_mechanism_idx: int | None = None
+        self.population_history: list[tuple[np.ndarray, np.ndarray]] = []
 
         # TODO move this to generalized optimizer
         self.no_improve_steps = 0
@@ -191,6 +193,7 @@ class ESOptimizer(Optimizer):
         if best_fitness > self.best_fitness:
             self.best_fitness = best_fitness
             self.best_candidate = population[best_idx].copy()
+            self.best_mechanism_idx = best_idx
 
         self.generation += 1
 
@@ -220,14 +223,19 @@ class ESOptimizer(Optimizer):
         if not np.all(np.isfinite(fitness)):
             raise RuntimeError("Non-finite fitness detected")
 
+        # Store population history for visualization
+        self.population_history.append((population.copy(), fitness.copy()))
+
         best = float(fitness.max())
         var = float(fitness.var())
 
         improved = best > self.best_fitness + self.convergence_eps
+        best_idx = int(fitness.argmax())
 
         if improved:
             self.best_fitness = best
-            self.best_candidate = population[int(fitness.argmax())].copy()
+            self.best_candidate = population[best_idx].copy()
+            self.best_mechanism_idx = best_idx
             self.no_improve_steps = 0
         else:
             self.no_improve_steps += 1
@@ -267,9 +275,14 @@ class ESOptimizer(Optimizer):
             f"no_improve={self.no_improve_steps}"
         )
 
-        # TODO log the best fitness mechanism ! IMP
+        # Get best trajectory from env if available
+        best_trajectory = None
+        if hasattr(self.env, "trajectories") and self.best_mechanism_idx is not None:
+            best_trajectory = self.env.trajectories.get(self.best_mechanism_idx)
 
         return {
             "converged": converged,
             "best_fitness": self.best_fitness,
+            "best_trajectory": best_trajectory,
+            "population_history": self.population_history,
         }

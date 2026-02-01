@@ -1,4 +1,5 @@
 import argparse
+import logging
 from pathlib import Path
 
 import ray
@@ -6,6 +7,8 @@ import ray
 from examples.bilevel_fishery.bilevel import BilevelConfigLoader
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -15,6 +18,23 @@ def main():
         type=str,
         required=True,
         help="Path to YAML config (relative to project root or absolute)",
+    )
+    parser.add_argument(
+        "--save-plots",
+        action="store_true",
+        default=True,
+        help="Save visualization plots (default: True)",
+    )
+    parser.add_argument(
+        "--no-plots",
+        action="store_true",
+        help="Disable visualization plots",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="results",
+        help="Directory for output files (default: results)",
     )
     args = parser.parse_args()
 
@@ -27,11 +47,37 @@ def main():
 
     ray.shutdown()
 
-    cfg = BilevelConfigLoader.from_yaml(args.config)
+    output_dir = None if args.no_plots else args.output_dir
+    cfg = BilevelConfigLoader.from_yaml(args.config, output_dir=output_dir)
     optimizer = cfg.build_optimizer()
-    optimizer.run()
+    results = optimizer.run()
 
     ray.shutdown()
+
+    if not args.no_plots and results.get("best_trajectory"):
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        from examples.bilevel_fishery.visualization import plot_combined_trial_analysis
+
+        mechanism_params = None
+        if results.get("best_mechanism") is not None:
+            mechanism_params = {
+                "fixed_quota": float(results["best_mechanism"][0]),
+                "prop_quota": float(results["best_mechanism"][1]),
+                "min_stock": float(results["best_mechanism"][2]),
+                "fine_amount": float(results["best_mechanism"][3]) * 2.0,
+                "ban_period": float(results["best_mechanism"][4]) * 10.0,
+            }
+
+        save_path = output_dir / "trial_analysis.png"
+        plot_combined_trial_analysis(
+            results["best_trajectory"],
+            mechanism_params=mechanism_params,
+            title=f"Best Mechanism (fitness={results['best_fitness']:.4f})",
+            save_path=str(save_path),
+        )
+        logger.info(f"Saved visualization to {save_path}")
 
 
 if __name__ == "__main__":
