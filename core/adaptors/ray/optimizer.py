@@ -10,6 +10,7 @@ from ray.train._internal.checkpoint_manager import _TrainingResult
 from core.annotations import override
 from core.optimizers.base import Optimizer
 from core.world.base import World
+from ray.rllib.utils.typing import StateDict
 
 logger = logging.getLogger(__name__)
 
@@ -87,3 +88,9 @@ class RayOptimizer(Optimizer):
     @override(Optimizer)
     def save(self, checkpoint_dir: Optional[str] = None) -> _TrainingResult:
         return self.algo.save(checkpoint_dir)
+    
+    def get_state(self) -> StateDict:
+        return ray.get(self.algo.get_state.remote())
+
+    def set_state(self, state: StateDict) -> None:
+        return ray.get(self.algo.set_state.remote(state))

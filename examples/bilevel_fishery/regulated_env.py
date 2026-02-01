@@ -48,18 +48,15 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         self.delta = ecology_cfg["delta"]
         self.gamma = ecology_cfg["gamma"]
         self.dt = ecology_cfg["dt"]
+        self.agent_bans: dict[AgentID, int] = {}
+
 
     def _reset(self):
         self.S_t = {
             "fish": max(EPS, self.rng.lognormal(np.log(self.fish_init), 0.05)),
             "algae": max(EPS, self.rng.lognormal(np.log(self.algae_init), 0.05)),
         }
-
-        # logger.debug(
-        #     "[RESET] fish=%.4f algae=%.4f",
-        #     self.S_t["fish"],
-        #     self.S_t["algae"],
-        # )
+        self.agent_bans = {agent_id: 0 for agent_id in self.agents}
         obs = {
             agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
         }
@@ -71,17 +68,12 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def intrinsic_utility(
         self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
+        if self.agent_bans.get(agent_id, 0) > 0:
+            return 0.0
         # return action * S_t["fish"]
         action = float(np.asarray(action).item())  # cast to scalar
         fish_norm = S_t["fish"] / self.max_fish
         u = action * fish_norm
-        # logger.debug(
-        #     "[UTILITY] %s action=%.4f fish_norm=%.4f u=%.6f",
-        #     agent_id,
-        #     action,
-        #     fish_norm,
-        #     u,
-        # )
         return u
 
     # TODO this returns a float
@@ -89,19 +81,25 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def violation_signal(
         self, agent_id: AgentID, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
-        quota = max(0.0, u_i - min(self.m.fixed_quota, self.m.prop_quota * S_t["fish"]))
-        ban = float(S_t["fish"] < self.m.min_stock) * u_i
-        v = float(quota + ban)
-        # if v > 0.0:
-        # logger.info(
-        #     "[VIOLATION] %s u=%.6f quota=%.6f ban=%.6f total=%.6f",
-        #     agent_id,
-        #     u_i,
-        #     quota,
-        #     ban,
-        #     v,
-        # )
-        return v
+        fish = float(S_t["fish"])
+        fish_norm = fish / self.max_fish
+        quota_norm = min(
+            self.m.fixed_quota / self.max_fish,
+            self.m.prop_quota * fish_norm,
+        )
+        quota_violation = max(0.0, u_i - quota_norm)
+        if fish < self.m.min_stock:
+            depth = (self.m.min_stock - fish) / max(EPS, self.m.min_stock)
+        else:
+            depth = 0.0
+        # TODO add stock weight to mechanism
+        # violation = quota_violation + self.m.stock_weight * depth
+        violation = quota_violation + 1.0 * depth
+
+        if violation > EPS:
+            self.agent_bans[agent_id] = max(self.agent_bans.get(agent_id, 0), self.m.ban_period)
+
+        return float(violation)
 
     def penalty(self) -> SupportsFloat:
         return self.m.fine_amount
@@ -124,16 +122,6 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         scale = min(1.0, fish_norm / max(EPS, total_desired))
         H = self.max_fish * sum(desired[agent_id] * scale for agent_id in self.agents)
 
-        # logger.debug(
-        #     "[TRANSITION] fish=%.4f algae=%.4f fish_norm=%.4f "
-        #     "total_desired=%.6f scale=%.4f H=%.6f",
-        #     fish,
-        #     algae,
-        #     fish_norm,
-        #     total_desired,
-        #     scale,
-        #     H,
-        # )
 
         # Lotka-volterra
         fish_next = fish + self.dt * (self.delta * algae * fish - self.gamma * fish - H)
@@ -143,11 +131,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         fish_next = np.clip(fish_next, 0.0, self.max_fish)
         algae_next = np.clip(algae_next, 0.0, self.max_algae)
 
-        # logger.debug(
-        #     "[NEXT_STATE] fish_next=%.4f algae_next=%.4f",
-        #     fish_next,
-        #     algae_next,
-        # )
+        for agent_id in self.agent_bans:
+            if self.agent_bans[agent_id] > 0:
+                self.agent_bans[agent_id] -= 1
 
         return {"fish": fish_next, "algae": algae_next}
 
@@ -155,14 +141,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     @override(MultiAgentRegulatedEnv)
     def aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict:
         raw_mean = float(np.mean(list(rewards.values())))
-        fitness = SCALE * raw_mean
-        fitness = float(np.clip(fitness, -10.0, 10.0))
-        # logger.info(
-        #     "[REWARD] raw_mean=%.6f scaled=%.6f clipped=%.6f",
-        #     raw_mean,
-        #     SCALE * raw_mean,
-        #     fitness,
-        # )
+        fitness = SCALE * np.tanh(raw_mean / SCALE)
 
         # same fitness for all agents
         return {agent_id: fitness for agent_id in self.agents}

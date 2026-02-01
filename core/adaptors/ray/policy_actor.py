@@ -4,7 +4,7 @@ import numpy as np
 import ray
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
-
+from ray.rllib.utils.typing import StateDict
 
 @ray.remote(num_cpus=1)
 class PolicyActor:
@@ -22,6 +22,13 @@ class PolicyActor:
 
     def evaluate(self):
         return self.algo.evaluate()
+    
+    def set_state(self, state: StateDict):
+        return self.algo.set_state(state)
+    
+    def get_state(self):
+        return self.algo.get_state()
+    
 
     def compute_actions(
         self,
