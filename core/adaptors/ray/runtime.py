@@ -47,7 +47,7 @@ class RayRuntimeConfig:
             ignore_reinit_error=True,
             logging_level=self.logging_level,
             runtime_env=self.runtime_env,
-            local_mode=True,  # for debugging only
+            local_mode=True,  # Turn on for debugging only (DO NOT TURN OFF)
             log_to_driver=False,
             include_dashboard=False,
             _system_config={

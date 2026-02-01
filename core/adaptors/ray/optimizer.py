@@ -77,118 +77,13 @@ class RayOptimizer(Optimizer):
     @override(Optimizer)
     def evaluate(self) -> None:
         logger.info("[PPO] Evaluation started")
-
         ray.get(self.policy_actor.evaluate.remote())
-
         logger.info("[PPO] Evaluation completed")
 
-    # TODO : parallize this loop
-    # @override(Optimizer)
-    # def evaluate(
-    #     self,
-    #     # parallel_train_future: Optional[concurrent.futures.ThreadPoolExecutor] = None,
-    # ) -> float:
-    #     # TODO Implement manually
-    #     # return self.algo.evaluate()
-    #     # TODO parallelize
-
-    #     # Build agent -> policy mapping
-    #     agent_to_policy = self._build_agent_policy_map()
-    #     agents = list(agent_to_policy.keys())
-
-    #     # Cache policy/module handles
-    #     policy_handles = {
-    #         policy_id: self._get_policy_handle(policy_id)
-    #         for policy_id in set(agent_to_policy.values())
-    #     }
-
-    #     for b in range(self.batch_capacity):
-    #         for ep in range(self.eval_episodes):
-    #             seed = (
-    #                 None
-    #                 if self.eval_base_seed is None
-    #                 else self.eval_base_seed + ep
-    #             )
-
-    #             env = self.config._env_creator(
-    #                 world=self.world,
-    #                 opt_id=self.opt_id,
-    #                 agents=agents,
-    #                 **self.config.env_config,
-    #             )
-    #             observations, _ = env.reset(seed=seed)
-    #             terminated = {aid: False for aid in agents}
-    #             truncated = {aid: False for aid in agents}
-    #             step_count = 0
-
-    #             while (
-    #                 not any(terminated.values())
-    #                 and not any(truncated.values())
-    #                 and step_count < env.horizon
-    #             ):
-    #                 actions = {}
-
-    #                 for agent_id in agents:
-    #                     obs = observations[agent_id]
-    #                     policy_id = agent_to_policy[agent_id]
-    #                     handle = policy_handles[policy_id]
-
-    #                     # --- action computation (policy OR RLModule) ---
-    #                     if hasattr(handle, "compute_single_action"):
-    #                         # Policy API
-    #                         action, _, _ = handle.compute_single_action(
-    #                             obs,
-    #                             explore=False,
-    #                         )
-    #                     else:
-    #                         # RLModule API
-    #                         out = handle.forward_inference(
-    #                             {"obs": np.asarray(obs)[None, ...]}
-    #                         )
-    #                         dist_cls = handle.get_inference_action_dist_cls()
-    #                         dist = dist_cls.from_logits(out["action_dist_inputs"])
-    #                         action = dist.sample().cpu().numpy()[0]
-
-    #                     # --- clip to correct action space ---
-    #                      # TODO observation spaces not passed to env_cfg
-    #                     act_space = self.config.env_config["action_spaces"][agent_id]
-    #                     action = np.asarray(action, dtype=act_space.dtype)
-    #                     action = np.clip(action, act_space.low, act_space.high)
-
-    #                     if not np.isfinite(action).all():
-    #                         raise RuntimeError(
-    #                             f"Invalid action for {agent_id} ({policy_id}): {action}"
-    #                         )
-
-    #                     actions[agent_id] = action
-
-    #                 observations, rewards, terminated, truncated, infos = env.step(actions)
-    #                 step_count += 1
-    #     env.close()
-
-    # def evaluate_async(self) -> float:
-    #     # num_runners = self.batch_capacity # TODO temproarily set to batch_capacity but change later to proper config item
-
-    #     num_parallel = self.batch_capacity * self.eval_episodes
-    #     futures = [
-    #         _evaluation_runner_remote.remote(
-    #             policy_actor=self.policy_actor,
-    #             config=self.config,
-    #             world=self.world,
-    #             opt_id=self.opt_id,
-    #             eval_episodes=1,
-    #             eval_base_seed=self.eval_base_seed,
-    #         )
-    #         for _ in range(num_parallel)
-    #     ]
-
-    #     ray.get(futures)
-
-    # @override(Optimizer)
+    @override(Optimizer)
     def stop(self) -> None:
-        # self.algo.stop()
         ray.get(self.policy_actor.stop.remote())
 
-    # @override(Optimizer)
+    @override(Optimizer)
     def save(self, checkpoint_dir: Optional[str] = None) -> _TrainingResult:
         return self.algo.save(checkpoint_dir)
