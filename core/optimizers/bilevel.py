@@ -120,23 +120,60 @@ class BilevelOptimizer(Optimizer):
         super().__init__(config)
 
         self.world_name = config.world_name
-        self.outer_iters = config.outer_iters
+        self.max_outer_iters = config.outer_iters
         self.outer = outer
         self.inner = inner
 
+        self.outer_iter = 0
+        self.converged = False
+
     def run(self) -> None:
         logger.info(
-            f"[Bilevel] Starting run | outer_iters={self.outer_iters} | world={self.world_name}"
+            "[Bilevel] Starting run | max_outer_iters=%d | world=%s",
+            self.max_outer_iters,
+            self.world_name,
         )
 
-        for outer_iter in range(self.outer_iters):
-            logger.info(f"[Bilevel] Outer iteration {outer_iter} started")
+        for i in range(self.max_outer_iters):
+            self.outer_iter = i
+            logger.info(
+                "[Bilevel] Outer iteration %d / %d started",
+                i + 1,
+                self.max_outer_iters,
+            )
 
             outer_metrics = self.outer.run()
 
+            self.metrics.log_dict(
+                {
+                    "bilevel/outer_iter": i,
+                    "bilevel/best_fitness": outer_metrics.get("best_fitness"),
+                }
+            )
+
+            # ---- Early stopping ----
             if outer_metrics.get("converged", False):
+                self.converged = True
+
                 logger.info(
-                    f"[Bilevel] Convergence signaled by outer optimizer "
-                    f"(best_fitness={outer_metrics['best_fitness']:.4f})"
+                    "[Bilevel] EARLY STOP | "
+                    "outer optimizer converged | "
+                    "iter=%d | best_fitness=%.4f",
+                    i,
+                    outer_metrics["best_fitness"],
                 )
                 break
+
+        logger.info(
+            "[Bilevel] Run finished | iters=%d | converged=%s | best_fitness=%.4f",
+            self.outer_iter + 1,
+            self.converged,
+            self.outer.best_fitness,
+        )
+
+        return {
+            "converged": self.converged,
+            "outer_iters": self.outer_iter + 1,
+            "best_fitness": self.outer.best_fitness,
+            "best_mechanism": self.outer.best_candidate,
+        }

@@ -22,6 +22,7 @@ class BaseEnv(Env):
         *,
         world: World,
         opt_id: OptimizerID | None = None,
+        horizon: Optional[int] = None,
         mechanism_space: MechanismSpace = None,
         vector_index: Optional[int] = None,
         **kwargs,
@@ -29,6 +30,7 @@ class BaseEnv(Env):
         super().__init__()
         self.world = world
         self._opt_id = opt_id
+        self.horizon = horizon
         self._t = 0
         self.m_space: MechanismSpace = mechanism_space()
         self.m_ctx: MechanismContext = None

@@ -54,9 +54,6 @@ class Optimizer(ABC):
             root=True, stats_cls_lookup=config.stats_cls_lookup
         )
 
-        # batch sampling for mechanism
-        self._batch_capacity: int = 1
-
         # Optimizer Graph connectivity
         self._downstream: set["Optimizer"] = set()
         self._upstream: set["Optimizer"] = set()

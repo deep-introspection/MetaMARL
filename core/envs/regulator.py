@@ -85,8 +85,9 @@ class RegulatorEnv(BaseEnv):
         # One policy conditioned on Theta (theta-conditioned RL)
         self.inner.run()
 
+        # todo : the total episodes must be same as numer mechanisms
         # reset mechanism contexts
-        for _ in range(self.inner.config.evaluation_duration):
+        for _ in range(self.inner.eval_episodes):
             for idx, m in enumerate(mechanisms):
                 self._publish(
                     MechanismContext(
@@ -113,11 +114,17 @@ class RegulatorEnv(BaseEnv):
             and ctx.opt_id == self.inner.opt_id
             and isinstance(ctx.payload, EnvStepContext)
         ]
+        consumed_ids = [ctx.id for ctx in new_ctxs]
 
         # Evaluation metrics are defined by user and provided as a callable.
         # metrics = user_eval_fn(contexts)
 
         reward = self.aggregate_rewards(new_ctxs)
+
+        # flush consumed contexts
+
+        ray.get(self.world.flush_ctx.remote(consumed_ids))
+        ray.get(self.world.flush.remote(job=MechanismStatus.eval))
 
         return None, reward, False, False, {}
 

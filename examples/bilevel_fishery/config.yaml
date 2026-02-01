@@ -1,51 +1,121 @@
-# Bilevel Fishery Optimization Configuration
-# This file contains all hyperparameters for the fishery bilevel optimization.
+experiment:
+  name: bilevel_fishery
+  seed: 0
 
-# Bilevel optimization settings
-bilevel:
-  outer_iterations: 10
-  random_seed: 0
+ray:
+  device: cpu
+  num_cpus: 4
+  omp_threads: 1
+  logging_level: ERROR
+  runtime_env:
+    excludes:
+      - wandb/
+      - .git/
+      - .venv/
+      - __pycache__/
+      - ray_results/
+      - runs/
 
-# Evolution Strategies (outer loop)
-es:
-  population_size: 16
-  sigma: 0.15
-  lr_mean: 0.1
-  lr_sigma: 0.05
-  min_sigma: 0.001
-  max_sigma: 0.5
+world:
+  world_name: fishery_world
 
-# PPO training (inner loop)
-ppo:
-  inner_iterations: 100
-  gamma: 0.99
-  train_batch_size: 4000
-  minibatch_size: 512
-  lr: 0.0003
-  framework: torch
+mechanism:
+  space: FisheryMechanismSpace
+  default:
+    fixed_quota: 0.2
+    prop_quota: 0.1
+    min_stock: 0.1
+    fine_amount: 1.0
+    ban_period: 2
 
-# Environment
-environment:
-  num_fishermen: 3
-  horizon: 200
+training:
+  outer_iters: 100
 
-# Ecology (Lotka-Volterra)
-ecology:
-  alpha: 1.0      # Algae growth rate
-  beta: 0.5       # Algae consumption by fish
-  delta: 0.5      # Fish growth from algae
-  gamma: 1.0      # Fish natural death rate
-  dt: 0.05
-  algae_init: 1.0
-  fish_init: 0.5
+outer:
+  optimizer: ES
+  training:
+    sigma: 0.15
+    mean_lr: 0.1
+    sigma_lr: 0.05
+    min_sigma: 0.001
+    max_sigma: 0.5
+  environment:
+    env: FisheryRegulatorEnv
+    horizon: 200
+    train_iters: 1
+    env_config:
+      ecology_cfg:
+        sus_weight: 5.0
+        sus_threshold: 0.1
 
-# Evaluation
-evaluation:
-  episodes: 5
-  sustainability_weight: 5.0
-  sustainability_threshold: 0.1
+inner:
+  optimizer: PPO
+  resources:
+    num_cpus_for_main_process: 1
 
-# Logging
-logging:
-  log_dir: runs
-  wandb_project: bilevel-fishery
+  framework:
+    framework: torch
+
+  api_stack:
+    enable_rl_module_and_learner: false
+    enable_env_runner_and_connector_v2: false
+
+  environment:
+    env: FisheryRegulatedEnv
+    horizon: 200
+    env_config:
+      ecology_cfg:
+        algae_init: 1.0
+        fish_init: 0.5
+        max_fish: 2.0
+        max_algae: 2.0
+        alpha: 0.5
+        beta: 0.1
+        delta: 0.1
+        gamma: 0.5
+        dt: 0.01
+      seed: 0
+
+  env_runners:
+    num_env_runners: 1
+    num_cpus_per_env_runner: 1
+    num_gpus_per_env_runner: 0
+    num_envs_per_env_runner: 16
+    rollout_fragment_length: 200
+    batch_mode: complete_episodes
+
+  training:
+    gamma: 0.99
+    lr: 0.0003
+    train_batch_size: 3200
+    minibatch_size: 512
+
+  evaluation:
+    evaluation_interval: null
+    evaluation_duration: 2000
+    evaluation_duration_unit: timesteps
+    evaluation_num_env_runners: 1
+    evaluation_config:
+      explore: false
+      seed: 1234
+      num_envs_per_env_runner: 16
+      rollout_fragment_length: 125
+      batch_mode: complete_episodes
+
+  agents:
+    fisher:
+      count: 3
+      policy: fisher_policy
+      observation_space:
+        type: box
+        low: -inf
+        high: inf
+        shape: [2, mechanism_dim]
+      action_space:
+        type: box
+        low: 0.0
+        high: 0.3
+        shape: [1]
+
+  fault_tolerance:
+    restart_failed_env_runners: false
