@@ -1,173 +1,38 @@
-import numpy as np
+import argparse
+from pathlib import Path
+
 import ray
-from gymnasium import spaces
 
-# core optimizers
-from core.optimizers.bilevel import BilevelConfig
-from core.optimizers.es.config import ESConfig
-from core.optimizers.ppo.config import PPOptimizerConfig
+from examples.bilevel_fishery.bilevel import BilevelConfigLoader
 
-# Fishery-specific objects
-from examples.bilevel_fishery.mechanism import FisheryMechanism, FisheryMechanismSpace
-from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
-from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# TODO the default mechanism config and fisherman, and observation spaces and action spaces part of config
-# TODO where to do ray initialization ? gpu vs cpu - needs to happen when we build optimizer
-# TODO num_fisherman
-# TODO wire up the evaluation cfg
-# TODO seeding API
-# TODO experimentation helpers
-# TODO review ray configz
 
-ray.shutdown()
-
-bilevel_opt_cfg: BilevelConfig = (
-    BilevelConfig()
-    .world(world_name="fishery_world")
-    .mechanism(
-        space=FisheryMechanismSpace,
-        default=FisheryMechanism(
-            fixed_quota=0.2,
-            prop_quota=0.1,
-            min_stock=0.1,
-            fine_amount=1.0,
-            ban_period=2,
-        ),
+def main():
+    parser = argparse.ArgumentParser("Bilevel Fishery Experiment")
+    parser.add_argument(
+        "--config",
+        type=str,
+        required=True,
+        help="Path to YAML config (relative to project root or absolute)",
     )
-    .training(outer_iters=100)
-    .ray(
-        device="cpu",
-        num_cpus=4,
-        omp_threads=1,
-        logging_level="ERROR",
-        runtime_env={
-            "excludes": [
-                "wandb/",
-                ".git/",
-                ".venv/",
-                "__pycache__/",
-                "ray_results/",
-                "runs/",
-            ]
-        },
-    )
-    .outer(
-        ESConfig()
-        .training(  # TODO dimension inferred from mechanism ?
-            sigma=0.15,
-            mean_lr=0.1,
-            sigma_lr=0.05,
-            min_sigma=1e-3,
-            max_sigma=0.5,
-        )
-        .environment(
-            env=FisheryRegulatorEnv,
-            env_config={
-                "ecology_cfg": {
-                    "sus_weight": 5.0,
-                    "sus_threshold": 0.1,
-                },
-            },
-            horizon=200,
-            train_iters=1,
-        )
-    )
-    .inner(
-        PPOptimizerConfig()
-        .resources(
-            num_cpus_for_main_process=1,
-        )
-        .framework(
-            framework="torch",
-        )
-        .api_stack(
-            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
-        )
-        .environment(
-            env=FisheryRegulatedEnv,
-            env_config={
-                "ecology_cfg": {
-                    "algae_init": 1.0,
-                    "fish_init": 0.5,
-                    "max_fish": 2.0,
-                    "max_algae": 2.0,
-                    "alpha": 0.5,
-                    "beta": 0.1,
-                    "delta": 0.1,
-                    "gamma": 0.5,
-                    "dt": 0.01,
-                    # "horizon": 200,
-                },
-                "seed": 0,
-            },
-            horizon=200,  # must be the same as regulator 200
-        )
-        .env_runners(
-            num_env_runners=1,
-            num_cpus_per_env_runner=1,
-            num_gpus_per_env_runner=0,
-            num_envs_per_env_runner=16,  # batch evaluated mechanism or population size for ES 16
-            rollout_fragment_length=200,  # must be same as env horizon 200
-            batch_mode="complete_episodes",
-        )
-        .training(
-            gamma=0.99,
-            lr=3e-4,
-            train_batch_size=3200,  # 3200
-            minibatch_size=512,  # 512
-        )
-        .evaluation(
-            evaluation_interval=None,
-            evaluation_duration=2000,  # rollout_fragment_length X num_episodes
-            evaluation_duration_unit="timesteps",
-            evaluation_num_env_runners=1,
-            # evaluation_parallel_to_training=False,  # keep it simple/deterministic
-            evaluation_config={
-                "explore": False,  # greedy eval actions
-                "seed": 1234,
-                "num_envs_per_env_runner": 16,  # same as training
-                "rollout_fragment_length": 125,  # same as training
-                "batch_mode": "complete_episodes",  # same as training
-            },
-        )
-        # .evaluation(
-        #     episodes=10, #10
-        #     rollout_fragment_length=200,  #must be same as horizon 200
-        #     base_seed=None,
-        # )
-        .agents(
-            {
-                "fisher": {
-                    "count": 3,
-                    "policy": "fisher_policy",
-                    "observation_space": spaces.Box(
-                        low=-np.inf,
-                        high=np.inf,
-                        shape=(
-                            2 + FisheryMechanismSpace().dimension,
-                        ),  # fish and alage #mechanism conditioned-RL
-                        dtype=np.float32,
-                    ),
-                    "action_space": spaces.Box(
-                        low=0.0,
-                        high=0.3,
-                        shape=(1,),
-                        dtype=np.float32,
-                    ),
-                }
-            }
-        )
-        .fault_tolerance(restart_failed_env_runners=False)
-    )
-)
+    args = parser.parse_args()
 
-# TODO
-# custom_evaluation_function
+    config_path = Path(args.config)
+    if not config_path.is_absolute():
+        config_path = PROJECT_ROOT / config_path
 
-# run the experiment
-bilevel_opt = bilevel_opt_cfg.build_optimizer()
-bilevel_opt.run()
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config not found: {config_path}")
 
-# TODO add this after run done
-ray.shutdown()
+    ray.shutdown()
+
+    cfg = BilevelConfigLoader.from_yaml(args.config)
+    optimizer = cfg.build_optimizer()
+    optimizer.run()
+
+    ray.shutdown()
+
+
+if __name__ == "__main__":
+    main()
