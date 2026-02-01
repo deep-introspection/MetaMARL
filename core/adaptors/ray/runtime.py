@@ -29,9 +29,12 @@ class RayRuntimeConfig:
             os.environ["RLLIB_NUM_GPUS"] = "0"
             os.environ["USE_CUDA"] = "0"
             os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
-
             if self.disable_mps:
                 os.environ["RAY_USE_MPS"] = "0"
+        elif self.device == "mps":
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
+            os.environ["RLLIB_NUM_GPUS"] = "0"
+            os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
         if self.num_gpus is not None:
             os.environ["RLLIB_NUM_GPUS"] = str(self.num_gpus)

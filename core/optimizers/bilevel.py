@@ -26,6 +26,7 @@ class BilevelConfig(OptimizerConfig):
         self.ray_cfg = None
         self.mechanism_space: Optional[MechanismSpace] = None
         self.default_mechanism: Optional[Mechanism] = None
+        self.output_dir: str | None = None
 
     def inner(self, cfg: OptimizerConfig = None) -> Self:
         if cfg is not None:
@@ -50,11 +51,14 @@ class BilevelConfig(OptimizerConfig):
             self.default_mechanism = default or space.default()
         return self
 
-    def training(self, *, outer_iters: int, seed=None, **kwargs) -> Self:
+    def training(
+        self, *, outer_iters: int, seed=None, output_dir: str | None = None, **kwargs
+    ) -> Self:
         if outer_iters is not None:
             self.outer_iters = outer_iters
         if seed is not None:
             self.seed = seed
+        self.output_dir = output_dir
         return self
 
     def ray(
@@ -123,9 +127,14 @@ class BilevelOptimizer(Optimizer):
         self.max_outer_iters = config.outer_iters
         self.outer = outer
         self.inner = inner
+        self.output_dir = config.output_dir
+        self.mechanism_space = config.mechanism_space
 
         self.outer_iter = 0
         self.converged = False
+        self.best_trajectory: list[dict] | None = None
+        self.all_trajectories: list[tuple[int, float, list[dict]]] = []
+        self.population_history: list[tuple[int, list]] = []
 
     def run(self) -> None:
         logger.info(
@@ -144,10 +153,24 @@ class BilevelOptimizer(Optimizer):
 
             outer_metrics = self.outer.run()
 
+            trajectory = outer_metrics.get("best_trajectory")
+            fitness = outer_metrics.get("best_fitness", -float("inf"))
+            pop_history = outer_metrics.get("population_history", [])
+
+            if pop_history:
+                self.population_history.append((i, pop_history[-1]))
+
+            if trajectory:
+                self.best_trajectory = trajectory
+                self.all_trajectories.append((i, fitness, trajectory))
+                self._save_intermediate_plot(i, fitness, trajectory)
+
+            self._save_parameter_plots()
+
             self.metrics.log_dict(
                 {
                     "bilevel/outer_iter": i,
-                    "bilevel/best_fitness": outer_metrics.get("best_fitness"),
+                    "bilevel/best_fitness": fitness,
                 }
             )
 
@@ -176,4 +199,78 @@ class BilevelOptimizer(Optimizer):
             "outer_iters": self.outer_iter + 1,
             "best_fitness": self.outer.best_fitness,
             "best_mechanism": self.outer.best_candidate,
+            "best_trajectory": self.best_trajectory,
+            "all_trajectories": self.all_trajectories,
+            "population_history": self.population_history,
         }
+
+    def _save_intermediate_plot(
+        self, iteration: int, fitness: float, trajectory: list[dict]
+    ) -> None:
+        """Save intermediate visualization for this iteration."""
+        if not self.output_dir:
+            return
+
+        try:
+            from pathlib import Path
+
+            from examples.bilevel_fishery.visualization import (
+                plot_combined_trial_analysis,
+            )
+
+            output_path = Path(self.output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+
+            mechanism_params = None
+            if self.mechanism_space is not None and self.outer.best_candidate is not None:
+                candidate = self.outer.best_candidate
+                mechanism_params = {
+                    "fixed_quota": float(candidate[0]),
+                    "prop_quota": float(candidate[1]),
+                    "min_stock": float(candidate[2]),
+                    "fine_amount": float(candidate[3]) * 2.0,
+                    "ban_period": float(candidate[4]) * 10.0,
+                }
+
+            save_path = output_path / f"iter_{iteration:03d}.png"
+            plot_combined_trial_analysis(
+                trajectory,
+                mechanism_params=mechanism_params,
+                title=f"Iteration {iteration} (fitness={fitness:.4f})",
+                save_path=str(save_path),
+            )
+            logger.info("[Bilevel] Saved intermediate plot to %s", save_path)
+
+        except Exception as e:
+            logger.warning("[Bilevel] Failed to save intermediate plot: %s", e)
+
+    def _save_parameter_plots(self) -> None:
+        """Save parameter evolution and fitness plots."""
+        if not self.output_dir or not self.population_history:
+            return
+
+        try:
+            from pathlib import Path
+
+            from examples.bilevel_fishery.visualization import (
+                plot_fitness_vs_parameters,
+                plot_parameter_evolution,
+            )
+
+            output_path = Path(self.output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+
+            plot_fitness_vs_parameters(
+                self.population_history,
+                save_path=str(output_path / "fitness_vs_params.png"),
+            )
+            logger.info("[Bilevel] Saved fitness vs parameters plot")
+
+            plot_parameter_evolution(
+                self.population_history,
+                save_path=str(output_path / "param_evolution.png"),
+            )
+            logger.info("[Bilevel] Saved parameter evolution plot")
+
+        except Exception as e:
+            logger.warning("[Bilevel] Failed to save parameter plots: %s", e)

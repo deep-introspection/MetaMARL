@@ -156,16 +156,29 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
         rewards = {}
+        effective_actions = dict(action_dict)
+
         for agent_id in self.agents:
+            # Check if agent is banned - zero out their action
+            if hasattr(self, "_is_banned") and self._is_banned(agent_id):
+                self._decrement_ban(agent_id)
+                effective_actions[agent_id] = action_dict[agent_id] * 0
+                rewards[agent_id] = 0.0
+                continue
+
             u = self.intrinsic_utility(agent_id, action_dict[agent_id], self.S_t)
             v = self.violation_signal(agent_id, u, self.S_t)
             rewards[agent_id] = u - self.penalty() * v
+
+            # Apply ban if violation occurred
+            if v > 0 and hasattr(self, "_apply_ban"):
+                self._apply_ban(agent_id)
 
         rewards = self.aggregate_rewards(rewards)
 
         # update obsevations
         prev_state = dict(self.S_t)
-        self.S_t = self.transition_kernel(A_t=action_dict, S_t=self.S_t)
+        self.S_t = self.transition_kernel(A_t=effective_actions, S_t=self.S_t)
 
         obs = {
             agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents

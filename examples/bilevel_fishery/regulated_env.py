@@ -17,10 +17,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# TODO move to config
 # Numerical stability constant
 EPS = 1e-8
-SCALE = 50.0
 
 # TODO add multiagent state in types
 # TODO ban proportional to violation severity
@@ -35,6 +33,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         **kwargs,
     ):
         super().__init__(**kwargs)
+
+        # Ban tracking per agent
+        self._agent_bans: dict[str, int] = {}
 
         # Ecology params
         # TODO env_cfg to pass ecology params to env
@@ -52,6 +53,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
 
     def _reset(self):
+        # Reset ban counters for all agents
+        self._agent_bans = {agent_id: 0 for agent_id in self.agents}
+
         self.S_t = {
             "fish": max(EPS, self.rng.lognormal(np.log(self.fish_init), 0.05)),
             "algae": max(EPS, self.rng.lognormal(np.log(self.algae_init), 0.05)),
@@ -137,16 +141,27 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
         return {"fish": fish_next, "algae": algae_next}
 
-    # TODO abstract this to multiagentenv
     @override(MultiAgentRegulatedEnv)
     def aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict:
-        raw_mean = float(np.mean(list(rewards.values())))
-        fitness = SCALE * np.tanh(raw_mean / SCALE)
-
-        # same fitness for all agents
-        return {agent_id: fitness for agent_id in self.agents}
+        """Aggregate rewards across agents without scaling or clipping."""
+        mean_reward = float(np.mean(list(rewards.values())))
+        return {agent_id: mean_reward for agent_id in self.agents}
 
     # TODO canonical observation in base multiagent env
     def _observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]):
         """We assume complete transparency"""
         return np.array([S_t["fish"], S_t["algae"]], dtype=np.float32)
+
+    def _is_banned(self, agent_id: AgentID) -> bool:
+        """Check if agent is currently banned."""
+        return self._agent_bans.get(agent_id, 0) > 0
+
+    def _decrement_ban(self, agent_id: AgentID) -> None:
+        """Decrement ban counter for agent."""
+        if self._agent_bans.get(agent_id, 0) > 0:
+            self._agent_bans[agent_id] -= 1
+
+    def _apply_ban(self, agent_id: AgentID) -> None:
+        """Apply ban to agent based on mechanism's ban_period."""
+        if self.m.ban_period > 0:
+            self._agent_bans[agent_id] = self.m.ban_period
