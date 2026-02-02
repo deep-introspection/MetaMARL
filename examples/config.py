@@ -29,6 +29,48 @@ DEFAULT_MECHANISM_CONFIG = {
     "min_stock": 0.1,  # Minimum stock threshold
     "fine_amount": 1.0,  # Fine per unit over-harvest
     "ban_period": 2,  # Periods banned after violation
+    "ban_success_prob": 1.0,  # Probability ban is enforced
+    "fine_success_prob": 1.0,  # Probability fine is enforced
+}
+
+# Social/governance defaults (optional)
+DEFAULT_SOCIAL_CONFIG = {
+    "num_commons": 1,  # Number of distinct commons (resource pools)
+    "enable_reputation": False,  # Include reputation state per agent
+    "reputation_init": 0.5,
+    "reputation_min": 0.0,
+    "reputation_max": 1.0,
+    "reputation_vote_weight": 0.05,  # Peer vote impact on reputation
+    "reputation_vote_decay": 0.1,  # EMA decay for reputation votes
+    "reputation_vote_weight_by_reputation": False,  # Weight votes by voter reputation
+    "reputation_behavior_weight": 0.1,  # Over-harvest penalty on reputation
+    "enable_governance": False,  # Enable voting over mechanism/access
+    "governance_strength": 1.0,  # Blend between base params and votes
+    "access_mode": "public",  # public|members|voted
+    "access_scope": "all",  # all|members (only used for voted access)
+    "access_threshold_init": 0.5,
+    "commons": None,  # Optional list of per-commons overrides
+}
+
+# Gaussian noise defaults (optional)
+DEFAULT_NOISE_CONFIG = {
+    "action_noise_std": 0.0,  # Policy outputs mean; env samples action
+    "action_noise_clip": 3.0,  # Clip noise in std-dev units
+    "mechanism_noise_std": 0.0,  # Gaussian noise on mechanism params
+    "mechanism_noise_mode": "episode",  # episode|step
+    "ecology_noise_std": 0.0,  # Gaussian noise on ecology params
+    "observation_noise_std": 0.0,  # Optional observation noise
+}
+
+# Private fishery defaults (optional)
+DEFAULT_PRIVATE_FISHERY_CONFIG = {
+    "enable_private_fishery": False,  # Additional reputation-allocated fishery
+    "private_availability": 0.05,  # Fraction of private fish available each step
+    "private_min_stock": DEFAULT_MECHANISM_CONFIG["min_stock"],
+    "private_allocation_mode": "reputation",  # reputation|uniform
+    "private_algae_init": DEFAULT_ECOLOGY_CONFIG["algae_init"],
+    "private_fish_init": DEFAULT_ECOLOGY_CONFIG["fish_init"],
+    "include_private_in_obs": False,
 }
 
 # Training defaults

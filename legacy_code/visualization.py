@@ -382,6 +382,189 @@ def plot_combined_trial_analysis(
     return fig
 
 
+def plot_private_fishery_dynamics(
+    trajectories: List[Dict],
+    title: str = "Private Fishery Dynamics",
+    save_path: Optional[str] = None,
+) -> plt.Figure:
+    """Plot private fishery populations over time."""
+    if not trajectories:
+        raise ValueError("No trajectory data provided")
+
+    key_fish = None
+    key_algae = None
+    for record in trajectories:
+        if "private_fish_population" in record:
+            key_fish = "private_fish_population"
+        elif "private_fish" in record:
+            key_fish = "private_fish"
+        if "private_algae_population" in record:
+            key_algae = "private_algae_population"
+        elif "private_algae" in record:
+            key_algae = "private_algae"
+        if key_fish and key_algae:
+            break
+
+    if not key_fish or not key_algae:
+        raise ValueError("Trajectory records missing private fishery data")
+
+    episodes: Dict[int, Dict[str, List[float]]] = {}
+    for record in trajectories:
+        ep = record["episode"]
+        if ep not in episodes:
+            episodes[ep] = {"steps": [], "fish": [], "algae": []}
+        episodes[ep]["steps"].append(record["step"])
+        episodes[ep]["fish"].append(record[key_fish])
+        episodes[ep]["algae"].append(record[key_algae])
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+    colors = plt.cm.tab10(np.linspace(0, 1, len(episodes)))
+
+    for i, (ep, data) in enumerate(episodes.items()):
+        ax1.plot(
+            data["steps"],
+            data["fish"],
+            color=colors[i],
+            alpha=0.7,
+            linewidth=1.5,
+            label=f"Episode {ep}",
+        )
+
+    ax1.set_ylabel("Private Fish Population", fontsize=12)
+    ax1.set_title(f"{title} - Fish Population", fontsize=14)
+    ax1.grid(True, alpha=0.3)
+    ax1.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+
+    for i, (ep, data) in enumerate(episodes.items()):
+        ax2.plot(
+            data["steps"],
+            data["algae"],
+            color=colors[i],
+            alpha=0.7,
+            linewidth=1.5,
+            label=f"Episode {ep}",
+        )
+
+    ax2.set_xlabel("Time Step", fontsize=12)
+    ax2.set_ylabel("Private Algae Population", fontsize=12)
+    ax2.set_title(f"{title} - Algae Population", fontsize=14)
+    ax2.grid(True, alpha=0.3)
+    ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    return fig
+
+
+def plot_reputation_and_allocation(
+    trajectories: List[Dict],
+    title: str = "Reputation and Allocation",
+    save_path: Optional[str] = None,
+) -> plt.Figure:
+    """Plot agent reputation and private allocation shares over time."""
+    if not trajectories:
+        raise ValueError("No trajectory data provided")
+
+    first = trajectories[0]
+    if "reputation_by_agent" not in first:
+        raise ValueError("Trajectory records missing reputation data")
+
+    num_agents = len(first["reputation_by_agent"])
+
+    episodes: Dict[int, Dict[int, Dict[str, List[float]]]] = {}
+    for record in trajectories:
+        ep = record["episode"]
+        if ep not in episodes:
+            episodes[ep] = {}
+        reps = record.get("reputation_by_agent")
+        if reps is None:
+            continue
+
+        allocation = record.get("private_allocation_share_by_agent")
+        if allocation is None and record.get("private_catch_by_agent") is not None:
+            catches = record["private_catch_by_agent"]
+            total = sum(catches)
+            allocation = [c / total if total > 0 else 0.0 for c in catches]
+
+        for agent_idx in range(num_agents):
+            if agent_idx not in episodes[ep]:
+                episodes[ep][agent_idx] = {
+                    "steps": [],
+                    "reputation": [],
+                    "allocation": [],
+                }
+            episodes[ep][agent_idx]["steps"].append(record["step"])
+            episodes[ep][agent_idx]["reputation"].append(float(reps[agent_idx]))
+            if allocation is not None:
+                episodes[ep][agent_idx]["allocation"].append(float(allocation[agent_idx]))
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+    colors = plt.cm.tab10(np.linspace(0, 1, num_agents))
+
+    for agent_idx in range(num_agents):
+        for ep, ep_data in episodes.items():
+            series = ep_data.get(agent_idx)
+            if not series:
+                continue
+            axes[0].plot(
+                series["steps"],
+                series["reputation"],
+                color=colors[agent_idx],
+                alpha=0.5,
+                linewidth=1.5,
+            )
+
+    axes[0].set_ylabel("Reputation", fontsize=12)
+    axes[0].set_title(f"{title} - Reputation", fontsize=14)
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend(
+        [f"Agent {i}" for i in range(num_agents)],
+        bbox_to_anchor=(1.05, 1),
+        loc="upper left",
+    )
+
+    has_allocation = any(
+        series.get("allocation")
+        for ep_data in episodes.values()
+        for series in ep_data.values()
+    )
+    if not has_allocation:
+        raise ValueError("Trajectory records missing allocation data")
+
+    for agent_idx in range(num_agents):
+        for ep, ep_data in episodes.items():
+            series = ep_data.get(agent_idx)
+            if not series or not series["allocation"]:
+                continue
+            axes[1].plot(
+                series["steps"],
+                series["allocation"],
+                color=colors[agent_idx],
+                alpha=0.5,
+                linewidth=1.5,
+            )
+
+    axes[1].set_xlabel("Time Step", fontsize=12)
+    axes[1].set_ylabel("Allocation Share", fontsize=12)
+    axes[1].set_title(f"{title} - Private Allocation Share", fontsize=14)
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend(
+        [f"Agent {i}" for i in range(num_agents)],
+        bbox_to_anchor=(1.05, 1),
+        loc="upper left",
+    )
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    return fig
+
+
 def load_and_visualize_experiment(
     experiment_dir: str,
     outer_iter: int,
@@ -477,6 +660,34 @@ def load_and_visualize_experiment(
         if save_plots
         else None,
     )
+
+    has_private = any(
+        "private_fish_population" in record or "private_fish" in record
+        for record in trajectories
+    )
+    if has_private:
+        figures["private_fishery"] = plot_private_fishery_dynamics(
+            trajectories,
+            title=f"{base_title} - Private Fishery",
+            save_path=f"{experiment_dir}/outer_{outer_iter}/private_fishery.png"
+            if save_plots
+            else None,
+        )
+
+    has_reputation = any("reputation_by_agent" in record for record in trajectories)
+    has_allocation = any(
+        "private_allocation_share_by_agent" in record
+        or "private_catch_by_agent" in record
+        for record in trajectories
+    )
+    if has_reputation and has_allocation:
+        figures["reputation_allocation"] = plot_reputation_and_allocation(
+            trajectories,
+            title=f"{base_title} - Reputation & Allocation",
+            save_path=f"{experiment_dir}/outer_{outer_iter}/reputation_allocation.png"
+            if save_plots
+            else None,
+        )
 
     return figures
 
