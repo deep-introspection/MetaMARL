@@ -89,6 +89,14 @@ class RayOptimizerConfig(OptimizerConfig):
         """Sets the config's API stack settings."""
         return cfg.api_stack(**kwargs)
 
+    def model(self, **kwargs) -> Self:
+        """Sets the model configuration."""
+        def _set_model(cfg):
+            cfg.model.update(kwargs)
+            return cfg
+        self._cfg_ops.append(_set_model)
+        return self
+
     @rllib_config_mutator
     def env_runners(cfg, **kwargs) -> None:
         """Sets the rollout worker configuration."""
@@ -173,34 +181,45 @@ class RayOptimizerConfig(OptimizerConfig):
         observation_spaces = {}
         action_spaces = {}
 
+        # Get number of mechanisms (one policy per mechanism)
+        num_mechanisms = self.rllib_cfg.num_envs_per_env_runner or 1
+
         for agent_type, spec in self.agent_specs.items():
             obs_space = spec.get("observation_space")
             act_space = spec.get("action_space")
+            base_policy = spec.get("policy")
 
-            policies[spec.get("policy")] = (
-                None,
-                spec.get("observation_space"),
-                spec.get("action_space"),
-                {},
-            )
+            # Create one policy per mechanism
+            for m in range(num_mechanisms):
+                policy_id = f"{base_policy}_{m}"
+                policies[policy_id] = (
+                    None,
+                    spec.get("observation_space"),
+                    spec.get("action_space"),
+                    {},
+                )
 
             for i in range(spec.get("count")):
                 agent_id = f"{agent_type}:{i}"
                 agents.append(agent_id)
-                agent_type_map[agent_id] = spec.get("policy")
+                agent_type_map[agent_id] = base_policy
                 observation_spaces[agent_id] = obs_space
                 action_spaces[agent_id] = act_space
 
         self.env_config.update({"observation_spaces": observation_spaces})
         self.env_config.update({"action_spaces": action_spaces})
 
-        def policy_mapping_fn(agent_id, *args, **kwargs):
-            return agent_type_map[agent_id]
+        def policy_mapping_fn(agent_id, episode, worker, **kwargs):
+            base_policy = agent_type_map[agent_id]
+            # Route to policy based on environment index
+            env_idx = episode.env_id if hasattr(episode, "env_id") else 0
+            return f"{base_policy}_{env_idx}"
 
+        all_policies = list(policies.keys())
         self.rllib_cfg = self.rllib_cfg.multi_agent(
             policies=policies,
             policy_mapping_fn=policy_mapping_fn,
-            policies_to_train=list(set(agent_type_map.values())),
+            policies_to_train=all_policies,
         )
         return agents
 

@@ -83,9 +83,7 @@ class BaseEnv(Env):
         obs = self.observation(raw_obs)
         reward = self.reward(raw_reward)
 
-        if self.m_ctx is not None:
-            m_idx = self.m_ctx.index
-        m_idx = None
+        m_idx = self.m_ctx.index if self.m_ctx is not None else None
 
         # Publish env context to World
         self._publish(

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+import matplotlib.pyplot as plt
+import numpy as np
 import ray
 from ray.rllib.utils.typing import AgentID
 from ray.train._internal.checkpoint_manager import _TrainingResult
@@ -40,6 +43,11 @@ class RayOptimizer(Optimizer):
 
         self.policy_actor = PolicyActor.remote(config.rllib_cfg)
 
+        # Track training metrics for plotting
+        self._training_rewards: list[float] = []
+        self._training_losses: list[float] = []
+        self._es_round: int = 0
+
     @property
     @override(Optimizer)
     def batch_capacity(self) -> int:
@@ -70,15 +78,83 @@ class RayOptimizer(Optimizer):
     @override(Optimizer)
     def run(self) -> None:
         logger.info("[PPO] Training step started")
-        # self.algo.train()
-        ray.get(self.policy_actor.train.remote())
-        logger.info("[PPO] Training step completed")
+        result = ray.get(self.policy_actor.train.remote())
+
+        # Extract metrics for logging
+        ep_reward = result.get("env_runners", result).get(
+            "episode_reward_mean", result.get("episode_reward_mean", 0)
+        )
+        iteration = result.get("training_iteration", 0)
+        timesteps = result.get("timesteps_total", 0)
+
+        # Track metrics
+        self._training_rewards.append(ep_reward or 0)
+        learner_info = result.get("info", {}).get("learner", {})
+        # Extract policy loss - policies are named fisher_policy_0, fisher_policy_1, etc.
+        policy_loss = 0.0
+        if learner_info:
+            # Average loss across all policies
+            losses = []
+            for policy_name, policy_stats in learner_info.items():
+                ls = policy_stats.get("learner_stats", {})
+                if "policy_loss" in ls:
+                    losses.append(ls["policy_loss"])
+            if losses:
+                policy_loss = sum(losses) / len(losses)
+        self._training_losses.append(policy_loss)
+
+        logger.info(
+            "[PPO] Training step completed | iter=%d | reward=%.4f | timesteps=%d",
+            iteration, ep_reward or 0, timesteps,
+        )
 
     @override(Optimizer)
     def evaluate(self) -> None:
         logger.info("[PPO] Evaluation started")
         ray.get(self.policy_actor.evaluate.remote())
         logger.info("[PPO] Evaluation completed")
+
+    @override(Optimizer)
+    def reset(self) -> None:
+        """Reset policy weights to random initialization."""
+        logger.info("[PPO] Resetting policy weights")
+        # Plot learning curve before reset (if we have data)
+        if self._training_rewards:
+            self._plot_learning_curve()
+        # Clear metrics and increment round
+        self._training_rewards = []
+        self._training_losses = []
+        self._es_round += 1
+        ray.get(self.policy_actor.reset.remote())
+
+    def _plot_learning_curve(self, output_dir: str = "results/ppo_curves") -> None:
+        """Plot and save PPO learning curve for current ES round."""
+        if not self._training_rewards:
+            return
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+        fig.suptitle(f"PPO Learning - ES Round {self._es_round}")
+
+        # Reward curve
+        axes[0].plot(self._training_rewards)
+        axes[0].set_xlabel("PPO Iteration")
+        axes[0].set_ylabel("Episode Reward Mean")
+        axes[0].set_title("Reward")
+        axes[0].axhline(y=0, color='r', linestyle='--', alpha=0.3)
+
+        # Policy loss curve
+        axes[1].plot(self._training_losses)
+        axes[1].set_xlabel("PPO Iteration")
+        axes[1].set_ylabel("Policy Loss")
+        axes[1].set_title("Policy Loss")
+
+        plt.tight_layout()
+        out_path = Path(output_dir) / f"es_round_{self._es_round:03d}.png"
+        plt.savefig(out_path, dpi=100)
+        plt.close(fig)
+        logger.info(f"[PPO] Saved learning curve to {out_path}")
 
     @override(Optimizer)
     def stop(self) -> None:

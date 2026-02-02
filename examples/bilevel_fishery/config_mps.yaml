@@ -3,30 +3,25 @@ experiment:
   seed: 0
 
 ray:
-  device: cpu
+  device: mps
   num_cpus: 4
   omp_threads: 1
   logging_level: ERROR
-  runtime_env:
-    excludes:
-      - wandb/
-      - .git/
-      - .venv/
-      - __pycache__/
-      - ray_results/
-      - runs/
 
 world:
   world_name: fishery_world
 
 mechanism:
   space: FisheryMechanismSpace
+  scaling:
+    max_fine: 10.0
+    max_ban: 200
   default:
-    fixed_quota: 0.7
-    prop_quota: 0.6
+    fixed_quota: 0.5
+    prop_quota: 0.4
     min_stock: 0.15
     fine_amount: 0.5
-    ban_period: 3
+    ban_period: 5
 
 training:
   outer_iters: 100
@@ -34,21 +29,19 @@ training:
 outer:
   optimizer: ES
   training:
-    sigma: 0.15
-    mean_lr: 0.1
+    sigma: 0.5
+    mean_lr: 0.2
     sigma_lr: 0.05
-    min_sigma: 0.001
-    max_sigma: 0.5
+    min_sigma: 0.01
+    max_sigma: 0.6
   environment:
     env: FisheryRegulatorEnv
-    horizon: 200
-    train_iters: 1
+    horizon: 500
+    train_iters: 100
     env_config:
       ecology_cfg:
-        sus_weight: 5.0
+        sus_weight: 1.0
         sus_threshold: 0.1
-        max_fish: 2.0
-        max_algae: 2.0
 
 inner:
   optimizer: PPO
@@ -59,7 +52,7 @@ inner:
     framework: torch
 
   model:
-    custom_model: null
+    custom_model: mps_fcnet
 
   api_stack:
     enable_rl_module_and_learner: false
@@ -67,17 +60,17 @@ inner:
 
   environment:
     env: FisheryRegulatedEnv
-    horizon: 200
+    horizon: 1000
     env_config:
       ecology_cfg:
         algae_init: 1.0
-        fish_init: 0.5
-        max_fish: 2.0
-        max_algae: 2.0
-        alpha: 0.5
-        beta: 0.1
-        delta: 0.1
-        gamma: 0.5
+        fish_init: 1.0
+        max_fish: 5.0
+        max_algae: 5.0
+        alpha: 0.5 # algae growth rate
+        beta: 0.1  # algae consumption by fish
+        delta: 0.2 # fish growth from eating algae
+        gamma: 0.4 # fish natural death rate
         dt: 0.01
       seed: 0
 
@@ -86,7 +79,7 @@ inner:
     num_cpus_per_env_runner: 1
     num_gpus_per_env_runner: 0
     num_envs_per_env_runner: 16
-    rollout_fragment_length: 200
+    rollout_fragment_length: 1000
     batch_mode: complete_episodes
 
   learners:
@@ -94,21 +87,21 @@ inner:
     num_gpus_per_learner: 0
 
   training:
-    gamma: 0.99
-    lr: 0.0003
-    train_batch_size: 3200
-    minibatch_size: 512
+    gamma: 0.95
+    lr: 0.001
+    train_batch_size: 16000
+    minibatch_size: 1024
 
   evaluation:
     evaluation_interval: null
-    evaluation_duration: 2000
+    evaluation_duration: 16000
     evaluation_duration_unit: timesteps
     evaluation_num_env_runners: 1
     evaluation_config:
       explore: false
-      seed: 1234
+      seed: 42
       num_envs_per_env_runner: 16
-      rollout_fragment_length: 125
+      rollout_fragment_length: 1000
       batch_mode: complete_episodes
 
   agents:

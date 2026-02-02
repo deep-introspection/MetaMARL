@@ -38,6 +38,11 @@ class FisheryRegulatorEnv(RegulatorEnv):
         super().__init__(**kwargs)
         self.sustainability_weight = ecology_cfg.get("sus_weight", 5.0)
         self.sustainability_threshold = ecology_cfg.get("sus_threshold", 0.1)
+        self.max_fish = ecology_cfg.get("max_fish", 2.0)
+        self.max_algae = ecology_cfg.get("max_algae", 2.0)
+        # Denormalized threshold for visualization
+        self.raw_sustainability_threshold = self.sustainability_threshold * self.max_fish
+        self.trajectories: dict[int, list[dict[str, Any]]] = {}
 
     @override(RegulatorEnv)
     def observation(self, obs: ObsType) -> ObsType:
@@ -98,23 +103,42 @@ class FisheryRegulatorEnv(RegulatorEnv):
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)
 
         # --- aggregate per mechanism ---
+        self.trajectories = {}
+
         for idx, steps in by_index.items():
             # Assume env-runner order == step order
             steps = steps[:min_len]
 
             rewards = np.empty(min_len, dtype=np.float32)
             fish = np.empty(min_len, dtype=np.float32)
+            algae = np.empty(min_len, dtype=np.float32)
+            trajectory: list[dict[str, Any]] = []
 
             for i, s in enumerate(steps):
                 # reward
                 r = s.payload.reward
                 rewards[i] = sum(r.values()) if isinstance(r, dict) else float(r)
 
-                # fish stock
+                # fish/algae stock from observation (normalized in [0, 1])
                 obs = s.payload.observation
-                fish[i] = (
-                    min(o[0] for o in obs.values()) if isinstance(obs, dict) else obs[0]
-                )
+                if isinstance(obs, dict):
+                    first_obs = next(iter(obs.values()))
+                    fish[i] = first_obs[0]
+                    algae[i] = first_obs[1] if len(first_obs) > 1 else 0.0
+                else:
+                    fish[i] = obs[0]
+                    algae[i] = obs[1] if len(obs) > 1 else 0.0
+
+                # Denormalize for trajectory storage (visualization uses raw values)
+                trajectory.append({
+                    "episode": 0,
+                    "step": i,
+                    "fish_population": float(fish[i] * self.max_fish),
+                    "algae_population": float(algae[i] * self.max_algae),
+                    "reward": float(rewards[i]),
+                })
+
+            self.trajectories[idx] = trajectory
 
             mean_reward = rewards.mean()
             reward_std = rewards.std()

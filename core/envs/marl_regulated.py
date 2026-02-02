@@ -77,7 +77,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
         self._publish(
             EnvStepContext(
-                mechanism=self.m_ctx.index,
+                mechanism=self.m_ctx.index if self.m_ctx else None,
                 observation=obs,
                 reward=rewards,
                 action=actions,
@@ -156,24 +156,40 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
         rewards = {}
+        effective_actions = dict(action_dict)
+
         for agent_id in self.agents:
+            # Check if agent is banned - zero out their action and apply penalty
+            if hasattr(self, "_is_banned") and self._is_banned(agent_id):
+                self._decrement_ban(agent_id)
+                effective_actions[agent_id] = action_dict[agent_id] * 0
+                # Mild ban penalty: just "time out", not heavy punishment
+                rewards[agent_id] = -0.01
+                continue
+
             u = self.intrinsic_utility(agent_id, action_dict[agent_id], self.S_t)
             v = self.violation_signal(agent_id, u, self.S_t)
             rewards[agent_id] = u - self.penalty() * v
+
+            # Apply ban if violation occurred
+            if v > 0 and hasattr(self, "_apply_ban"):
+                self._apply_ban(agent_id)
 
         rewards = self.aggregate_rewards(rewards)
 
         # update obsevations
         prev_state = dict(self.S_t)
-        self.S_t = self.transition_kernel(A_t=action_dict, S_t=self.S_t)
+        self.S_t = self.transition_kernel(A_t=effective_actions, S_t=self.S_t)
 
         obs = {
             agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
         }
 
         # check terminated and truncated conditions
-        terminated = {"__all__": self._is_terminated()}
-        truncated = {"__all__": False}
+        # terminated = natural end (e.g., goal reached or failure)
+        # truncated = artificial time limit (horizon reached)
+        terminated = {"__all__": False}
+        truncated = {"__all__": self._is_terminated()}
 
         # TODO dont log at every step
         # if self._t % 1 == 0:

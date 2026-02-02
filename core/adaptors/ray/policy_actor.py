@@ -14,6 +14,8 @@ class PolicyActor:
     """
 
     def __init__(self, algo_config: AlgorithmConfig):
+        # Store config for reset capability
+        self.algo_config = algo_config
         # Build Algorithm INSIDE actor (critical)
         self.algo: Algorithm = algo_config.build()
 
@@ -45,6 +47,11 @@ class PolicyActor:
                 a, _, _ = policy.compute_single_action(obs, explore=False)
                 actions.append(a)
             return np.asarray(actions)
+
+    def reset(self):
+        """Reset by rebuilding the entire algorithm from scratch."""
+        self.algo.stop()
+        self.algo = self.algo_config.build()
 
     def stop(self):
         self.algo.stop()
