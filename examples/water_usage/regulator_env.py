@@ -78,7 +78,6 @@ class WaterRegulatorEnv(RegulatorEnv):
         )
 
         # --- compute elastic truncation length ---
-        min_len = min(len(v) for v in by_index.values())
         max_idx = max(by_index.keys())
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)
 
