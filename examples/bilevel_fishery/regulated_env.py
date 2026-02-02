@@ -93,7 +93,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def violation_signal(
         self, agent_id: AgentID, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
-        quota = max(0.0, u_i - min(self.m.fixed_quota, self.m.prop_quota * S_t["fish"]))
+        quota = max(0.0, u_i - min(self.m.fixed_quota, self.m.prop_quota * S_t["fish"] / self.max_fish))
         ban = float(S_t["fish"] < self.m.min_stock) * u_i
         v = float(quota + ban)
         # if v > 0.0:
@@ -163,8 +163,11 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
     # TODO canonical observation in base multiagent env
     def _observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]):
-        """We assume complete transparency"""
-        return np.array([S_t["fish"], S_t["algae"]], dtype=np.float32)
+        """We assume complete transparency. Observations normalized to [0, 1]."""
+        return np.array([
+            S_t["fish"] / self.max_fish,
+            S_t["algae"] / self.max_algae
+        ], dtype=np.float32)
 
     def _is_banned(self, agent_id: AgentID) -> bool:
         """Check if agent is currently banned."""
