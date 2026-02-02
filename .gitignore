@@ -27,7 +27,8 @@ ENV/
 env/
 
 # IDEs
-.vscode/
+.vscode/*
+!.vscode/settings.json
 .idea/
 *.swp
 *.swo
@@ -71,6 +72,7 @@ figures/
 # Data files
 *.csv
 *.json
+!.vscode/settings.json
 *.pkl
 *.npy
 *.npz
