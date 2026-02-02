@@ -13,6 +13,9 @@ world:
 
 mechanism:
   space: FisheryMechanismSpace
+  scaling:
+    max_fine: 10.0
+    max_ban: 100
   default:
     fixed_quota: 0.2
     prop_quota: 0.1
@@ -34,7 +37,7 @@ outer:
   environment:
     env: FisheryRegulatorEnv
     horizon: 200
-    train_iters: 1
+    train_iters: 20
     env_config:
       ecology_cfg:
         sus_weight: 10.0
@@ -85,7 +88,7 @@ inner:
 
   training:
     gamma: 0.99
-    lr: 0.0003
+    lr: 0.001
     train_batch_size: 3200
     minibatch_size: 512
 
@@ -96,7 +99,7 @@ inner:
     evaluation_num_env_runners: 1
     evaluation_config:
       explore: false
-      seed: 1234
+      seed: 42
       num_envs_per_env_runner: 16
       rollout_fragment_length: 125
       batch_mode: complete_episodes

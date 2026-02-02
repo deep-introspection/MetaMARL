@@ -20,10 +20,18 @@ class BilevelConfigLoader:
             cfg = yaml.safe_load(f)
 
         mechanism_space_cls = REGISTRY["mechanism_space"][cfg["mechanism"]["space"]]
-        mechanism_space = mechanism_space_cls()
+        scaling_cfg = cfg["mechanism"].get("scaling", {})
+        mechanism_space = mechanism_space_cls(
+            max_fine=scaling_cfg.get("max_fine", 5.0),
+            max_ban=scaling_cfg.get("max_ban", 50),
+        )
 
         mechanism_cls = REGISTRY["mechanism"]["FisheryMechanism"]
-        mechanism = mechanism_cls(**cfg["mechanism"]["default"])
+        mechanism = mechanism_cls(
+            **cfg["mechanism"]["default"],
+            max_fine=scaling_cfg.get("max_fine", 5.0),
+            max_ban=scaling_cfg.get("max_ban", 50),
+        )
 
         bilevel = (
             BilevelConfig()
