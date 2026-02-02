@@ -163,8 +163,8 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
             if hasattr(self, "_is_banned") and self._is_banned(agent_id):
                 self._decrement_ban(agent_id)
                 effective_actions[agent_id] = action_dict[agent_id] * 0
-                # Punitive ban: negative reward during ban period
-                rewards[agent_id] = -0.1
+                # Mild ban penalty: just "time out", not heavy punishment
+                rewards[agent_id] = -0.01
                 continue
 
             u = self.intrinsic_utility(agent_id, action_dict[agent_id], self.S_t)
