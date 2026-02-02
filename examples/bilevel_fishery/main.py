@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 import ray
+import yaml
 
 from examples.bilevel_fishery.bilevel import BilevelConfigLoader
 
@@ -60,20 +61,34 @@ def main():
 
         from examples.bilevel_fishery.visualization import plot_combined_trial_analysis
 
+        # Load scaling values from config
+        with open(config_path, "r") as f:
+            raw_cfg = yaml.safe_load(f)
+        scaling_cfg = raw_cfg.get("mechanism", {}).get("scaling", {})
+        max_fine = scaling_cfg.get("max_fine", 5.0)
+        max_ban = scaling_cfg.get("max_ban", 50)
+
+        # Load ecology config for sustainability threshold
+        outer_ecology = raw_cfg.get("outer", {}).get("environment", {}).get("env_config", {}).get("ecology_cfg", {})
+        sus_threshold = outer_ecology.get("sus_threshold", 0.1)
+        max_fish = outer_ecology.get("max_fish", 2.0)
+        raw_sus_threshold = sus_threshold * max_fish
+
         mechanism_params = None
         if results.get("best_mechanism") is not None:
             mechanism_params = {
                 "fixed_quota": float(results["best_mechanism"][0]),
                 "prop_quota": float(results["best_mechanism"][1]),
                 "min_stock": float(results["best_mechanism"][2]),
-                "fine_amount": float(results["best_mechanism"][3]) * 2.0,
-                "ban_period": float(results["best_mechanism"][4]) * 10.0,
+                "fine_amount": float(results["best_mechanism"][3]) * max_fine,
+                "ban_period": float(results["best_mechanism"][4]) * max_ban,
             }
 
         save_path = output_dir / "trial_analysis.png"
         plot_combined_trial_analysis(
             results["best_trajectory"],
             mechanism_params=mechanism_params,
+            sustainability_threshold=raw_sus_threshold,
             title=f"Best Mechanism (fitness={results['best_fitness']:.4f})",
             save_path=str(save_path),
         )

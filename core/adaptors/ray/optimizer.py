@@ -82,6 +82,12 @@ class RayOptimizer(Optimizer):
         logger.info("[PPO] Evaluation completed")
 
     @override(Optimizer)
+    def reset(self) -> None:
+        """Reset policy weights to random initialization."""
+        logger.info("[PPO] Resetting policy weights")
+        ray.get(self.policy_actor.reset.remote())
+
+    @override(Optimizer)
     def stop(self) -> None:
         ray.get(self.policy_actor.stop.remote())
 

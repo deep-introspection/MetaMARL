@@ -68,6 +68,10 @@ class RegulatorEnv(BaseEnv):
                 f"{self.__class__.__name__} expected list[Mechanism], got {type(mechanisms)}"
             )
 
+        # Reset policy weights for fresh equilibrium search each ES iteration
+        if hasattr(self.inner, "reset"):
+            self.inner.reset()
+
         # TODO PARALLELIZE Vectorize environment across θ candidates and train one ppo policy over mehcanism candidates
         # TODO other techiniques can also speed this up
         # for theta in thetas:
@@ -84,10 +88,17 @@ class RegulatorEnv(BaseEnv):
                 )
             )
 
-        self.inner.set_state(self.init_state)
+
+        # self.inner.set_state(self.init_state)
 
         # One policy conditioned on Theta (theta-conditioned RL)
-        self.inner.run()
+        # self.inner.run()
+
+        # Train policy for train_iters iterations
+        # dont wanna do that and let ray handle it instead
+        for _ in range(self.train_iters):
+            self.inner.run()
+
 
         # todo : the total episodes must be same as numer mechanisms
         # reset mechanism contexts

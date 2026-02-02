@@ -16,8 +16,8 @@ class FisheryMechanism(Mechanism):
         fixed_quota: Absolute harvest limit (0 to 1)
         prop_quota: Proportional quota factor (0 to 1)
         min_stock: Minimum stock threshold for fishing (0 to 1)
-        fine_amount: Penalty per unit over-harvest (0 to 2)
-        ban_period: Duration of ban after violation (0 to 10 periods)
+        fine_amount: Penalty per unit over-harvest (0 to max_fine)
+        ban_period: Duration of ban after violation (0 to max_ban periods)
     """
 
     fixed_quota: float
@@ -25,14 +25,17 @@ class FisheryMechanism(Mechanism):
     min_stock: float
     fine_amount: float
     ban_period: int
+    # Scaling parameters (not optimized, used for normalization)
+    max_fine: float = 5.0
+    max_ban: int = 50
 
     def __post_init__(self) -> None:
         """Validate parameter ranges."""
         assert 0.0 <= self.fixed_quota <= 1.0
         assert 0.0 <= self.prop_quota <= 1.0
         assert 0.0 <= self.min_stock <= 1.0
-        assert 0.0 <= self.fine_amount <= 2.0
-        assert 0 <= self.ban_period <= 10
+        assert 0.0 <= self.fine_amount <= self.max_fine
+        assert 0 <= self.ban_period <= self.max_ban
 
     @override(Mechanism)
     def to_vector(self) -> np.ndarray:
@@ -41,8 +44,8 @@ class FisheryMechanism(Mechanism):
                 self.fixed_quota,
                 self.prop_quota,
                 self.min_stock,
-                self.fine_amount / 2.0,
-                self.ban_period / 10.0,
+                self.fine_amount / self.max_fine,
+                self.ban_period / self.max_ban,
             ],
             dtype=np.float32,
         )
@@ -58,15 +61,22 @@ class FisheryMechanism(Mechanism):
 
 
 class FisheryMechanismSpace(MechanismSpace):
-    def __init__(self, use_stochastic_roundting: bool = True):
+    def __init__(
+        self,
+        use_stochastic_roundting: bool = True,
+        max_fine: float = 5.0,
+        max_ban: int = 50,
+    ):
         super().__init__()
         self.use_stochastic_roundting = use_stochastic_roundting
+        self.max_fine = max_fine
+        self.max_ban = max_ban
         self.dimension = 5
 
     # private
     def _discretize_ban(self, ban_period_cont: float, u: np.ndarray) -> int:
         if not self.use_stochastic_roundting:
-            return int(np.clip(round(ban_period_cont), 0, 10))
+            return int(np.clip(round(ban_period_cont), 0, self.max_ban))
 
         floor = int(np.floor(ban_period_cont))
         frac = ban_period_cont - floor
@@ -74,7 +84,7 @@ class FisheryMechanismSpace(MechanismSpace):
         h = hash(tuple(map(float, u)))
         pseudo_random = (h % 10000) / 10000.0
 
-        if pseudo_random < frac and floor < 10:
+        if pseudo_random < frac and floor < self.max_ban:
             return floor + 1
         return floor
 
@@ -83,18 +93,19 @@ class FisheryMechanismSpace(MechanismSpace):
             "fixed_quota": float(u[0]),
             "prop_quota": float(u[1]),
             "min_stock": float(u[2]),
-            "fine_amount": float(u[3]) * 2.0,
-            "ban_period_cont": float(u[4]) * 10.0,
+            "fine_amount": float(u[3]) * self.max_fine,
+            "ban_period_cont": float(u[4]) * self.max_ban,
         }
 
-    @classmethod
-    def default(cls) -> FisheryMechanism:
+    def default(self) -> FisheryMechanism:
         return FisheryMechanism(
             fixed_quota=0.2,
             prop_quota=0.1,
             min_stock=0.1,
             fine_amount=1.0,
             ban_period=2,
+            max_fine=self.max_fine,
+            max_ban=self.max_ban,
         )
 
     def encode(self, m: FisheryMechanism) -> NDArray[np.float32]:
@@ -110,6 +121,8 @@ class FisheryMechanismSpace(MechanismSpace):
         mech = FisheryMechanism(
             **params,
             ban_period=ban,
+            max_fine=self.max_fine,
+            max_ban=self.max_ban,
         )
 
         return self.clip(mech)
@@ -119,9 +132,11 @@ class FisheryMechanismSpace(MechanismSpace):
             fixed_quota=float(np.clip(m.fixed_quota, 0, 1)),
             prop_quota=float(np.clip(m.prop_quota, 0, 1)),
             min_stock=float(np.clip(m.min_stock, 0, 1)),
-            fine_amount=float(np.clip(m.fine_amount, 0, 2)),
-            ban_period=int(np.clip(m.ban_period, 0, 10)),
+            fine_amount=float(np.clip(m.fine_amount, 0, self.max_fine)),
+            ban_period=int(np.clip(m.ban_period, 0, self.max_ban)),
+            max_fine=self.max_fine,
+            max_ban=self.max_ban,
         )
 
     def from_dict(self, cfg: dict) -> FisheryMechanism:
-        return FisheryMechanism(**cfg)
+        return FisheryMechanism(**cfg, max_fine=self.max_fine, max_ban=self.max_ban)

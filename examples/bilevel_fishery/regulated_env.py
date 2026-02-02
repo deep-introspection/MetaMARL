@@ -85,25 +85,41 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def violation_signal(
         self, agent_id: AgentID, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
-        fish = float(S_t["fish"])
-        fish_norm = fish / self.max_fish
-        quota_norm = min(
-            self.m.fixed_quota / self.max_fish,
-            self.m.prop_quota * fish_norm,
-        )
-        quota_violation = max(0.0, u_i - quota_norm)
-        if fish < self.m.min_stock:
-            depth = (self.m.min_stock - fish) / max(EPS, self.m.min_stock)
-        else:
-            depth = 0.0
-        # TODO add stock weight to mechanism
-        # violation = quota_violation + self.m.stock_weight * depth
-        violation = quota_violation + 1.0 * depth
 
-        if violation > EPS:
-            self.agent_bans[agent_id] = max(self.agent_bans.get(agent_id, 0), self.m.ban_period)
+        # fish = float(S_t["fish"])
+        # fish_norm = fish / self.max_fish
+        # quota_norm = min(
+        #     self.m.fixed_quota / self.max_fish,
+        #     self.m.prop_quota * fish_norm,
+        # )
+        # quota_violation = max(0.0, u_i - quota_norm)
+        # if fish < self.m.min_stock:
+        #     depth = (self.m.min_stock - fish) / max(EPS, self.m.min_stock)
+        # else:
+        #     depth = 0.0
+        # # TODO add stock weight to mechanism
+        # # violation = quota_violation + self.m.stock_weight * depth
+        # violation = quota_violation + 1.0 * depth
 
-        return float(violation)
+        # if violation > EPS:
+        #     self.agent_bans[agent_id] = max(self.agent_bans.get(agent_id, 0), self.m.ban_period)
+
+        # return float(violation)
+
+        quota = max(0.0, u_i - min(self.m.fixed_quota, self.m.prop_quota * S_t["fish"] / self.max_fish))
+        ban = float(S_t["fish"] < self.m.min_stock) * u_i
+        v = float(quota + ban)
+        # if v > 0.0:
+        # logger.info(
+        #     "[VIOLATION] %s u=%.6f quota=%.6f ban=%.6f total=%.6f",
+        #     agent_id,
+        #     u_i,
+        #     quota,
+        #     ban,
+        #     v,
+        # )
+        return v
+
 
     def penalty(self) -> SupportsFloat:
         return self.m.fine_amount
@@ -149,8 +165,11 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
     # TODO canonical observation in base multiagent env
     def _observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]):
-        """We assume complete transparency"""
-        return np.array([S_t["fish"], S_t["algae"]], dtype=np.float32)
+        """We assume complete transparency. Observations normalized to [0, 1]."""
+        return np.array([
+            S_t["fish"] / self.max_fish,
+            S_t["algae"] / self.max_algae
+        ], dtype=np.float32)
 
     def _is_banned(self, agent_id: AgentID) -> bool:
         """Check if agent is currently banned."""

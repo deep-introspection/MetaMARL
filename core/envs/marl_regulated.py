@@ -77,7 +77,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
         self._publish(
             EnvStepContext(
-                mechanism=self.m_ctx.index,
+                mechanism=self.m_ctx.index if self.m_ctx else None,
                 observation=obs,
                 reward=rewards,
                 action=actions,
@@ -159,11 +159,12 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         effective_actions = dict(action_dict)
 
         for agent_id in self.agents:
-            # Check if agent is banned - zero out their action
+            # Check if agent is banned - zero out their action and apply penalty
             if hasattr(self, "_is_banned") and self._is_banned(agent_id):
                 self._decrement_ban(agent_id)
                 effective_actions[agent_id] = action_dict[agent_id] * 0
-                rewards[agent_id] = 0.0
+                # Punitive ban: negative reward during ban period
+                rewards[agent_id] = -0.1
                 continue
 
             u = self.intrinsic_utility(agent_id, action_dict[agent_id], self.S_t)
@@ -185,8 +186,10 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         }
 
         # check terminated and truncated conditions
-        terminated = {"__all__": self._is_terminated()}
-        truncated = {"__all__": False}
+        # terminated = natural end (e.g., goal reached or failure)
+        # truncated = artificial time limit (horizon reached)
+        terminated = {"__all__": False}
+        truncated = {"__all__": self._is_terminated()}
 
         # TODO dont log at every step
         # if self._t % 1 == 0:

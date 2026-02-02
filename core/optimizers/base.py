@@ -158,5 +158,9 @@ class Optimizer(ABC):
         """Persist Optimizer State"""
         pass
 
+    def reset(self) -> None:
+        """Reset optimizer state (e.g., policy weights)."""
+        pass
+
     def stop(self) -> None:
         pass

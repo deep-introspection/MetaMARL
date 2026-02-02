@@ -47,6 +47,8 @@ outer:
       ecology_cfg:
         sus_weight: 5.0
         sus_threshold: 0.1
+        max_fish: 2.0
+        max_algae: 2.0
 
 inner:
   optimizer: PPO

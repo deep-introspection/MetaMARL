@@ -69,8 +69,6 @@ bilevel_opt_cfg: BilevelConfig = (
                     "sus_threshold": 0.1,
                 },
             },
-            horizon=200,
-            train_iters=1,
         )
     )
     .inner(
@@ -102,6 +100,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 "seed": 0,
             },
             horizon=200,  # must be the same as regulator 200
+            train_iters=10
         )
         .env_runners(
             num_env_runners=1,
