@@ -1,0 +1,5 @@
+{
+  "python.pythonPath": "${workspaceFolder}/venv/bin/python",
+  "jupyter.notebookFileRoot": "${workspaceFolder}",
+  "python.dataScience.notebookFileRoot": "${workspaceFolder}"
+}
