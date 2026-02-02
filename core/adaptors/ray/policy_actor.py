@@ -27,7 +27,7 @@ class PolicyActor:
         return self.algo.set_state(state)
     
     def get_state(self):
-        return self.algo.get_state()
+        return self.algo.__getstate__()
     
 
     def compute_actions(

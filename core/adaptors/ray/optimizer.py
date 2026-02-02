@@ -90,7 +90,7 @@ class RayOptimizer(Optimizer):
         return self.algo.save(checkpoint_dir)
     
     def get_state(self) -> StateDict:
-        return ray.get(self.algo.get_state.remote())
+        return ray.get(self.policy_actor.get_state.remote())
 
     def set_state(self, state: StateDict) -> None:
-        return ray.get(self.algo.set_state.remote(state))
+        return ray.get(self.policy_actor.set_state.remote(state))

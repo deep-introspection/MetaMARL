@@ -34,7 +34,7 @@ class RegulatorEnv(BaseEnv):
         super().__init__(world=world, opt_id=opt_id, **kwargs)
         self.inner: Optimizer = optimizer
         self.train_iters: int = train_iters
-        self.init_state: StateDict | None = None
+        self.init_state: StateDict = self.inner.get_state()
 
         self._validate()
 
@@ -84,9 +84,6 @@ class RegulatorEnv(BaseEnv):
                 )
             )
 
-        if self.init_state is None:
-            self.init_state = self.inner.get_state()
-        
         self.inner.set_state(self.init_state)
 
         # One policy conditioned on Theta (theta-conditioned RL)
