@@ -58,19 +58,19 @@ class WaterMechanism(Mechanism):
 class WaterMechanismSpace(MechanismSpace):
     def __init__(
         self,
-        use_stochastic_roundting: bool = True,
+        use_stochastic_rounding: bool = True,
         max_fine: float = 5.0,
         max_ban: int = 50,
     ):
         super().__init__()
-        self.use_stochastic_roundting = use_stochastic_roundting
+        self.use_stochastic_rounding = use_stochastic_rounding
         self.max_fine = max_fine
         self.max_ban = max_ban
         self.dimension = 5
 
     # private helpers copied from fishery pattern
     def _discretize_ban(self, ban_period_cont: float, u: np.ndarray) -> int:
-        if not self.use_stochastic_roundting:
+        if not self.use_stochastic_rounding:
             return int(np.clip(round(ban_period_cont), 0, self.max_ban))
 
         floor = int(np.floor(ban_period_cont))
