@@ -26,7 +26,7 @@ class BilevelConfigLoader:
             max_ban=scaling_cfg.get("max_ban", 50),
         )
 
-        mechanism_cls = REGISTRY["mechanism"]["FisheryMechanism"]
+        mechanism_cls = REGISTRY["mechanism"]["WaterMechanism"]
         mechanism = mechanism_cls(
             **cfg["mechanism"]["default"],
             max_fine=scaling_cfg.get("max_fine", 5.0),
@@ -48,38 +48,46 @@ class BilevelConfigLoader:
             .training(**cfg["outer"]["training"])
             .environment(
                 env=outer_env_cls,
-                env_config=cfg["outer"]["environment"]["env_config"],
-                horizon=cfg["outer"]["environment"]["horizon"],
-                train_iters=cfg["outer"]["environment"]["train_iters"],
+                env_config=cfg["outer"]["environment"].get("env_config", {}),
+                horizon=cfg["outer"]["environment"].get("horizon"),
+                train_iters=cfg["outer"]["environment"].get("train_iters", 1),
             )
         )
 
         inner_env_cls = REGISTRY["env"][cfg["inner"]["environment"]["env"]]
 
-        fisher_cfg = cfg["inner"]["agents"]["fisher"]
-        obs_dim = 5 + mechanism_space.dimension  # fish, algae, ban, quota, no_fish_zone + θ
-        action_cfg = fisher_cfg["action_space"]
+        utilizer_cfg = cfg["inner"]["agents"]["utilizer"]
+        obs_dim = 5 + mechanism_space.dimension  # water_norm, placeholder, restriction, effective_quota, no_water_zone + θ
 
-        bilevel = bilevel.inner(
+        # Build inner PPO config
+        ppo_cfg = (
             PPOptimizerConfig()
-            .resources(**cfg["inner"]["resources"])
-            .framework(**cfg["inner"]["framework"])
-            .model(**cfg["inner"]["model"])
-            .api_stack(**cfg["inner"]["api_stack"])
-            .learners(**cfg["inner"]["learners"])
+            .resources(**cfg["inner"].get("resources", {}))
+            .framework(**cfg["inner"].get("framework", {}))
+            .model(**cfg["inner"].get("model", {}))
+            .api_stack(**cfg["inner"].get("api_stack", {}))
+        )
+
+        if "learners" in cfg["inner"]:
+            ppo_cfg = ppo_cfg.learners(**cfg["inner"]["learners"])
+
+        action_cfg = utilizer_cfg["action_space"]
+
+        ppo_cfg = (
+            ppo_cfg
             .environment(
                 env=inner_env_cls,
-                env_config=cfg["inner"]["environment"]["env_config"],
-                horizon=cfg["inner"]["environment"]["horizon"],
+                env_config=cfg["inner"]["environment"].get("env_config", {}),
+                horizon=cfg["inner"]["environment"].get("horizon"),
             )
-            .env_runners(**cfg["inner"]["env_runners"])
-            .training(**cfg["inner"]["training"])
-            .evaluation(**cfg["inner"]["evaluation"])
+            .env_runners(**cfg["inner"].get("env_runners", {}))
+            .training(**cfg["inner"].get("training", {}))
+            .evaluation(**cfg["inner"].get("evaluation", {}))
             .agents(
                 {
-                    "fisher": {
-                        "count": fisher_cfg["count"],
-                        "policy": fisher_cfg["policy"],
+                    "utilizer": {
+                        "count": utilizer_cfg["count"],
+                        "policy": utilizer_cfg["policy"],
                         "observation_space": spaces.Box(
                             low=-np.inf,
                             high=np.inf,
@@ -95,7 +103,9 @@ class BilevelConfigLoader:
                     }
                 }
             )
-            .fault_tolerance(**cfg["inner"]["fault_tolerance"])
+            .fault_tolerance(**cfg["inner"].get("fault_tolerance", {}))
         )
+
+        bilevel = bilevel.inner(ppo_cfg)
 
         return bilevel
