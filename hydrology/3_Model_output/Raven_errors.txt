@@ -1,0 +1,21 @@
+ Raven v4.1 Build date: Dec  8 2025
+----------------------------------------------------------
+WARNING  : HRU groups should ideally be defined in .rvi file (using :DefineHRUGroup(s) commands) before being populated in .rvh file (2)
+ADVISORY : HRUGroup LAKE_HRU was populated with 2 HRUs(s).
+WARNING  : HRU groups should ideally be defined in .rvi file (using :DefineHRUGroup(s) commands) before being populated in .rvh file (2)
+ADVISORY : HRUGroup WATER_HRU was populated with 0 HRUs(s).
+WARNING  : HRU groups should ideally be defined in .rvi file (using :DefineHRUGroup(s) commands) before being populated in .rvh file (2)
+ADVISORY : HRUGroup FOREST_HRU was populated with 56 HRUs(s).
+WARNING  : HRU groups should ideally be defined in .rvi file (using :DefineHRUGroup(s) commands) before being populated in .rvh file (2)
+ADVISORY : HRUGroup BEDROCK_HRU was populated with 0 HRUs(s).
+WARNING  : HRU groups should ideally be defined in .rvi file (using :DefineHRUGroup(s) commands) before being populated in .rvh file (2)
+ADVISORY : HRUGroup URBAN_HRU was populated with 19 HRUs(s).
+WARNING  : HRU groups should ideally be defined in .rvi file (using :DefineHRUGroup(s) commands) before being populated in .rvh file (2)
+ADVISORY : HRUGroup AGRICULTURE_HRU was populated with 51 HRUs(s).
+WARNING  : HRU groups should ideally be defined in .rvi file (using :DefineHRUGroup(s) commands) before being populated in .rvh file (2)
+ADVISORY : HRUGroup GRASSLAND_HRU was populated with 13 HRUs(s).
+WARNING  : HRU groups should ideally be defined in .rvi file (using :DefineHRUGroup(s) commands) before being populated in .rvh file (2)
+ADVISORY : HRUGroup GRASSLAND2_HRU was populated with 2 HRUs(s).
+WARNING  : :MergeHRUGroups: HRU groups should ideally be defined in .rvi file (using :DefineHRUGroup(s) commands) before being populated in .rvh file (2)
+ADVISORY : HRUGroup LAND_HRUs was populated with 141 HRUs(s).
+ERROR    : ParseTimeSeriesFile: :StationForcing blocks are only allowed when NetCDF library is available!

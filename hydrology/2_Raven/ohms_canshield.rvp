@@ -1,0 +1,135 @@
+# -----------------------------------------------------------------------------
+#     File type:  Raven RVP ASCII v4.n
+#    Model info:  CanShield Model for Ontario Hydrologic Modeling System (OHMS)
+#    Created by:  Bryan Tolson, James Craig
+#   Modified by:  Hongren Shen, Ming Han
+# Creation date:  September 2025
+# -----------------------------------------------------------------------------
+# DO NOT RE-DISTRIBUTE or SHARE THE CONTENTS OF THIS FILE IN ANY WAY - ONLY LEAD WATER 602 Modellers should have this file.
+# ONLY TO BE USED IN WATER 602 UNLESS YOU GET EXPLICIT PERMISSION FROM BRYAN TOLSON (btolson@uwaterloo.ca) to use this elsewhere. 
+# Please delete this file at the end of the Fall 2025 term.
+
+#######
+#-----------------------------------------------------------------
+# Soil Classes
+#-----------------------------------------------------------------
+:SoilClasses          
+:Attributes        
+ :Units    
+  Soil1_DEFAULT,         
+  Soil2_DEFAULT,     
+  Soil3_DEFAULT,
+ :EndSoilClasses
+
+#-----------------------------------------------------------------
+# Land Use Classes
+#-----------------------------------------------------------------
+:LandUseClasses, 
+  :Attributes,          IMPERM,                     FOREST_COV,               LAKE_PET_CORR,
+  :Units,               frac,                       frac,                     frac,       
+  LAKE,                 0,                          0,                        1.268044E+00,     
+  WATER,                0,                          0,                        Not_Used,
+  FOREST,               0,                          1,                        Not_Used,
+  BEDROCK,              1,                          0,                        Not_Used,
+  URBAN,                9.966849E-01,           1.233808E-03,     Not_Used,
+  AGRICULTURE,          0,                          1,                        Not_Used,
+  GRASSLAND,            0,                          1,                        Not_Used,
+  GRASSLAND2,           0,                          1,                        Not_Used, 
+:EndLandUseClasses
+
+#-----------------------------------------------------------------
+# Vegetation Classes
+#-----------------------------------------------------------------
+
+:VegetationClasses, 
+  :Attributes,              MAX_HT,               MAX_LAI,                      MAX_LEAF_COND, 
+  :Units,                   m,                    none,                         mm_per_s, 
+  LAKE,                     Not_Used,             0,                            Not_Used,
+  NO_VEG,                   Not_Used,             0,                            Not_Used,
+  FOREST,                   Not_Used,             4.68              ,           Not_Used,
+  AGRICULTURE,              Not_Used,             2.96                   ,      Not_Used,
+  GRASSLAND,                Not_Used,             3.73                 ,        Not_Used,
+  GRASSLAND2,               Not_Used,             3.73                  ,       Not_Used,      
+:EndVegetationClasses  
+
+#-----------------------------------------------------------------
+# Soil Profiles
+#-----------------------------------------------------------------
+:SoilProfiles
+  LAKE,                         0
+  WATER,                        0
+  ROCK,                         0
+  DEFAULT_SOIL,                 3,    Soil1_DEFAULT,            0.3,                                     Soil2_DEFAULT,         7.198257E-01,                  Soil3_DEFAULT,               2.0,
+:EndSoilProfiles
+
+#-----------------------------------------------------------------
+# Global Parameters
+#-----------------------------------------------------------------
+# Use CONSTANT 500 mm for all Ontario basins
+:AvgAnnualRunoff        500                  
+:GlobalParameter        SNOW_SWI              0.05                #(Raven manual 0.04 - 0.07) 
+
+#-----------------------------------------------------------------
+# Soil Parameters
+#-----------------------------------------------------------------
+#######
+#######
+:SoilParameterList
+  :Parameters,        POROSITY,      HYDRAUL_COND,                  WETTING_FRONT_PSI,              PET_CORRECTION,                       FIELD_CAPACITY,        SAT_WILT,        MAX_PERC_RATE,                        MAX_BASEFLOW_RATE,                    BASEFLOW_N,                     BASEFLOW_THRESH,                        BASEFLOW_COEFF
+  :Units,             none,          mm/d,                          mm,                             -,                                    -,                     -,               mm/d,                                 mm/d,                                 none,                           none,                                   1/d  
+  Soil1_DEFAULT,      0.4,           7.435198E+02,              2.162810E+00,                  8.588596E-01,              4.000000E-01,          0.01,            3.505552E+01,              7.005551E+01,          1.367754E+00,           4.000000E-01,                           Not_Used                
+  Soil2_DEFAULT,      0.4,           Not_Used,                      Not_Used,                       8.588596E-01,              4.000000E-01,          0.01,            1.047302E+01,              9.679378E+01,          1.372982E+00,           4.000000E-01,                           Not_Used
+  Soil3_DEFAULT,      0.4,           Not_Used,                      Not_Used,                       Not_Used,                             4.000000E-01,          0.01,            Not_Used,                             Not_Used,                             Not_Used,                       Not_Used,                               3.983622E-02
+:EndSoilParameterList
+
+#-----------------------------------------------------------------
+# Land Use Parameters
+#-----------------------------------------------------------------
+:LandUseParameterList
+  :Parameters,                FOREST_SPARSENESS,        REFREEZE_FACTOR,         MELT_FACTOR,          MIN_MELT_FACTOR ,     HBV_MELT_FOR_CORR,         HBV_MELT_ASP_CORR,        DD_MELT_TEMP,                              
+  :Units,                     -,                        mm/d/C,                  mm/d/K ,              mm/d/K,               none,                      none,                     degC,                                        
+  [DEFAULT] ,                 0,                        1.691863E-03,             5.369291E+00,            2.951529E+00,         1,                          1,                        -1.154593E+00,     
+  LAKE,                       0,                        _DEFAULT,                _DEFAULT,             _DEFAULT,             _DEFAULT,                  _DEFAULT,                 _DEFAULT,              
+  WATER,                      0,                        _DEFAULT,                _DEFAULT,             _DEFAULT,             _DEFAULT,                  _DEFAULT,                 _DEFAULT,              
+  FOREST,                     0,                        _DEFAULT,                _DEFAULT,             _DEFAULT,             4.275288E-01,     _DEFAULT,                 _DEFAULT,              
+  BEDROCK,                    0,                        _DEFAULT,                _DEFAULT,             _DEFAULT,             _DEFAULT,                  _DEFAULT,                 _DEFAULT,              
+  URBAN,                      0,                        _DEFAULT,                _DEFAULT,             _DEFAULT,             _DEFAULT,                  _DEFAULT,                 _DEFAULT,              
+  AGRICULTURE,                0,                        _DEFAULT,                _DEFAULT,             _DEFAULT,             _DEFAULT,                  _DEFAULT,                 _DEFAULT,
+  GRASSLAND,                  0,                        _DEFAULT,                _DEFAULT,             _DEFAULT,             _DEFAULT,                  _DEFAULT,                 _DEFAULT,              
+  GRASSLAND2,                 0,                        _DEFAULT,                _DEFAULT,             _DEFAULT,             _DEFAULT,                  _DEFAULT,                 _DEFAULT,              
+:EndLandUseParameterList
+#######
+
+#-----------------------------------------------------------------
+# Vegetation Parameters
+#-----------------------------------------------------------------
+## SAI_HT_RATIO did not find any information. use zero to make ignore the SAI, the canopy interception only 
+## determined by LAI
+
+:VegetationParameterList
+  :Parameters,      SAI_HT_RATIO,         RAIN_ICEPT_PCT,                   SNOW_ICEPT_PCT,                   MAX_CAPACITY,                     MAX_SNOW_CAPACITY, 
+  :Units,           -,                    -,                                -,                                mm,                               mm,
+  LAKE,             Not_Used,             0,                                0,                                0,                                0, 
+  NO_VEG,           Not_Used,             0,                                0,                                0,                                0, 
+  FOREST,           Not_Used,             1,                                1,                                3.729074E+00,          7.003710E+00,           # DO NOT REMOVE!  3.729074E+00       = 3.729074E+00 * 1.0
+  AGRICULTURE,      Not_Used,             1,                                0,                                2.428788E+00,     0,                                      # DO NOT REMOVE!  2.428788E+00  = 6.513113E-01 * 3.729074E+00
+  GRASSLAND,        Not_Used,             1,                                0,                                2.428788E+00,       0,                                      # DO NOT REMOVE!  2.428788E+00    = 6.513113E-01 * 3.729074E+00 
+  GRASSLAND2,       Not_Used,             1,                                0,                                2.428788E+00,      0,                                      # DO NOT REMOVE!  2.428788E+00   = 6.513113E-01 * 3.729074E+00
+:EndVegetationParameterList
+#######
+:SeasonalRelativeLAI
+  LAKE,          0, 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
+  NO_VEG,        0, 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
+  FOREST,        0.05, 0.05, 0.08, 0.16, 0.47, 0.95, 0.94, 1.00, 0.75, 0.21, 0.10, 0.05
+  AGRICULTURE,   0.01, 0.02, 0.06, 0.13, 0.28, 0.46, 0.79, 1.00, 0.55, 0.19, 0.09, 0.03
+  GRASSLAND,     0.03, 0.03, 0.07, 0.15, 0.38, 0.71, 0.87, 1.00, 0.65, 0.20, 0.10, 0.04
+  GRASSLAND2,    0.03, 0.03, 0.07, 0.15, 0.39, 0.73, 0.88, 1.00, 0.66, 0.20, 0.10, 0.04
+:EndSeasonalRelativeLAI
+
+# Inactive in model
+#:SeasonalRelativeHeight
+#  Veg_Land_HRU, 1,1,1,1,1,1,1,1,1,1,1,1   # Not_Used
+#  LAKE, 0,0.0,0.0,0,0,0,0,0,0,0,0,0
+#:EndSeasonalRelativeHeight
+
+:RedirectToFile channel_properties.rvp
