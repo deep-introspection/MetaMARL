@@ -112,16 +112,60 @@ def evaluate_mechanism_with_metrics(
                 total_catch = sum(
                     infos[agent_id]["catch"] for agent_id in environment.fishermen
                 )
-                trajectory_records.append(
-                    {
-                        "episode": episode_idx,
-                        "step": step_count,
-                        "fish_population": current_fish,
-                        "algae_population": infos[environment.fishermen[0]]["algae"],
-                        "total_harvest": total_catch,
-                        "quota_limit": infos[environment.fishermen[0]]["quota_limit"],
-                    }
+                lead_info = infos[environment.fishermen[0]]
+                reputation_by_agent = [
+                    infos[agent_id].get("reputation")
+                    for agent_id in environment.fishermen
+                ]
+                private_catch_by_agent = [
+                    infos[agent_id].get("private_catch")
+                    for agent_id in environment.fishermen
+                ]
+                private_total = (
+                    float(sum(v for v in private_catch_by_agent if v is not None))
+                    if all(v is not None for v in private_catch_by_agent)
+                    else None
                 )
+                if private_total and private_total > EPS:
+                    private_allocation_share = [
+                        float(v) / private_total for v in private_catch_by_agent
+                    ]
+                else:
+                    private_allocation_share = None
+
+                record = {
+                    "episode": episode_idx,
+                    "step": step_count,
+                    "fish_population": current_fish,
+                    "algae_population": lead_info.get("algae"),
+                    "total_harvest": total_catch,
+                    "quota_limit": lead_info.get("quota_limit"),
+                }
+
+                if "fish_by_common" in lead_info:
+                    record["fish_by_common"] = lead_info.get("fish_by_common")
+                if "algae_by_common" in lead_info:
+                    record["algae_by_common"] = lead_info.get("algae_by_common")
+                if "quota_limit_by_common" in lead_info:
+                    record["quota_limit_by_common"] = lead_info.get(
+                        "quota_limit_by_common"
+                    )
+
+                if lead_info.get("private_fish") is not None:
+                    record["private_fish_population"] = lead_info.get("private_fish")
+                if lead_info.get("private_algae") is not None:
+                    record["private_algae_population"] = lead_info.get("private_algae")
+
+                if all(v is not None for v in reputation_by_agent):
+                    record["reputation_by_agent"] = reputation_by_agent
+                if all(v is not None for v in private_catch_by_agent):
+                    record["private_catch_by_agent"] = private_catch_by_agent
+                if private_allocation_share is not None:
+                    record["private_allocation_share_by_agent"] = (
+                        private_allocation_share
+                    )
+
+                trajectory_records.append(record)
 
             step_count += 1
 
