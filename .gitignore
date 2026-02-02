@@ -27,7 +27,6 @@ ENV/
 env/
 
 # IDEs
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -36,7 +35,6 @@ env/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb
 
 # Testing
 .coverage

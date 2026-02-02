@@ -18,6 +18,7 @@ from core.world.context import (
     MechanismContext,
     MechanismStatus,
 )
+from ray.rllib.utils.typing import StateDict
 
 
 class RegulatorEnv(BaseEnv):
@@ -33,6 +34,7 @@ class RegulatorEnv(BaseEnv):
         super().__init__(world=world, opt_id=opt_id, **kwargs)
         self.inner: Optimizer = optimizer
         self.train_iters: int = train_iters
+        self.init_state: StateDict = self.inner.get_state()
 
         self._validate()
 
@@ -86,9 +88,17 @@ class RegulatorEnv(BaseEnv):
                 )
             )
 
+
+        # self.inner.set_state(self.init_state)
+
+        # One policy conditioned on Theta (theta-conditioned RL)
+        # self.inner.run()
+
         # Train policy for train_iters iterations
+        # dont wanna do that and let ray handle it instead
         for _ in range(self.train_iters):
             self.inner.run()
+
 
         # todo : the total episodes must be same as numer mechanisms
         # reset mechanism contexts
