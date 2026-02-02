@@ -98,12 +98,13 @@ class FisheryMechanismSpace(MechanismSpace):
         }
 
     def default(self) -> FisheryMechanism:
+        # Permissive defaults so PPO learns to fish (not just avoid penalties)
         return FisheryMechanism(
-            fixed_quota=0.2,
-            prop_quota=0.1,
-            min_stock=0.1,
-            fine_amount=1.0,
-            ban_period=2,
+            fixed_quota=0.7,
+            prop_quota=0.6,
+            min_stock=0.15,
+            fine_amount=0.5,
+            ban_period=3,
             max_fine=self.max_fine,
             max_ban=self.max_ban,
         )
