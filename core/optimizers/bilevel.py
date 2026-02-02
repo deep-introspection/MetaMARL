@@ -135,6 +135,7 @@ class BilevelOptimizer(Optimizer):
         self.best_trajectory: list[dict] | None = None
         self.all_trajectories: list[tuple[int, float, list[dict]]] = []
         self.population_history: list[tuple[int, list]] = []
+        self.es_metrics_history: list[dict] = []
 
     def run(self) -> None:
         logger.info(
@@ -160,12 +161,16 @@ class BilevelOptimizer(Optimizer):
             if pop_history:
                 self.population_history.append((i, pop_history[-1]))
 
+            # Collect ES metrics for plotting
+            self._collect_es_metrics(i, fitness)
+
             if trajectory:
                 self.best_trajectory = trajectory
                 self.all_trajectories.append((i, fitness, trajectory))
                 self._save_intermediate_plot(i, fitness, trajectory)
 
             self._save_parameter_plots()
+            self._save_es_metrics_plot()
 
             self.metrics.log_dict(
                 {
@@ -247,6 +252,51 @@ class BilevelOptimizer(Optimizer):
 
         except Exception as e:
             logger.warning("[Bilevel] Failed to save intermediate plot: %s", e)
+
+    def _collect_es_metrics(self, iteration: int, fitness: float) -> None:
+        """Collect ES metrics from outer optimizer's env for plotting."""
+        metrics = {
+            "generation": iteration,
+            "best_fitness": fitness,
+            "total_fines": 0.0,
+            "mean_fish": 0.0,
+            "min_fish": 1.0,
+            "mean_collapse_rate": 0.0,
+        }
+
+        # Try to get metrics from the regulator env
+        if hasattr(self.outer, "env") and hasattr(self.outer.env, "last_metrics"):
+            env_metrics = self.outer.env.last_metrics
+            if env_metrics:
+                import numpy as np
+                metrics["total_fines"] = sum(m.get("total_fines", 0.0) for m in env_metrics)
+                metrics["mean_fish"] = float(np.mean([m.get("mean_fish", 0.0) for m in env_metrics]))
+                metrics["min_fish"] = float(min(m.get("min_fish", 1.0) for m in env_metrics))
+                metrics["mean_collapse_rate"] = float(np.mean([m.get("collapse_rate", 0.0) for m in env_metrics]))
+
+        self.es_metrics_history.append(metrics)
+
+    def _save_es_metrics_plot(self) -> None:
+        """Save ES metrics plot (fines, fish, collapse rate)."""
+        if not self.output_dir or not self.es_metrics_history:
+            return
+
+        try:
+            from pathlib import Path
+
+            from examples.bilevel_fishery.visualization import plot_es_metrics
+
+            output_path = Path(self.output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+
+            plot_es_metrics(
+                self.es_metrics_history,
+                save_path=str(output_path / "es_metrics.png"),
+            )
+            logger.info("[Bilevel] Saved ES metrics plot")
+
+        except Exception as e:
+            logger.warning("[Bilevel] Failed to save ES metrics plot: %s", e)
 
     def _save_parameter_plots(self) -> None:
         """Save parameter evolution and fitness plots."""

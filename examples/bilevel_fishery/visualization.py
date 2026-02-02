@@ -385,6 +385,87 @@ def plot_fitness_vs_parameters(
     return fig
 
 
+def plot_es_metrics(
+    metrics_history: list[dict[str, Any]],
+    title: str = "ES Metrics Over Generations",
+    save_path: Optional[str] = None,
+) -> plt.Figure:
+    """Plot ES metrics (fines, fish population, collapse rate) over generations.
+
+    Args:
+        metrics_history: List of metric dicts per generation with keys:
+            - generation: int
+            - total_fines: float
+            - mean_fish: float
+            - min_fish: float
+            - mean_collapse_rate: float
+        title: Plot title
+        save_path: Path to save figure (optional)
+
+    Returns:
+        matplotlib Figure object
+    """
+    if not metrics_history:
+        raise ValueError("No metrics history provided")
+
+    generations = [m.get("generation", i) for i, m in enumerate(metrics_history)]
+    total_fines = [m.get("total_fines", 0.0) for m in metrics_history]
+    mean_fish = [m.get("mean_fish", 0.0) for m in metrics_history]
+    min_fish = [m.get("min_fish", 0.0) for m in metrics_history]
+    collapse_rate = [m.get("mean_collapse_rate", 0.0) for m in metrics_history]
+    best_fitness = [m.get("best_fitness", 0.0) for m in metrics_history]
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    # Top left: Fines over generations
+    ax = axes[0, 0]
+    ax.plot(generations, total_fines, "o-", linewidth=2, markersize=5, color="tab:red")
+    ax.set_xlabel("Generation", fontsize=11)
+    ax.set_ylabel("Total Fines", fontsize=11)
+    ax.set_title("Total Fines per Generation", fontsize=12)
+    ax.grid(True, alpha=0.3)
+
+    # Top right: Fish population (mean and min)
+    ax = axes[0, 1]
+    ax.plot(generations, mean_fish, "o-", linewidth=2, markersize=5,
+            color="tab:blue", label="Mean Fish")
+    ax.plot(generations, min_fish, "s--", linewidth=2, markersize=5,
+            color="tab:orange", label="Min Fish")
+    ax.set_xlabel("Generation", fontsize=11)
+    ax.set_ylabel("Fish Population (normalized)", fontsize=11)
+    ax.set_title("Fish Population per Generation", fontsize=12)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # Bottom left: Collapse rate
+    ax = axes[1, 0]
+    ax.plot(generations, collapse_rate, "o-", linewidth=2, markersize=5, color="tab:purple")
+    ax.axhline(y=0.0, color="green", linestyle="--", alpha=0.5, label="No collapse")
+    ax.set_xlabel("Generation", fontsize=11)
+    ax.set_ylabel("Collapse Rate", fontsize=11)
+    ax.set_title("Mean Collapse Rate per Generation", fontsize=12)
+    ax.set_ylim(-0.05, max(0.5, max(collapse_rate) * 1.1) if collapse_rate else 0.5)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # Bottom right: Best fitness
+    ax = axes[1, 1]
+    ax.plot(generations, best_fitness, "o-", linewidth=2, markersize=5, color="tab:green")
+    ax.set_xlabel("Generation", fontsize=11)
+    ax.set_ylabel("Best Fitness", fontsize=11)
+    ax.set_title("Best Fitness per Generation", fontsize=12)
+    ax.grid(True, alpha=0.3)
+
+    fig.suptitle(title, fontsize=14, y=0.98)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    return fig
+
+
 def plot_parameter_evolution(
     population_history: list[tuple[int, tuple[np.ndarray, np.ndarray]]],
     title: str = "Parameter Evolution",

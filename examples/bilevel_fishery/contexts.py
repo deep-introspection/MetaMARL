@@ -20,6 +20,9 @@ class FitnessContext(ContextSchema):
     mean_reward: float
     collapse_rate: float
     sustainability_penalty: float
+    total_fines: float
+    mean_fish: float
+    min_fish: float
 
     @classmethod
     def from_metrics(
@@ -29,6 +32,9 @@ class FitnessContext(ContextSchema):
         collapse_rate: SupportsFloat,
         sustainability_penalty: SupportsFloat,
         sustainability_weight: SupportsFloat,
+        total_fines: SupportsFloat = 0.0,
+        mean_fish: SupportsFloat = 0.0,
+        min_fish: SupportsFloat = 0.0,
     ) -> "FitnessContext":
         """
         Construct fitness context from evaluation metrics.
@@ -41,4 +47,7 @@ class FitnessContext(ContextSchema):
             mean_reward=float(mean_reward),
             collapse_rate=float(collapse_rate),
             sustainability_penalty=float(sustainability_penalty),
+            total_fines=float(total_fines),
+            mean_fish=float(mean_fish),
+            min_fish=float(min_fish),
         )
