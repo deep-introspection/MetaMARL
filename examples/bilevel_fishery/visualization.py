@@ -293,13 +293,14 @@ def _group_by_episode(trajectories: list[dict[str, Any]]) -> dict[int, dict[str,
 
 
 PARAM_NAMES = ["fixed_quota", "prop_quota", "min_stock", "fine_amount", "ban_period"]
-PARAM_SCALES = [1.0, 1.0, 1.0, 2.0, 10.0]  # Denormalization factors
+DEFAULT_PARAM_SCALES = [1.0, 1.0, 1.0, 2.0, 10.0]  # Denormalization factors (legacy)
 
 
 def plot_fitness_vs_parameters(
     population_history: list[tuple[int, tuple[np.ndarray, np.ndarray]]],
     title: str = "Fitness vs Mechanism Parameters",
     save_path: Optional[str] = None,
+    param_scales: Optional[list[float]] = None,
 ) -> plt.Figure:
     """Plot fitness as a function of each mechanism parameter.
 
@@ -314,6 +315,8 @@ def plot_fitness_vs_parameters(
     """
     if not population_history:
         raise ValueError("No population history provided")
+
+    scales = param_scales if param_scales is not None else DEFAULT_PARAM_SCALES
 
     # Collect all data points
     all_params = []
@@ -334,7 +337,7 @@ def plot_fitness_vs_parameters(
     axes = axes.flatten()
 
     # Plot each parameter vs fitness
-    for i, (name, scale) in enumerate(zip(PARAM_NAMES, PARAM_SCALES)):
+    for i, (name, scale) in enumerate(zip(PARAM_NAMES, scales)):
         ax = axes[i]
         param_vals = all_params[:, i] * scale
 
@@ -386,6 +389,7 @@ def plot_parameter_evolution(
     population_history: list[tuple[int, tuple[np.ndarray, np.ndarray]]],
     title: str = "Parameter Evolution",
     save_path: Optional[str] = None,
+    param_scales: Optional[list[float]] = None,
 ) -> plt.Figure:
     """Plot how the best mechanism parameters evolve over iterations.
 
@@ -399,6 +403,8 @@ def plot_parameter_evolution(
     """
     if not population_history:
         raise ValueError("No population history provided")
+
+    scales = param_scales if param_scales is not None else DEFAULT_PARAM_SCALES
 
     # Extract best candidate per iteration
     iterations = []
@@ -415,7 +421,7 @@ def plot_parameter_evolution(
 
     colors = plt.cm.tab10(np.linspace(0, 1, 5))
 
-    for i, (name, scale, color) in enumerate(zip(PARAM_NAMES, PARAM_SCALES, colors)):
+    for i, (name, scale, color) in enumerate(zip(PARAM_NAMES, scales, colors)):
         param_vals = best_params[:, i] * scale
         ax.plot(
             iterations,
