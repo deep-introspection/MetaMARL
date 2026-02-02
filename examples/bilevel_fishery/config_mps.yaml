@@ -15,13 +15,13 @@ mechanism:
   space: FisheryMechanismSpace
   scaling:
     max_fine: 10.0
-    max_ban: 100
+    max_ban: 200
   default:
-    fixed_quota: 0.2
-    prop_quota: 0.1
-    min_stock: 0.1
-    fine_amount: 1.0
-    ban_period: 2
+    fixed_quota: 0.5
+    prop_quota: 0.4
+    min_stock: 0.15
+    fine_amount: 0.5
+    ban_period: 5
 
 training:
   outer_iters: 100
@@ -29,18 +29,18 @@ training:
 outer:
   optimizer: ES
   training:
-    sigma: 0.3
-    mean_lr: 0.1
+    sigma: 0.5
+    mean_lr: 0.2
     sigma_lr: 0.05
-    min_sigma: 0.001
-    max_sigma: 0.5
+    min_sigma: 0.01
+    max_sigma: 0.6
   environment:
     env: FisheryRegulatorEnv
-    horizon: 200
-    train_iters: 20
+    horizon: 500
+    train_iters: 100
     env_config:
       ecology_cfg:
-        sus_weight: 10.0
+        sus_weight: 1.0
         sus_threshold: 0.1
 
 inner:
@@ -60,7 +60,7 @@ inner:
 
   environment:
     env: FisheryRegulatedEnv
-    horizon: 200
+    horizon: 1000
     env_config:
       ecology_cfg:
         algae_init: 1.0
@@ -79,7 +79,7 @@ inner:
     num_cpus_per_env_runner: 1
     num_gpus_per_env_runner: 0
     num_envs_per_env_runner: 16
-    rollout_fragment_length: 200
+    rollout_fragment_length: 1000
     batch_mode: complete_episodes
 
   learners:
@@ -87,21 +87,21 @@ inner:
     num_gpus_per_learner: 0
 
   training:
-    gamma: 0.99
+    gamma: 0.95
     lr: 0.001
-    train_batch_size: 3200
-    minibatch_size: 512
+    train_batch_size: 16000
+    minibatch_size: 1024
 
   evaluation:
     evaluation_interval: null
-    evaluation_duration: 2000
+    evaluation_duration: 16000
     evaluation_duration_unit: timesteps
     evaluation_num_env_runners: 1
     evaluation_config:
       explore: false
       seed: 42
       num_envs_per_env_runner: 16
-      rollout_fragment_length: 125
+      rollout_fragment_length: 1000
       batch_mode: complete_episodes
 
   agents:
@@ -112,7 +112,7 @@ inner:
         type: box
         low: -inf
         high: inf
-        shape: [2, mechanism_dim]
+        shape: [5, mechanism_dim]
       action_space:
         type: box
         low: 0.0

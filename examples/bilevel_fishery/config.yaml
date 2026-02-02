@@ -22,11 +22,11 @@ world:
 mechanism:
   space: FisheryMechanismSpace
   default:
-    fixed_quota: 0.2
-    prop_quota: 0.1
-    min_stock: 0.1
-    fine_amount: 1.0
-    ban_period: 2
+    fixed_quota: 0.7
+    prop_quota: 0.6
+    min_stock: 0.15
+    fine_amount: 0.5
+    ban_period: 3
 
 training:
   outer_iters: 100
@@ -119,7 +119,7 @@ inner:
         type: box
         low: -inf
         high: inf
-        shape: [2, mechanism_dim]
+        shape: [5, mechanism_dim]
       action_space:
         type: box
         low: 0.0
