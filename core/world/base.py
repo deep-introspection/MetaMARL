@@ -83,9 +83,13 @@ class World:
 
         raise RuntimeError("no available mechanisms to train")
 
-        # if env_id not in self._mechanism_registry:
-        #     raise KeyError(f"No mechanism registered for env_id={env_id}")
-        # return self._mechanism_registry[env_id]
+    def try_get_mechanism(self) -> MechanismContext | None:
+        """Try to get a published mechanism, return None if none available."""
+        for m_ctx in self._mechanism_registry.values():
+            if m_ctx.status == MechanismStatus.published:
+                m_ctx.status = MechanismStatus.assigned
+                return m_ctx
+        return None
 
     def get_mechanism_by_index(self, index: int) -> MechanismContext:
         return self._mechanism_registry[index]

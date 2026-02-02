@@ -25,11 +25,18 @@ class RegulatedEnv(BaseEnv):
 
     @override(BaseEnv)
     def _pre_reset(self):
-        # update institution mechanism from world
-        # Lazy fetch once per env lifetime
-        if self.m_ctx is None:
-            self.m_ctx: MechanismContext = ray.get(self.world.get_mechanism.remote())
-            self.m = self.m_ctx.mechanism
+        # Try to fetch a new mechanism if one is available (published)
+        # Otherwise keep the current mechanism for subsequent episodes
+        try:
+            new_ctx = ray.get(self.world.try_get_mechanism.remote())
+            if new_ctx is not None:
+                self.m_ctx = new_ctx
+                self.m = self.m_ctx.mechanism
+        except Exception:
+            # Fallback: if no mechanism yet, we must get one
+            if self.m_ctx is None:
+                self.m_ctx = ray.get(self.world.get_mechanism.remote())
+                self.m = self.m_ctx.mechanism
 
     @abstractmethod
     def violation_signal(self, reward: Optional[SupportsFloat] = None) -> float:
@@ -49,4 +56,4 @@ class RegulatedEnv(BaseEnv):
         Returns:
             The modified `reward`
         """
-        return reward - self.violation_penalty(reward) * self.violation_signal(reward)
+        return reward - self.penalty(reward) * self.violation_signal(reward)
