@@ -264,7 +264,7 @@ def _group_by_episode(trajectories: list[dict[str, Any]]) -> dict[int, dict[str,
 
         # water: require explicit `water` key (no fallback)
         if "water" not in record:
-            raise ValueError("Trajectory records must contain a 'water' key (no fallback to fish_population)")
+            raise ValueError("Trajectory records must contain a 'water' key")
         episodes[ep]["water"].append(record["water"])
 
         # rewards: accept both `reward` and `rewards`
