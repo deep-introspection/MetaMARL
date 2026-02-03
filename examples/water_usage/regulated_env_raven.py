@@ -1,4 +1,5 @@
 import logging
+from time import time
 from typing import SupportsFloat
 
 import numpy as np
@@ -72,7 +73,9 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
         self._initial_reservoirs = self._parse_rvc_initial_reservoirs()
         # Fractional range around initial stage allowed for action-driven changes
         self.raven_stage_delta_fraction = env_cfg.get("raven_stage_delta_fraction", 0.1)
-        self.key = hashlib.sha256().hexdigest()
+        # time() returns a float; hashlib expects bytes, so encode a string
+        self.key = hashlib.sha256(str(time()).encode("utf-8")).hexdigest()
+        self.run_root = None
 
     def _parse_rvc_initial_reservoirs(self) -> Dict[str, float]:
         """Parse `:InitialReservoirStage <id> <value>` from the model .rvc and
@@ -209,7 +212,7 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
         self.raven_cmd = self.raven_cmd or "raven"
         cmd = f"{self.raven_cmd} {model_base} -o {out_dir}"
         logger.info("Running Raven: %s (cwd=%s)", cmd, run_dir)
-        subprocess.run(cmd, shell=True, check=True, cwd=run_dir)
+        # subprocess.run(cmd, shell=True, check=True, cwd=run_dir)
 
     def _prepare_raven_run(self, overrides: Dict[str, Dict[str, float]] | None = None) -> str:
         """Copy the Raven input folder into a temporary directory and apply simple overrides.

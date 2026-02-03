@@ -77,7 +77,7 @@ inner:
         inflow_rate: 1.0
       use_raven: true
       raven_cmd: /Users/egd1/bilevel-fishery/raven/2_Raven/Raven.exe
-      raven_freq: 7
+      raven_freq: 1
       seed: 0
 
   env_runners:

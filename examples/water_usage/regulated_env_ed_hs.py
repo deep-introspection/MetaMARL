@@ -46,7 +46,8 @@ class WaterRegulatedEdHsEnv(WaterRegulatedRavenEnv):
 
         # If overrides provided, use a cache directory keyed by the overrides to
         # avoid repeatedly copying and editing inputs.
-        if self._t == 0:
+        # Need to create new run_root every horizon.
+        if self.run_root is None:
             cache_root = os.path.abspath(os.path.join(self.raven_cwd, ".cache", "prepared_runs"))
             os.makedirs(cache_root, exist_ok=True)
             # create a stable key from overrides dict
@@ -57,6 +58,7 @@ class WaterRegulatedEdHsEnv(WaterRegulatedRavenEnv):
 
             run_root = os.path.join(cache_root, key)
             os.makedirs(run_root, exist_ok=True)
+            self.run_root = run_root
         
             try:
                 for entry in os.listdir(src):
@@ -74,8 +76,7 @@ class WaterRegulatedEdHsEnv(WaterRegulatedRavenEnv):
         
         # Update .rvt file to reflect pumping from agent - write a separate .rvt file to be read in
         if overrides:
-            rvt_path = os.path.join(run_root, "Extraction.rvt")
-            import pdb; pdb.set_trace()
+            rvt_path = os.path.join(self.run_root, "Extraction.rvt")
 
             if os.path.exists(rvt_path) and "usage" in overrides:
                 try:
@@ -83,6 +84,7 @@ class WaterRegulatedEdHsEnv(WaterRegulatedRavenEnv):
                     # Ensure parent exists
                     p.parent.mkdir(parents=True, exist_ok=True)
                     usage = overrides["usage"]
+                    usage = -1 * float(f"{usage:.6f}") # Raven expects negative for extraction
 
                     if not p.exists():
                         p.write_text(f"{usage}\n", encoding="utf-8")
@@ -92,8 +94,13 @@ class WaterRegulatedEdHsEnv(WaterRegulatedRavenEnv):
                     with p.open("a", encoding="utf-8") as fh:
                         if not content.endswith("\n"):
                             fh.write("\n")
-                        fh.write(f"{usage}\n")
+                        fh.write(f"     {usage}\n")
+
+                        if self._t % self.horizon == 0:
+                            logger.info("Add ending")
+                            fh.write("\n")
+                            fh.write(":EndObservationData\n")
                 except Exception:
                     logger.exception("Failed to apply overrides to %s", rvt_path)
 
-        return run_root
+        return self.run_root
