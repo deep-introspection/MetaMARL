@@ -48,6 +48,10 @@ dev = [
     "flake8>=6.0.0",
 ]
 
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [tool.setuptools.packages.find]
-# Exclude legacy_code to avoid automatic discovery picking up multiple top-level packages
-exclude = ["legacy_code", "legacy_code.*"]
+# Exclude legacy, tests and examples directories from automatic package discovery
+exclude = ["legacy_code*", "tests*", "examples*"]
