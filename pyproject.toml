@@ -47,3 +47,7 @@ dev = [
     "mypy>=1.0.0",
     "flake8>=6.0.0",
 ]
+
+[tool.setuptools.packages.find]
+# Exclude legacy_code to avoid automatic discovery picking up multiple top-level packages
+exclude = ["legacy_code", "legacy_code.*"]
