@@ -229,17 +229,17 @@ class BilevelOptimizer(Optimizer):
             mechanism_params = None
             if self.mechanism_space is not None and self.outer.best_candidate is not None:
                 candidate = self.outer.best_candidate
-                # Get scaling from default mechanism if available
-                default_m = self.config.default_mechanism
-                max_fine = getattr(default_m, "max_fine", 5.0) if default_m else 5.0
-                max_ban = getattr(default_m, "max_ban", 50) if default_m else 50
-                mechanism_params = {
-                    "fixed_quota": float(candidate[0]),
-                    "prop_quota": float(candidate[1]),
-                    "min_stock": float(candidate[2]),
-                    "fine_amount": float(candidate[3]) * max_fine,
-                    "ban_period": float(candidate[4]) * max_ban,
-                }
+                # Decode candidate using mechanism space to get actual values
+                mechanism = self.mechanism_space.decode(candidate)
+                # Only show optimized params
+                optimize_params = getattr(self.mechanism_space, "optimize_params", None)
+                if optimize_params:
+                    mechanism_params = {p: getattr(mechanism, p) for p in optimize_params}
+                else:
+                    mechanism_params = {
+                        "min_stock": mechanism.min_stock,
+                        "fine_amount": mechanism.fine_amount,
+                    }
 
             save_path = output_path / f"iter_{iteration:03d}.png"
             plot_combined_trial_analysis(
@@ -314,23 +314,22 @@ class BilevelOptimizer(Optimizer):
             output_path = Path(self.output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
 
-            # Get scaling from default mechanism if available
-            default_m = self.config.default_mechanism
-            max_fine = getattr(default_m, "max_fine", 5.0) if default_m else 5.0
-            max_ban = getattr(default_m, "max_ban", 50) if default_m else 50
-            param_scales = [1.0, 1.0, 1.0, max_fine, max_ban]
+            # Get optimize_params from mechanism space if available
+            optimize_params = None
+            if hasattr(self, "mechanism_space") and hasattr(self.mechanism_space, "optimize_params"):
+                optimize_params = self.mechanism_space.optimize_params
 
             plot_fitness_vs_parameters(
                 self.population_history,
                 save_path=str(output_path / "fitness_vs_params.png"),
-                param_scales=param_scales,
+                optimize_params=optimize_params,
             )
             logger.info("[Bilevel] Saved fitness vs parameters plot")
 
             plot_parameter_evolution(
                 self.population_history,
                 save_path=str(output_path / "param_evolution.png"),
-                param_scales=param_scales,
+                optimize_params=optimize_params,
             )
             logger.info("[Bilevel] Saved parameter evolution plot")
 

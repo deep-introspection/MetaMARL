@@ -246,10 +246,7 @@ def plot_combined_trial_analysis(
     fig.suptitle(title, fontsize=16, y=0.98)
 
     if mechanism_params:
-        info_parts = []
-        for key in ["fixed_quota", "prop_quota", "fine_amount", "min_stock", "ban_period"]:
-            if key in mechanism_params:
-                info_parts.append(f"{key}={mechanism_params[key]:.3f}")
+        info_parts = [f"{k}={v:.3f}" for k, v in mechanism_params.items()]
         if info_parts:
             info_text = "Mechanism: " + ", ".join(info_parts)
             fig.text(0.5, 0.01, info_text, ha="center", fontsize=10, style="italic")
@@ -292,23 +289,27 @@ def _group_by_episode(trajectories: list[dict[str, Any]]) -> dict[int, dict[str,
     return episodes
 
 
-PARAM_NAMES = ["fixed_quota", "prop_quota", "min_stock", "fine_amount", "ban_period"]
-DEFAULT_PARAM_SCALES = [1.0, 1.0, 1.0, 2.0, 10.0]  # Denormalization factors (legacy)
+ALL_PARAM_NAMES = ["fixed_quota", "prop_quota", "min_stock", "fine_amount", "ban_period", "catch_prob"]
+ALL_PARAM_SCALES = [1.0, 1.0, 1.0, 5.0, 50.0, 1.0]  # Denormalization factors
+
+# Default: only optimized params
+DEFAULT_OPTIMIZE_PARAMS = ["min_stock", "fine_amount"]
 
 
 def plot_fitness_vs_parameters(
     population_history: list[tuple[int, tuple[np.ndarray, np.ndarray]]],
     title: str = "Fitness vs Mechanism Parameters",
     save_path: Optional[str] = None,
-    param_scales: Optional[list[float]] = None,
+    optimize_params: Optional[list[str]] = None,
 ) -> plt.Figure:
     """Plot fitness as a function of each mechanism parameter.
 
     Args:
         population_history: List of (iteration, (population, fitness)) tuples
-            where population is (N, 5) and fitness is (N,)
+            where population is (N, num_params) and fitness is (N,)
         title: Plot title
         save_path: Path to save figure (optional)
+        optimize_params: List of parameter names being optimized
 
     Returns:
         matplotlib Figure object
@@ -316,7 +317,8 @@ def plot_fitness_vs_parameters(
     if not population_history:
         raise ValueError("No population history provided")
 
-    scales = param_scales if param_scales is not None else DEFAULT_PARAM_SCALES
+    param_names = optimize_params or DEFAULT_OPTIMIZE_PARAMS
+    scales = [ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)] for p in param_names]
 
     # Collect all data points
     all_params = []
@@ -333,11 +335,21 @@ def plot_fitness_vs_parameters(
     all_fitness = np.array(all_fitness)
     all_iters = np.array(all_iters)
 
-    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    # Dynamic grid layout based on number of params
+    n_params = len(param_names)
+    n_cols = min(3, n_params + 1)  # +1 for fitness plot
+    n_rows = (n_params + 1 + n_cols - 1) // n_cols
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+    if n_rows == 1 and n_cols == 1:
+        axes = np.array([[axes]])
+    elif n_rows == 1 or n_cols == 1:
+        axes = axes.reshape(n_rows, n_cols)
     axes = axes.flatten()
 
     # Plot each parameter vs fitness
-    for i, (name, scale) in enumerate(zip(PARAM_NAMES, scales)):
+    scatter = None
+    for i, (name, scale) in enumerate(zip(param_names, scales)):
         ax = axes[i]
         param_vals = all_params[:, i] * scale
 
@@ -354,12 +366,8 @@ def plot_fitness_vs_parameters(
         ax.set_title(f"Fitness vs {name.replace('_', ' ').title()}", fontsize=12)
         ax.grid(True, alpha=0.3)
 
-    # Add colorbar to last subplot
-    cbar = plt.colorbar(scatter, ax=axes[4])
-    cbar.set_label("Iteration", fontsize=10)
-
-    # Use 6th subplot for best fitness over iterations
-    ax = axes[5]
+    # Best fitness over iterations in next subplot
+    ax = axes[n_params]
     best_per_iter = {}
     for iteration, (_, fitness) in population_history:
         if iteration not in best_per_iter:
@@ -375,6 +383,15 @@ def plot_fitness_vs_parameters(
     ax.set_ylabel("Best Fitness", fontsize=11)
     ax.set_title("Best Fitness Over Iterations", fontsize=12)
     ax.grid(True, alpha=0.3)
+
+    # Add colorbar
+    if scatter is not None:
+        cbar = plt.colorbar(scatter, ax=axes[n_params])
+        cbar.set_label("Iteration", fontsize=10)
+
+    # Hide unused axes
+    for i in range(n_params + 1, len(axes)):
+        axes[i].set_visible(False)
 
     fig.suptitle(title, fontsize=14, y=0.98)
     plt.tight_layout()
@@ -470,7 +487,7 @@ def plot_parameter_evolution(
     population_history: list[tuple[int, tuple[np.ndarray, np.ndarray]]],
     title: str = "Parameter Evolution",
     save_path: Optional[str] = None,
-    param_scales: Optional[list[float]] = None,
+    optimize_params: Optional[list[str]] = None,
 ) -> plt.Figure:
     """Plot how the best mechanism parameters evolve over iterations.
 
@@ -478,6 +495,7 @@ def plot_parameter_evolution(
         population_history: List of (iteration, (population, fitness)) tuples
         title: Plot title
         save_path: Path to save figure (optional)
+        optimize_params: List of parameter names being optimized
 
     Returns:
         matplotlib Figure object
@@ -485,7 +503,8 @@ def plot_parameter_evolution(
     if not population_history:
         raise ValueError("No population history provided")
 
-    scales = param_scales if param_scales is not None else DEFAULT_PARAM_SCALES
+    param_names = optimize_params or DEFAULT_OPTIMIZE_PARAMS
+    scales = [ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)] for p in param_names]
 
     # Extract best candidate per iteration
     iterations = []
@@ -500,9 +519,9 @@ def plot_parameter_evolution(
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    colors = plt.cm.tab10(np.linspace(0, 1, 5))
+    colors = plt.cm.tab10(np.linspace(0, 1, len(param_names)))
 
-    for i, (name, scale, color) in enumerate(zip(PARAM_NAMES, scales, colors)):
+    for i, (name, scale, color) in enumerate(zip(param_names, scales, colors)):
         param_vals = best_params[:, i] * scale
         ax.plot(
             iterations,

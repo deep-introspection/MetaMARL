@@ -21,6 +21,7 @@ class ESConfig(OptimizerConfig):
 
         self.convergence_eps: float = 1e-4
         self.convergence_patience: int = 10
+        self.initial_mean: Optional[list[float]] = None
 
     @override(OptimizerConfig)
     def training(
@@ -35,6 +36,7 @@ class ESConfig(OptimizerConfig):
         break_symmetry: Optional[bool] = None,
         convergence_eps: Optional[float] = None,
         convergence_patience: Optional[int] = None,
+        initial_mean: Optional[list[float]] = None,
         **kwargs,
     ) -> Self:
         """Sets the training related configs for Evolution Strategies (ES).
@@ -74,6 +76,8 @@ class ESConfig(OptimizerConfig):
             self.convergence_eps = convergence_eps
         if convergence_patience is not None:
             self.convergence_patience = convergence_patience
+        if initial_mean is not None:
+            self.initial_mean = initial_mean
 
         return self
 

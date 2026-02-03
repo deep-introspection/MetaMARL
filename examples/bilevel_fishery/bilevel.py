@@ -21,9 +21,17 @@ class BilevelConfigLoader:
 
         mechanism_space_cls = REGISTRY["mechanism_space"][cfg["mechanism"]["space"]]
         scaling_cfg = cfg["mechanism"].get("scaling", {})
+        default_cfg = cfg["mechanism"]["default"]
         mechanism_space = mechanism_space_cls(
             max_fine=scaling_cfg.get("max_fine", 5.0),
             max_ban=scaling_cfg.get("max_ban", 50),
+            optimize_params=cfg["mechanism"].get("optimize_params"),
+            default_fixed_quota=default_cfg.get("fixed_quota", 1.0),
+            default_prop_quota=default_cfg.get("prop_quota", 1.0),
+            default_min_stock=default_cfg.get("min_stock", 0.1),
+            default_fine_amount=default_cfg.get("fine_amount", 0.5),
+            default_ban_period=default_cfg.get("ban_period", 0),
+            default_catch_prob=default_cfg.get("catch_prob", 1.0),
         )
 
         mechanism_cls = REGISTRY["mechanism"]["FisheryMechanism"]
@@ -43,9 +51,12 @@ class BilevelConfigLoader:
 
         outer_env_cls = REGISTRY["env"][cfg["outer"]["environment"]["env"]]
 
+        # Encode default mechanism as initial mean for ES
+        initial_mean = mechanism_space.encode(mechanism).tolist()
+
         bilevel = bilevel.outer(
             ESConfig()
-            .training(**cfg["outer"]["training"])
+            .training(**cfg["outer"]["training"], initial_mean=initial_mean)
             .environment(
                 env=outer_env_cls,
                 env_config=cfg["outer"]["environment"]["env_config"],
@@ -57,7 +68,8 @@ class BilevelConfigLoader:
         inner_env_cls = REGISTRY["env"][cfg["inner"]["environment"]["env"]]
 
         fisher_cfg = cfg["inner"]["agents"]["fisher"]
-        obs_dim = 5 + mechanism_space.dimension  # fish, algae, ban, quota, no_fish_zone + θ
+        # Agent sees all mechanism params, not just the ones ES optimizes
+        obs_dim = 5 + mechanism_space.full_dimension  # fish, algae, ban, quota, no_fish_zone + θ
         action_cfg = fisher_cfg["action_space"]
 
         bilevel = bilevel.inner(
