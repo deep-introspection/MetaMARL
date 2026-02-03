@@ -6,6 +6,7 @@ from numpy.typing import NDArray
 from core.annotations import override
 from core.mechanism.base import Mechanism
 from core.mechanism.space import MechanismSpace
+from examples.bilevel_fishery.mechanism import FisheryMechanism
 
 
 @dataclass(frozen=True)
