@@ -47,3 +47,11 @@ dev = [
     "mypy>=1.0.0",
     "flake8>=6.0.0",
 ]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+# Exclude legacy, tests and examples directories from automatic package discovery
+exclude = ["legacy_code*", "tests*", "examples*"]
