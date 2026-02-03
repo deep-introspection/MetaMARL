@@ -13,35 +13,33 @@ from core.world.context import (
     MechanismContext,
     MechanismStatus,
 )
-from examples.bilevel_fishery.contexts import FitnessContext
+from examples.water_usage.contexts import FitnessContext
 
 logger = logging.getLogger(__name__)
 
 
-class FisheryRegulatorEnv(RegulatorEnv):
+class WaterRegulatorRavenEnv(RegulatorEnv):
     """
-    Outer-loop environment for fishery mechanism optimization.
+    Outer-loop environment for water mechanism optimization.
 
-    Responsibilities:
-      - Publish candidate mechanisms
-      - Run inner PPO optimizer
-      - Collect performance metrics
-      - Convert to scalar ES reward
+    Mirrors the fishery regulator but adapted to water-level semantics. Keeps the
+    same context processing and FitnessContext production so downstream tooling
+    (visualization, loader) can remain unchanged.
     """
 
     def __init__(
         self,
         *,
-        ecology_cfg: dict[str, Any],
+        ecology_cfg: dict[str, Any] | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.sustainability_weight = ecology_cfg.get("sus_weight", 5.0)
-        self.sustainability_threshold = ecology_cfg.get("sus_threshold", 0.1)
-        self.max_fish = ecology_cfg.get("max_fish", 2.0)
-        self.max_algae = ecology_cfg.get("max_algae", 2.0)
+        env_cfg = ecology_cfg or {}
+        self.sustainability_weight = env_cfg.get("sus_weight", 5.0)
+        self.sustainability_threshold = env_cfg.get("sus_threshold", 0.2)
+        self.max_water = env_cfg.get("max_water", 100.0)
         # Denormalized threshold for visualization
-        self.raw_sustainability_threshold = self.sustainability_threshold * self.max_fish
+        self.raw_sustainability_threshold = self.sustainability_threshold * self.max_water
         self.trajectories: dict[int, list[dict[str, Any]]] = {}
 
     @override(RegulatorEnv)
@@ -52,27 +50,14 @@ class FisheryRegulatorEnv(RegulatorEnv):
     def aggregate_rewards(self, ctxs: list[Context]) -> list[float]:
         """
         Compute per-mechanism fitness from step-level EnvStepContexts.
-
-        Semantics:
-        - Group contexts by mechanism
-        - Segment into episodes of length = horizon
-        - Drop incomplete episodes
-        - Compute episode-level metrics
-        - Aggregate exactly like legacy evaluator
+        Implementation mirrors `FisheryRegulatorEnv.aggregate_rewards`.
         """
         per_mech_metrics: list[dict[str, float]] = []
         step_ctxs = [ctx for ctx in ctxs if isinstance(ctx.payload, EnvStepContext)]
 
-        # logger.info(
-        #     "[Regulator] aggregate_rewards called | "
-        #     f"total_ctxs={len(ctxs)} | "
-        #     f"step_ctxs={len(step_ctxs)}"
-        # )
-
         if not step_ctxs:
             logger.warning(
-                "[Regulator] No EnvStepContext received — "
-                "inner loop likely produced no steps"
+                "[Regulator] No EnvStepContext received — inner loop likely produced no steps"
             )
             return []
 
@@ -83,11 +68,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
             s = ctx.payload
             by_index[s.mechanism].append(ctx)
 
-        # logger.info(
-        #     "[Regulator] Grouped step contexts | "
-        #     f"num_mechanisms={len(by_index)} | "
-        #     f"indices={sorted(by_index.keys())}"
-        # )
         min_len = min(len(v) for v in by_index.values())
         logger.info(
             "[Regulator] Aggregating | mechanisms=%d | min_len=%d | total_steps=%d",
@@ -97,7 +77,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
         )
 
         # --- compute elastic truncation length ---
-        min_len = min(len(v) for v in by_index.values())
         max_idx = max(by_index.keys())
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)
 
@@ -109,8 +88,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
             steps = steps[:min_len]
 
             rewards = np.empty(min_len, dtype=np.float32)
-            fish = np.empty(min_len, dtype=np.float32)
-            algae = np.empty(min_len, dtype=np.float32)
+            water = np.empty(min_len, dtype=np.float32)
             trajectory: list[dict[str, Any]] = []
 
             for i, s in enumerate(steps):
@@ -118,22 +96,19 @@ class FisheryRegulatorEnv(RegulatorEnv):
                 r = s.payload.reward
                 rewards[i] = sum(r.values()) if isinstance(r, dict) else float(r)
 
-                # fish/algae stock from observation (normalized in [0, 1])
+                # water stock from observation (normalized in [0, 1])
                 obs = s.payload.observation
                 if isinstance(obs, dict):
                     first_obs = next(iter(obs.values()))
-                    fish[i] = first_obs[0]
-                    algae[i] = first_obs[1] if len(first_obs) > 1 else 0.0
+                    water[i] = first_obs[0]
                 else:
-                    fish[i] = obs[0]
-                    algae[i] = obs[1] if len(obs) > 1 else 0.0
+                    water[i] = obs[0]
 
-                # Denormalize for trajectory storage (visualization uses raw values)
+                # Denormalize for trajectory storage
                 trajectory.append({
                     "episode": 0,
                     "step": i,
-                    "fish_population": float(fish[i] * self.max_fish),
-                    "algae_population": float(algae[i] * self.max_algae),
+                    "water_level": float(water[i] * self.max_water),
                     "reward": float(rewards[i]),
                 })
 
@@ -142,15 +117,15 @@ class FisheryRegulatorEnv(RegulatorEnv):
             mean_reward = rewards.mean()
             reward_std = rewards.std()
 
-            min_fish = fish.min()
-            mean_fish = fish.mean()
+            min_water = water.min()
+            mean_water = water.mean()
 
-            collapse_mask = fish < self.sustainability_threshold
+            collapse_mask = water < self.sustainability_threshold
             collapse_rate = collapse_mask.mean()
 
             penalties = np.maximum(
                 0.0,
-                (self.sustainability_threshold - fish)
+                (self.sustainability_threshold - water)
                 / max(1e-6, self.sustainability_threshold),
             )
 
@@ -181,17 +156,13 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     "mean_reward": mean_reward,
                     "reward_std": reward_std,
                     "collapse_rate": collapse_rate,
-                    "min_fish": min_fish,
-                    "mean_fish": mean_fish,
+                    "min_water": min_water,
+                    "mean_water": mean_water,
                 }
             )
 
-        objectives = np.array(
-            [m["objective"] for m in per_mech_metrics], dtype=np.float32
-        )
-        collapse_rates = np.array(
-            [m["collapse_rate"] for m in per_mech_metrics], dtype=np.float32
-        )
+        objectives = np.array([m["objective"] for m in per_mech_metrics], dtype=np.float32)
+        collapse_rates = np.array([m["collapse_rate"] for m in per_mech_metrics], dtype=np.float32)
 
         best_idx = int(np.argmax(objectives))
         worst_idx = int(np.argmin(objectives))

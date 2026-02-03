@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 EPS = 1e-8
 
 
-class WaterRegulatedEnv(MultiAgentRegulatedEnv):
+class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
     def __init__(
         self,
         *,
@@ -72,6 +72,7 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         self._initial_reservoirs = self._parse_rvc_initial_reservoirs()
         # Fractional range around initial stage allowed for action-driven changes
         self.raven_stage_delta_fraction = env_cfg.get("raven_stage_delta_fraction", 0.1)
+        self.key = hashlib.sha256().hexdigest()
 
     def _parse_rvc_initial_reservoirs(self) -> Dict[str, float]:
         """Parse `:InitialReservoirStage <id> <value>` from the model .rvc and
@@ -172,10 +173,11 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         # reservoir stage CSV to obtain a model-driven water state. If anything fails,
         # fall back to the simple replenishment used previously.
         water_next: float | None = None
-        if self.use_raven and self.raven_freq > 0 and (self._t % self.raven_freq == 0):
+        if self.use_raven and self._t > 0 and (self._t % self.raven_freq == 0):
             try:
                 overrides = self._actions_to_overrides(A_t)
-                self._run_raven(overrides=overrides)
+                overrides["usage"] = usage
+                self._run_raven(key=self.key, overrides=overrides)
                 lake_level = self._read_raven_reservoir_stage(self.raven_stage_col)
                 if lake_level is not None:
                     # Keep value within bounds
@@ -190,31 +192,22 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
 
         return {"water": water_next}
 
-    def _run_raven(self) -> None:
-        """Invoke the Raven model using the configured command.
-
-        By default this runs the configured Raven invocation using a temporary
-        copy of the `2_Raven` input directory. This allows per-step parameter
-        overrides without modifying the original inputs.
-        """
-        # No-op if Raven integration disabled
-        if not self.use_raven:
-            return
-    def _run_raven(self, overrides: Dict[str, Dict[str, float]] | None = None) -> None:
+    def _run_raven(self, key: str, overrides: Dict[str, Dict[str, float]] | None = None) -> None:
         """Wrapper that forwards overrides into the prepared run and executes Raven."""
         # No-op if Raven integration disabled
         if not self.use_raven:
             return
 
         # Prepare run with overrides
-        run_dir = self._prepare_raven_run(overrides=overrides)
+        run_dir = self._prepare_raven_run(key=key, overrides=overrides)
 
         # Build command pointing to the local copy
         model_base = os.path.join(run_dir, "ohms_canshield")
         out_dir = os.path.join(run_dir, "3_Model_output")
         os.makedirs(out_dir, exist_ok=True)
 
-        cmd = self.raven_cmd or f"raven {model_base} -o {out_dir}"
+        self.raven_cmd = self.raven_cmd or "raven"
+        cmd = f"{self.raven_cmd} {model_base} -o {out_dir}"
         logger.info("Running Raven: %s (cwd=%s)", cmd, run_dir)
         subprocess.run(cmd, shell=True, check=True, cwd=run_dir)
 

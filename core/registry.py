@@ -11,7 +11,10 @@ from examples.water_usage.mechanism import (
     WaterMechanismSpace,
 )
 from examples.water_usage.regulated_env import WaterRegulatedEnv
+
+from examples.water_usage.regulated_env_ed_hs import WaterRegulatedEdHsEnv
 from examples.water_usage.regulator_env import WaterRegulatorEnv
+from examples.water_usage.regulator_env_raven import WaterRegulatorRavenEnv
 
 REGISTRY = {
     "mechanism_space": {
@@ -29,6 +32,8 @@ REGISTRY = {
     "WaterRegulatedEnv": WaterRegulatedEnv,
     # Generic bilevel aliases (map to water example by default)
     "RegulatorEnv": WaterRegulatorEnv,
+    "WaterRegulatorRavenEnv": WaterRegulatorRavenEnv,
     "RegulatedEnv": WaterRegulatedEnv,
+    "WaterRegulatedEdHsEnv": WaterRegulatedEdHsEnv
     },
 }
