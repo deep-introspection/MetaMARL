@@ -22,14 +22,14 @@ world:
 mechanism:
   space: WaterMechanismSpace
   default:
-    fixed_quota: 0.7
-    prop_quota: 0.6
-    min_stock: 0.15
-    fine_amount: 0.5
-    ban_period: 3
+    fixed_quota: 0.1
+    prop_quota: 0.1
+    min_stock: 0.5
+    fine_amount: 0.4
+    ban_period: 2
   scaling:
-    max_fine: 5.0
-    max_ban: 50
+    max_fine: 1
+    max_ban: 7
 
 training:
   outer_iters: 100
@@ -44,7 +44,7 @@ outer:
     max_sigma: 0.5
   environment:
     env: WaterRegulatorEnv
-    horizon: 200
+    horizon: 7
     train_iters: 1
     env_config:
       ecology_cfg:
@@ -69,11 +69,11 @@ inner:
 
   environment:
     env: WaterRegulatedEnv
-    horizon: 200
+    horizon: 7
     env_config:
       ecology_cfg:
-        water_init: 80.0
-        max_water: 100.0
+        water_init: 7101.44
+        max_water: 10000.0
         inflow_rate: 1.0
       seed: 0
 
@@ -97,7 +97,7 @@ inner:
 
   evaluation:
     evaluation_interval: null
-    evaluation_duration: 2000
+    evaluation_duration: 7
     evaluation_duration_unit: timesteps
     evaluation_num_env_runners: 1
     evaluation_config:
