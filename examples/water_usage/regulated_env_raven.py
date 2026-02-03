@@ -1,18 +1,16 @@
 import logging
-from typing import SupportsFloat
+from typing import Dict, Optional, SupportsFloat
 
 import numpy as np
 import subprocess
 import csv
 import os
-from typing import Optional
 import shutil
 import tempfile
-from typing import Dict
 import hashlib
 import json
 from gymnasium.core import ActType
-from ray.rllib.env.multi_agent_env import MultiAgentEnv
+
 from ray.rllib.utils.typing import AgentID, MultiAgentDict
 
 from core.annotations import override
@@ -143,10 +141,23 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         return u
 
     def violation_signal(
-        self, agent_id: AgentID, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
+        self,
+        agent_id: AgentID,
+        u_i: SupportsFloat,
+        S_t: Optional[dict[str, MultiAgentDict]] = None,
     ) -> SupportsFloat:
         # quota-like violation and resource-level ban
-        quota = max(0.0, u_i - min(self.m.fixed_quota, self.m.prop_quota * S_t["water"] / self.max_water))
+        if S_t is None:
+            # Fall back to the current environment state when no state is provided
+            S_t = self.S_t  # type: ignore[assignment]
+        quota = max(
+            0.0,
+            u_i
+            - min(
+                self.m.fixed_quota,
+                self.m.prop_quota * S_t["water"] / self.max_water,
+            ),
+        )
         restriction = float(S_t["water"] / self.max_water < self.m.min_stock) * u_i
         v = float(quota + restriction)
         return v
