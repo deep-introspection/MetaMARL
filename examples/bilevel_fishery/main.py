@@ -75,13 +75,13 @@ def main():
         raw_sus_threshold = sus_threshold * max_fish
 
         mechanism_params = None
-        if results.get("best_mechanism") is not None:
+        if results.get("best_mechanism") is not None and hasattr(optimizer, "mechanism_space"):
+            # Decode using mechanism space to get actual parameter values
+            best_mech = optimizer.mechanism_space.decode(results["best_mechanism"])
             mechanism_params = {
-                "fixed_quota": float(results["best_mechanism"][0]),
-                "prop_quota": float(results["best_mechanism"][1]),
-                "min_stock": float(results["best_mechanism"][2]),
-                "fine_amount": float(results["best_mechanism"][3]) * max_fine,
-                "ban_period": float(results["best_mechanism"][4]) * max_ban,
+                "min_stock": best_mech.min_stock,
+                "fine_amount": best_mech.fine_amount,
+                "catch_prob": best_mech.catch_prob,
             }
 
         save_path = output_dir / "trial_analysis.png"
