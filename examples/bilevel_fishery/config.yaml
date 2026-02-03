@@ -21,13 +21,16 @@ world:
 
 mechanism:
   space: FisheryMechanismSpace
+  scaling:
+    max_fine: 30.0
+    max_ban: 200
   default:
     fixed_quota: 1.0
     prop_quota: 1.0
     min_stock: 0.10
-    fine_amount: 3.0
+    fine_amount: 15.0
     ban_period: 0
-    catch_prob: 0.3
+    catch_prob: 0.1
 
 training:
   outer_iters: 100
@@ -73,8 +76,8 @@ inner:
       ecology_cfg:
         algae_init: 1.0
         fish_init: 0.5
-        max_fish: 2.0
-        max_algae: 2.0
+        max_fish: 5.0
+        max_algae: 5.0
         alpha: 0.5
         beta: 0.1
         delta: 0.2

@@ -44,7 +44,7 @@ class BilevelConfigLoader:
         bilevel = (
             BilevelConfig()
             .world(world_name=cfg["world"]["world_name"])
-            .mechanism(space=mechanism_space_cls, default=mechanism)
+            .mechanism(space=mechanism_space, default=mechanism)
             .training(outer_iters=cfg["training"]["outer_iters"], output_dir=output_dir)
             .ray(**cfg["ray"])
         )

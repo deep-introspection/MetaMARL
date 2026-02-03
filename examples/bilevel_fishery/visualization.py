@@ -301,6 +301,7 @@ def plot_fitness_vs_parameters(
     title: str = "Fitness vs Mechanism Parameters",
     save_path: Optional[str] = None,
     optimize_params: Optional[list[str]] = None,
+    param_scales: Optional[dict[str, float]] = None,
 ) -> plt.Figure:
     """Plot fitness as a function of each mechanism parameter.
 
@@ -310,6 +311,7 @@ def plot_fitness_vs_parameters(
         title: Plot title
         save_path: Path to save figure (optional)
         optimize_params: List of parameter names being optimized
+        param_scales: Dict mapping param names to their max values (for denormalization)
 
     Returns:
         matplotlib Figure object
@@ -318,7 +320,10 @@ def plot_fitness_vs_parameters(
         raise ValueError("No population history provided")
 
     param_names = optimize_params or DEFAULT_OPTIMIZE_PARAMS
-    scales = [ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)] for p in param_names]
+    if param_scales:
+        scales = [param_scales.get(p, ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)]) for p in param_names]
+    else:
+        scales = [ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)] for p in param_names]
 
     # Collect all data points
     all_params = []
@@ -488,6 +493,7 @@ def plot_parameter_evolution(
     title: str = "Parameter Evolution",
     save_path: Optional[str] = None,
     optimize_params: Optional[list[str]] = None,
+    param_scales: Optional[dict[str, float]] = None,
 ) -> plt.Figure:
     """Plot how the best mechanism parameters evolve over iterations.
 
@@ -496,6 +502,7 @@ def plot_parameter_evolution(
         title: Plot title
         save_path: Path to save figure (optional)
         optimize_params: List of parameter names being optimized
+        param_scales: Dict mapping param names to their max values (for denormalization)
 
     Returns:
         matplotlib Figure object
@@ -504,7 +511,10 @@ def plot_parameter_evolution(
         raise ValueError("No population history provided")
 
     param_names = optimize_params or DEFAULT_OPTIMIZE_PARAMS
-    scales = [ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)] for p in param_names]
+    if param_scales:
+        scales = [param_scales.get(p, ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)]) for p in param_names]
+    else:
+        scales = [ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)] for p in param_names]
 
     # Extract best candidate per iteration
     iterations = []

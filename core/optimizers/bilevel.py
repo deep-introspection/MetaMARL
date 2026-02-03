@@ -92,7 +92,7 @@ class BilevelConfig(OptimizerConfig):
         outer_cfg = self.outer_cfg.copy()
 
         if self.mechanism_space is not None:
-            outer_cfg.dimension = self.mechanism_space().dimension
+            outer_cfg.dimension = self.mechanism_space.dimension
 
             inner_cfg = inner_cfg._merge_env_config(
                 {
@@ -314,15 +314,23 @@ class BilevelOptimizer(Optimizer):
             output_path = Path(self.output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
 
-            # Get optimize_params from mechanism space if available
+            # Get optimize_params and scales from mechanism space if available
             optimize_params = None
-            if hasattr(self, "mechanism_space") and hasattr(self.mechanism_space, "optimize_params"):
-                optimize_params = self.mechanism_space.optimize_params
+            param_scales = None
+            if hasattr(self, "mechanism_space"):
+                if hasattr(self.mechanism_space, "optimize_params"):
+                    optimize_params = self.mechanism_space.optimize_params
+                # Build param_scales from mechanism space
+                param_scales = {
+                    "fine_amount": getattr(self.mechanism_space, "max_fine", 5.0),
+                    "ban_period": getattr(self.mechanism_space, "max_ban", 50),
+                }
 
             plot_fitness_vs_parameters(
                 self.population_history,
                 save_path=str(output_path / "fitness_vs_params.png"),
                 optimize_params=optimize_params,
+                param_scales=param_scales,
             )
             logger.info("[Bilevel] Saved fitness vs parameters plot")
 
@@ -330,6 +338,7 @@ class BilevelOptimizer(Optimizer):
                 self.population_history,
                 save_path=str(output_path / "param_evolution.png"),
                 optimize_params=optimize_params,
+                param_scales=param_scales,
             )
             logger.info("[Bilevel] Saved parameter evolution plot")
 
