@@ -1,0 +1,23 @@
+# Luther Dam - Normal operating Rule Curve
+
+# :ReservoirMaxStage - there is a value for this but due to small DA, max rule curve level is rarely exceeded by much so likely can be ignored
+
+:ReservoirTargetStage 29012877
+  :AnnualPattern INTERPOLATE
+	01-01 481.2
+	03-01 481.2
+	03-15 481.3
+	04-01 481.5
+    04-15 481.8
+	05-01 482.0
+    05-15 482.0
+    08-01 481.55
+    09-01 481.25
+	09-15 481.2
+  :EndAnnualPattern
+:EndReservoirTargetStage
+
+# unsure about below, documentation may say but I am nearly certain it is not 0.0 cms, 0.21 cms = 50% of flow target at grand Valley
+:ReservoirMinFlow 29012877
+  :AnnualCycle 0.21 0.21 0.21 0.21 0.21 0.21 0.21 0.21 0.21 0.21 0.21 0.21
+:EndReservoirMinFlow
