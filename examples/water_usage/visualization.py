@@ -1,9 +1,8 @@
-"""Visualization module adapted for the water-usage bilevel example.
+"""Visualization module for the water-usage bilevel experiment.
 
-Functions expect trajectory records emitted by the water regulator. Keys
-used by the plotters are primarily `water_level` (denormalized level) and
-`reward`. For backwards compatibility the code will fall back to
-`fish_population` / `algae_population` if present.
+This module only supports the water experiment: trajectory records must
+contain a numeric `water` value (denormalized water level). Rewards may
+be provided under `reward` or `rewards` but `water` is required.
 """
 
 from typing import Any, Optional
@@ -18,11 +17,11 @@ def plot_resource_dynamics(
     save_path: Optional[str] = None,
     sustainability_threshold: float = 0.1,
 ) -> plt.Figure:
-    """Plot resource (water) level and reward over time.
+    """Plot water level and reward over time.
 
-    The function will plot the denormalized `water_level` across steps and
-    the reward time-series on a second axis. If `water_level` is missing the
-    function will fall back to `fish_population` for compatibility.
+    Trajectory records must contain a numeric `water` value (denormalized
+    water level). Rewards are optional and may be provided as `reward` or
+    `rewards`.
     """
     if not trajectories:
         raise ValueError("No trajectory data provided")
@@ -262,10 +261,13 @@ def _group_by_episode(trajectories: list[dict[str, Any]]) -> dict[int, dict[str,
 
         episodes[ep]["steps"].append(record.get("step", len(episodes[ep]["steps"])))
 
-        # water: require explicit `water` key (no fallback)
-        if "water" not in record:
-            raise ValueError("Trajectory records must contain a 'water' key")
-        episodes[ep]["water"].append(record["water"])
+        # water: accept either `water` or `water_level` and normalize to `water`
+        if "water" in record:
+            episodes[ep]["water"].append(record["water"])
+        elif "water_level" in record:
+            episodes[ep]["water"].append(record["water_level"])
+        else:
+            raise ValueError("Trajectory records must contain a 'water' or 'water_level' key")
 
         # rewards: accept both `reward` and `rewards`
         if "rewards" in record:

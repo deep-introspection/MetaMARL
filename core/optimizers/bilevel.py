@@ -214,9 +214,24 @@ class BilevelOptimizer(Optimizer):
         try:
             from pathlib import Path
 
-            from examples.bilevel_fishery.visualization import (
-                plot_combined_trial_analysis,
-            )
+            # Dynamically choose visualization module based on trajectory keys
+            def _select_vis_module(trajectory: list[dict]):
+                try:
+                    first = trajectory[0] if trajectory else {}
+                    keys = set(first.keys())
+                    # water experiment trajectory contains 'water' or 'water_level'
+                    if "water_level" in keys or "water" in keys:
+                        return __import__("examples.water_usage.visualization", fromlist=["plot_combined_trial_analysis"])
+                    # fishery experiment trajectory contains 'fish' or 'fish_population'
+                    if "fish_population" in keys or "fish" in keys:
+                        return __import__("examples.bilevel_fishery.visualization", fromlist=["plot_combined_trial_analysis"])
+                except Exception:
+                    pass
+                # fallback to fishery visualization for backwards compatibility
+                return __import__("examples.bilevel_fishery.visualization", fromlist=["plot_combined_trial_analysis"]) 
+
+            vis_mod = _select_vis_module(trajectory)
+            plot_combined_trial_analysis = getattr(vis_mod, "plot_combined_trial_analysis")
 
             output_path = Path(self.output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
@@ -256,10 +271,20 @@ class BilevelOptimizer(Optimizer):
         try:
             from pathlib import Path
 
-            from examples.bilevel_fishery.visualization import (
-                plot_fitness_vs_parameters,
-                plot_parameter_evolution,
-            )
+            # choose appropriate visualization helpers based on previously-saved trajectory
+            def _select_param_vis():
+                # prefer water visualization when trajectories looked like water experiments
+                if self.best_trajectory:
+                    first = self.best_trajectory[0] if self.best_trajectory else {}
+                    keys = set(first.keys())
+                    if "water_level" in keys or "water" in keys:
+                        return __import__("examples.water_usage.visualization", fromlist=["plot_fitness_vs_parameters", "plot_parameter_evolution"]) 
+                # fallback
+                return __import__("examples.bilevel_fishery.visualization", fromlist=["plot_fitness_vs_parameters", "plot_parameter_evolution"])
+
+            vis_mod = _select_param_vis()
+            plot_fitness_vs_parameters = getattr(vis_mod, "plot_fitness_vs_parameters")
+            plot_parameter_evolution = getattr(vis_mod, "plot_parameter_evolution")
 
             output_path = Path(self.output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
