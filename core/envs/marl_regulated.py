@@ -171,13 +171,19 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
             u = self.intrinsic_utility(agent_id, action_dict[agent_id], self.S_t)
             v = self.violation_signal(agent_id, u, self.S_t)
-            fine = float(self.penalty() * v)
-            rewards[agent_id] = u - fine
-            fines[agent_id] = fine
 
-            # Apply ban if violation occurred
-            if v > 0 and hasattr(self, "_apply_ban"):
-                self._apply_ban(agent_id)
+            # Stochastic enforcement: only penalize if violation is detected
+            catch_prob = getattr(self.m, "catch_prob", 1.0)
+            if v > 0 and self.rng.random() < catch_prob:
+                fine = float(self.penalty() * v)
+                rewards[agent_id] = u - fine
+                fines[agent_id] = fine
+                # Apply ban if violation detected
+                if hasattr(self, "_apply_ban"):
+                    self._apply_ban(agent_id)
+            else:
+                rewards[agent_id] = u
+                fines[agent_id] = 0.0
 
         rewards = self.aggregate_rewards(rewards)
 
