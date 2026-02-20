@@ -17,11 +17,12 @@ mechanism:
     max_fine: 10.0
     max_ban: 200
   default:
-    fixed_quota: 0.5
-    prop_quota: 0.4
-    min_stock: 0.15
+    fixed_quota: 1.0
+    prop_quota: 1.0
+    min_stock: 0.10
     fine_amount: 0.5
-    ban_period: 5
+    ban_period: 0
+    catch_prob: 1.0
 
 training:
   outer_iters: 100

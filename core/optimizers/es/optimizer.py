@@ -33,8 +33,11 @@ class ESOptimizer(Optimizer):
         self.break_symmetry = config.break_symmetry
 
         # --- runtime state ---
-        # Initialize search distribution at center of unit cube
-        self.mean = np.full(shape=config.dimension, fill_value=0.5, dtype=np.float32)
+        # Initialize search distribution from initial_mean or center of unit cube
+        if config.initial_mean is not None:
+            self.mean = np.array(config.initial_mean, dtype=np.float32)
+        else:
+            self.mean = np.full(shape=config.dimension, fill_value=0.5, dtype=np.float32)
         self.sigma = float(config.sigma)
 
         # Random number generator

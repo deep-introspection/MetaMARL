@@ -32,7 +32,11 @@ class BaseEnv(Env):
         self._opt_id = opt_id
         self.horizon = horizon
         self._t = 0
-        self.m_space: MechanismSpace = mechanism_space()
+        # mechanism_space can be a class or an instance
+        if isinstance(mechanism_space, type):
+            self.m_space: MechanismSpace = mechanism_space()
+        else:
+            self.m_space: MechanismSpace = mechanism_space
         self.m_ctx: MechanismContext = None
         self.m: Mechanism = None
         self.env_id = vector_index

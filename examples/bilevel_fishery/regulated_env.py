@@ -75,7 +75,18 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def intrinsic_utility(
         self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
-        return self.demand
+        # return action * S_t["fish"]
+        action = float(np.asarray(action).item())  # cast to scalar
+        fish_norm = S_t["fish"] / self.max_fish
+        u = action * fish_norm
+        # logger.debug(
+        #     "[UTILITY] %s action=%.4f fish_norm=%.4f u=%.6f",
+        #     agent_id,
+        #     action,
+        #     fish_norm,
+        #     u,
+        # )
+        return u
 
     # TODO this returns a float
     # TODO observation must be a param here not self
@@ -98,27 +109,24 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
     def penalty(self) -> SupportsFloat:
         return self.m.fine_amount
-#S_t - the outut of Raven (i.e. the environment staus, water level, flow rate, temperatuer, water quality whaterver)
-#A_t - action of the agent (water extraction quatinity)
+
     def transition_kernel(
-        self, A_t: MultiAgentDict, S_t: dict[str, float]
-        ) -> dict[str, float]:
-        water_available = self.S_t["water_available"]
-        flow_rate = self.S_t["flow_rate"]
-        temperature = self.S_t["temperature"]
-        quality = self.S_t["quality"]
+        self, A_t: MultiAgentEnv, S_t: dict[str, float]
+    ) -> dict[str, float]:
+        fish = self.S_t["fish"]
+        algae = self.S_t["algae"]
 
         # Total Absolute harvest
-        water_norm = water_available / max(self.initial_water_level,EPS)
-        desired = { #how much water does the agent want to extract
+        fish_norm = fish / self.max_fish
+        desired = {
             agent_id: self.intrinsic_utility(
                 agent_id=agent_id, action=A_t[agent_id], S_t=S_t
             )
             for agent_id in self.agents
         }
         total_desired = sum(desired.values())
-        scale = min(1.0, water_norm / max(EPS, total_desired))
-        H = water_available * sum(desired[agent_id] * scale for agent_id in self.agents)
+        scale = min(1.0, fish_norm / max(EPS, total_desired))
+        H = self.max_fish * sum(desired[agent_id] * scale for agent_id in self.agents)
 
         # logger.debug(
         #     "[TRANSITION] fish=%.4f algae=%.4f fish_norm=%.4f "
@@ -132,19 +140,12 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         # )
 
         # Lotka-volterra
-        # To run the model setup with the Raven.exe, go to the 2_Raven folder in your terminal, and do this:
-        # ./Raven.exe ohms_canshield -o ../3_Model_output
-        water_available_next 
-        flow_rate_next
-        temperature_next
-        quality_next
-
         fish_next = fish + self.dt * (self.delta * algae * fish - self.gamma * fish - H)
         algae_next = algae + self.dt * (self.alpha * algae - self.beta * algae * fish)
 
         # clamp transitions for numerical stability:
-        # fish_next = np.clip(fish_next, 0.0, self.max_fish)
-        # algae_next = np.clip(algae_next, 0.0, self.max_algae)
+        fish_next = np.clip(fish_next, 0.0, self.max_fish)
+        algae_next = np.clip(algae_next, 0.0, self.max_algae)
 
         # logger.debug(
         #     "[NEXT_STATE] fish_next=%.4f algae_next=%.4f",

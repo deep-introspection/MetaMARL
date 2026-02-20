@@ -92,7 +92,7 @@ class BilevelConfig(OptimizerConfig):
         outer_cfg = self.outer_cfg.copy()
 
         if self.mechanism_space is not None:
-            outer_cfg.dimension = self.mechanism_space().dimension
+            outer_cfg.dimension = self.mechanism_space.dimension
 
             inner_cfg = inner_cfg._merge_env_config(
                 {
@@ -135,6 +135,7 @@ class BilevelOptimizer(Optimizer):
         self.best_trajectory: list[dict] | None = None
         self.all_trajectories: list[tuple[int, float, list[dict]]] = []
         self.population_history: list[tuple[int, list]] = []
+        self.es_metrics_history: list[dict] = []
 
     def run(self) -> None:
         logger.info(
@@ -160,12 +161,16 @@ class BilevelOptimizer(Optimizer):
             if pop_history:
                 self.population_history.append((i, pop_history[-1]))
 
+            # Collect ES metrics for plotting
+            self._collect_es_metrics(i, fitness)
+
             if trajectory:
                 self.best_trajectory = trajectory
                 self.all_trajectories.append((i, fitness, trajectory))
                 self._save_intermediate_plot(i, fitness, trajectory)
 
             self._save_parameter_plots()
+            self._save_es_metrics_plot()
 
             self.metrics.log_dict(
                 {
@@ -214,24 +219,9 @@ class BilevelOptimizer(Optimizer):
         try:
             from pathlib import Path
 
-            # Dynamically choose visualization module based on trajectory keys
-            def _select_vis_module(trajectory: list[dict]):
-                try:
-                    first = trajectory[0] if trajectory else {}
-                    keys = set(first.keys())
-                    # water experiment trajectory contains 'water' or 'water_level'
-                    if "water_level" in keys or "water" in keys:
-                        return __import__("examples.water_usage.visualization", fromlist=["plot_combined_trial_analysis"])
-                    # fishery experiment trajectory contains 'fish' or 'fish_population'
-                    if "fish_population" in keys or "fish" in keys:
-                        return __import__("examples.bilevel_fishery.visualization", fromlist=["plot_combined_trial_analysis"])
-                except Exception:
-                    pass
-                # fallback to fishery visualization for backwards compatibility
-                return __import__("examples.bilevel_fishery.visualization", fromlist=["plot_combined_trial_analysis"]) 
-
-            vis_mod = _select_vis_module(trajectory)
-            plot_combined_trial_analysis = getattr(vis_mod, "plot_combined_trial_analysis")
+            from examples.bilevel_fishery.visualization import (
+                plot_combined_trial_analysis,
+            )
 
             output_path = Path(self.output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
@@ -239,17 +229,17 @@ class BilevelOptimizer(Optimizer):
             mechanism_params = None
             if self.mechanism_space is not None and self.outer.best_candidate is not None:
                 candidate = self.outer.best_candidate
-                # Get scaling from default mechanism if available
-                default_m = self.config.default_mechanism
-                max_fine = getattr(default_m, "max_fine", 5.0) if default_m else 5.0
-                max_ban = getattr(default_m, "max_ban", 50) if default_m else 50
-                mechanism_params = {
-                    "fixed_quota": float(candidate[0]),
-                    "prop_quota": float(candidate[1]),
-                    "min_stock": float(candidate[2]),
-                    "fine_amount": float(candidate[3]) * max_fine,
-                    "ban_period": float(candidate[4]) * max_ban,
-                }
+                # Decode candidate using mechanism space to get actual values
+                mechanism = self.mechanism_space.decode(candidate)
+                # Only show optimized params
+                optimize_params = getattr(self.mechanism_space, "optimize_params", None)
+                if optimize_params:
+                    mechanism_params = {p: getattr(mechanism, p) for p in optimize_params}
+                else:
+                    mechanism_params = {
+                        "min_stock": mechanism.min_stock,
+                        "fine_amount": mechanism.fine_amount,
+                    }
 
             save_path = output_path / f"iter_{iteration:03d}.png"
             plot_combined_trial_analysis(
@@ -263,6 +253,51 @@ class BilevelOptimizer(Optimizer):
         except Exception as e:
             logger.warning("[Bilevel] Failed to save intermediate plot: %s", e)
 
+    def _collect_es_metrics(self, iteration: int, fitness: float) -> None:
+        """Collect ES metrics from outer optimizer's env for plotting."""
+        metrics = {
+            "generation": iteration,
+            "best_fitness": fitness,
+            "total_fines": 0.0,
+            "mean_fish": 0.0,
+            "min_fish": 1.0,
+            "mean_collapse_rate": 0.0,
+        }
+
+        # Try to get metrics from the regulator env
+        if hasattr(self.outer, "env") and hasattr(self.outer.env, "last_metrics"):
+            env_metrics = self.outer.env.last_metrics
+            if env_metrics:
+                import numpy as np
+                metrics["total_fines"] = sum(m.get("total_fines", 0.0) for m in env_metrics)
+                metrics["mean_fish"] = float(np.mean([m.get("mean_fish", 0.0) for m in env_metrics]))
+                metrics["min_fish"] = float(min(m.get("min_fish", 1.0) for m in env_metrics))
+                metrics["mean_collapse_rate"] = float(np.mean([m.get("collapse_rate", 0.0) for m in env_metrics]))
+
+        self.es_metrics_history.append(metrics)
+
+    def _save_es_metrics_plot(self) -> None:
+        """Save ES metrics plot (fines, fish, collapse rate)."""
+        if not self.output_dir or not self.es_metrics_history:
+            return
+
+        try:
+            from pathlib import Path
+
+            from examples.bilevel_fishery.visualization import plot_es_metrics
+
+            output_path = Path(self.output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+
+            plot_es_metrics(
+                self.es_metrics_history,
+                save_path=str(output_path / "es_metrics.png"),
+            )
+            logger.info("[Bilevel] Saved ES metrics plot")
+
+        except Exception as e:
+            logger.warning("[Bilevel] Failed to save ES metrics plot: %s", e)
+
     def _save_parameter_plots(self) -> None:
         """Save parameter evolution and fitness plots."""
         if not self.output_dir or not self.population_history:
@@ -271,33 +306,30 @@ class BilevelOptimizer(Optimizer):
         try:
             from pathlib import Path
 
-            # choose appropriate visualization helpers based on previously-saved trajectory
-            def _select_param_vis():
-                # prefer water visualization when trajectories looked like water experiments
-                if self.best_trajectory:
-                    first = self.best_trajectory[0] if self.best_trajectory else {}
-                    keys = set(first.keys())
-                    if "water_level" in keys or "water" in keys:
-                        return __import__("examples.water_usage.visualization", fromlist=["plot_fitness_vs_parameters", "plot_parameter_evolution"]) 
-                # fallback
-                return __import__("examples.bilevel_fishery.visualization", fromlist=["plot_fitness_vs_parameters", "plot_parameter_evolution"])
-
-            vis_mod = _select_param_vis()
-            plot_fitness_vs_parameters = getattr(vis_mod, "plot_fitness_vs_parameters")
-            plot_parameter_evolution = getattr(vis_mod, "plot_parameter_evolution")
+            from examples.bilevel_fishery.visualization import (
+                plot_fitness_vs_parameters,
+                plot_parameter_evolution,
+            )
 
             output_path = Path(self.output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
 
-            # Get scaling from default mechanism if available
-            default_m = self.config.default_mechanism
-            max_fine = getattr(default_m, "max_fine", 5.0) if default_m else 5.0
-            max_ban = getattr(default_m, "max_ban", 50) if default_m else 50
-            param_scales = [1.0, 1.0, 1.0, max_fine, max_ban]
+            # Get optimize_params and scales from mechanism space if available
+            optimize_params = None
+            param_scales = None
+            if hasattr(self, "mechanism_space"):
+                if hasattr(self.mechanism_space, "optimize_params"):
+                    optimize_params = self.mechanism_space.optimize_params
+                # Build param_scales from mechanism space
+                param_scales = {
+                    "fine_amount": getattr(self.mechanism_space, "max_fine", 5.0),
+                    "ban_period": getattr(self.mechanism_space, "max_ban", 50),
+                }
 
             plot_fitness_vs_parameters(
                 self.population_history,
                 save_path=str(output_path / "fitness_vs_params.png"),
+                optimize_params=optimize_params,
                 param_scales=param_scales,
             )
             logger.info("[Bilevel] Saved fitness vs parameters plot")
@@ -305,6 +337,7 @@ class BilevelOptimizer(Optimizer):
             plot_parameter_evolution(
                 self.population_history,
                 save_path=str(output_path / "param_evolution.png"),
+                optimize_params=optimize_params,
                 param_scales=param_scales,
             )
             logger.info("[Bilevel] Saved parameter evolution plot")

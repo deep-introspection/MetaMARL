@@ -118,11 +118,15 @@ class SimpleFisheryEnv(gym.Env):
             # Compute reward: u - penalty * violation (matching marl_regulated.py)
             u = self._intrinsic_utility(action_val)
             v = self._violation_signal(u)
-            reward = u - m.fine_amount * v
 
-            # Apply ban if violation occurred
-            if v > 0 and m.ban_period > 0:
-                self.ban_remaining = m.ban_period
+            # Stochastic enforcement: only penalize if violation is detected
+            if v > 0 and self._rng.random() < m.catch_prob:
+                reward = u - m.fine_amount * v
+                # Apply ban if violation detected
+                if m.ban_period > 0:
+                    self.ban_remaining = m.ban_period
+            else:
+                reward = u
 
         # Harvest calculation (matching FisheryRegulatedEnv.transition_kernel)
         # For single agent: H = max_fish * desired * scale
@@ -162,35 +166,47 @@ def test_ppo_convergence(
     lr: float = 0.001,
     num_envs: int = 16,
     horizon: int = 1000,
+    mechanism_kwargs: dict | None = None,
+    ecology_cfg: dict | None = None,
 ):
     """Train PPO and track learning progress."""
 
     ray.init(local_mode=True, ignore_reinit_error=True)
     register_env("fishery_test", env_creator)
 
-    # Balanced mechanism - allows fishing but with some constraints
-    mechanism = FisheryMechanism(
-        fixed_quota=0.5,
-        prop_quota=0.4,
-        min_stock=0.15,
-        fine_amount=0.5,
-        ban_period=5,
-    )
+    # Use provided mechanism kwargs or defaults
+    mech_defaults = {
+        "fixed_quota": 1.0,
+        "prop_quota": 1.0,
+        "min_stock": 0.10,
+        "fine_amount": 3.0,  # High enough to make sustainable fishing optimal
+        "ban_period": 0,
+        "catch_prob": 1.0,
+    }
+    if mechanism_kwargs:
+        mech_defaults.update(mechanism_kwargs)
+
+    mechanism = FisheryMechanism(**mech_defaults)
+
+    # Use provided ecology config or defaults
+    eco_defaults = {
+        "algae_init": 1.0,
+        "fish_init": 1.0,
+        "max_fish": 5.0,
+        "max_algae": 5.0,
+        "alpha": 0.5,
+        "beta": 0.1,
+        "delta": 0.2,
+        "gamma": 0.4,
+        "dt": 0.01,
+    }
+    if ecology_cfg:
+        eco_defaults.update(ecology_cfg)
 
     env_config = {
         "mechanism": mechanism,
         "horizon": horizon,
-        "ecology_cfg": {
-            "algae_init": 1.0,
-            "fish_init": 1.0,
-            "max_fish": 5.0,
-            "max_algae": 5.0,
-            "alpha": 0.5,
-            "beta": 0.1,
-            "delta": 0.2,
-            "gamma": 0.4,
-            "dt": 0.01,
-        },
+        "ecology_cfg": eco_defaults,
     }
 
     config = (
@@ -225,7 +241,8 @@ def test_ppo_convergence(
     print(f"Training PPO for {train_iters} iterations...")
     print(f"  gamma={gamma}, lr={lr}, envs={num_envs}")
     print(f"  mechanism: fixed_q={mechanism.fixed_quota}, prop_q={mechanism.prop_quota}, "
-          f"min_stock={mechanism.min_stock}, fine={mechanism.fine_amount}, ban={mechanism.ban_period}")
+          f"min_stock={mechanism.min_stock}, fine={mechanism.fine_amount}, ban={mechanism.ban_period}, "
+          f"catch_prob={mechanism.catch_prob}")
     print()
 
     for i in range(train_iters):
@@ -305,12 +322,30 @@ def test_ppo_convergence(
 
 if __name__ == "__main__":
     import argparse
+    import yaml
+
     parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, default=None, help="Path to config YAML to load defaults")
     parser.add_argument("--iters", type=int, default=50)
     parser.add_argument("--gamma", type=float, default=0.95)
     parser.add_argument("--lr", type=float, default=0.005)
     parser.add_argument("--horizon", type=int, default=1000)
+    parser.add_argument("--catch-prob", type=float, default=None)
     args = parser.parse_args()
+
+    # Load from config if provided
+    mechanism_kwargs = {}
+    ecology_cfg = None
+    if args.config:
+        with open(args.config) as f:
+            cfg = yaml.safe_load(f)
+        mechanism_kwargs = cfg["mechanism"]["default"]
+        ecology_cfg = cfg["inner"]["environment"]["env_config"]["ecology_cfg"]
+        print(f"Loaded config from {args.config}")
+
+    # Override catch_prob if specified on command line
+    if args.catch_prob is not None:
+        mechanism_kwargs["catch_prob"] = args.catch_prob
 
     print(f"Testing PPO with horizon={args.horizon}, lr={args.lr}")
 
@@ -319,4 +354,6 @@ if __name__ == "__main__":
         gamma=args.gamma,
         lr=args.lr,
         horizon=args.horizon,
+        mechanism_kwargs=mechanism_kwargs if mechanism_kwargs else None,
+        ecology_cfg=ecology_cfg,
     )
