@@ -2,6 +2,8 @@ import logging
 import uuid
 from typing import Optional, Self
 
+import wandb
+
 from core.adaptors.ray.runtime import DeviceType, RayRuntime, RayRuntimeConfig
 from core.annotations import override
 from core.mechanism.base import Mechanism
@@ -137,6 +139,29 @@ class BilevelOptimizer(Optimizer):
         self.population_history: list[tuple[int, list]] = []
         self.es_metrics_history: list[dict] = []
 
+        # W&B
+        # TODO have proper initialization for this
+        # wandb tracking
+        self.wandb_run = wandb.init(
+            project="bilevel",
+            name=f"bilevel-{self.world_name}",
+            config={
+                "outer_iters": config.outer_iters,
+                "world_name": self.world_name,
+            },
+            reinit=True,
+        )
+
+        # Attach run handle to inner/outer (simple, no interface changes)
+        setattr(self.outer, "wandb_run", self.wandb_run)
+        setattr(self.inner, "wandb_run", self.wandb_run)
+        setattr(self.outer, "bilevel", self)
+        setattr(self.inner, "bilevel", self)
+
+        wandb.define_metric("ppo/ppo_step")
+        wandb.define_metric("ppo/*", step_metric="ppo/ppo_step")
+
+
     def run(self) -> None:
         logger.info(
             "[Bilevel] Starting run | max_outer_iters=%d | world=%s",
@@ -153,6 +178,7 @@ class BilevelOptimizer(Optimizer):
             )
 
             outer_metrics = self.outer.run()
+
 
             trajectory = outer_metrics.get("best_trajectory")
             fitness = outer_metrics.get("best_fitness", -float("inf"))
@@ -198,6 +224,9 @@ class BilevelOptimizer(Optimizer):
             self.converged,
             self.outer.best_fitness,
         )
+
+        if self.wandb_run:
+            wandb.finish()
 
         return {
             "converged": self.converged,

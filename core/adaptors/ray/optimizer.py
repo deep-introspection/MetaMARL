@@ -13,6 +13,7 @@ from ray.train._internal.checkpoint_manager import _TrainingResult
 from core.annotations import override
 from core.optimizers.base import Optimizer
 from core.world.base import World
+from examples.bilevel_fishery.visualization import plot_training_results
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,10 @@ class RayOptimizer(Optimizer):
         self._training_rewards: list[float] = []
         self._training_losses: list[float] = []
         self._es_round: int = 0
+        self._training_iter: int = 0
+
+        # W&B
+        self.wandb_run = None
 
     @property
     @override(Optimizer)
@@ -79,6 +84,14 @@ class RayOptimizer(Optimizer):
     def run(self) -> None:
         logger.info("[PPO] Training step started")
         result = ray.get(self.policy_actor.train.remote())
+
+        # plot training results with wandb
+        plot_training_results(
+            wandb_run=self.wandb_run,
+            outer_iter = self._es_round,
+            training_episode = self._training_iter,
+            results = result)
+        self._training_iter += 1
 
         # Extract metrics for logging
         ep_reward = result.get("env_runners", result).get(

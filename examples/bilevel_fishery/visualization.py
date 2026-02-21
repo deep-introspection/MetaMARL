@@ -1,14 +1,20 @@
-"""Visualization module for bilevel fishery experiments.
+from __future__ import annotations
 
-Provides functions to visualize fish/algae populations, harvest actions,
-and regulatory mechanism effects over time.
-"""
-
+from typing import Any, Dict, Optional
+import numpy as np
+import wandb
+from wandb.sdk.wandb_run import Run
 from typing import Any, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 
+
+"""Visualization module for bilevel fishery experiments.
+
+Provides functions to visualize fish/algae populations, harvest actions,
+and regulatory mechanism effects over time.
+"""
 
 def plot_ecosystem_dynamics(
     trajectories: list[dict[str, Any]],
@@ -556,3 +562,178 @@ def plot_parameter_evolution(
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
     return fig
+
+
+def _to_float(x: Any) -> Optional[float]:
+    if x is None:
+        return None
+    try:
+        if isinstance(x, (np.generic,)):
+            return float(x.item())
+        return float(x)
+    except Exception:
+        return None
+
+
+def _summarize_dict_of_scalars(d: Dict[str, Any]) -> Dict[str, float]:
+    vals: list[float] = []
+    for v in (d or {}).values():
+        fv = _to_float(v)
+        if fv is not None and np.isfinite(fv):
+            vals.append(fv)
+    if not vals:
+        return {}
+    arr = np.asarray(vals, dtype=np.float64)
+    return {
+        "mean": float(arr.mean()),
+        "min": float(arr.min()),
+        "max": float(arr.max()),
+        "std": float(arr.std()),
+        "n": float(len(arr)),
+    }
+
+
+def _aggregate_learner_stats(info_learner: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
+    per_stat: Dict[str, list[float]] = {}
+    for _, policy_block in (info_learner or {}).items():
+        if not isinstance(policy_block, dict):
+            continue
+        ls = policy_block.get("learner_stats", {})
+        if not isinstance(ls, dict):
+            continue
+        for k, v in ls.items():
+            fv = _to_float(v)
+            if fv is None or not np.isfinite(fv):
+                continue
+            per_stat.setdefault(k, []).append(fv)
+
+    out: Dict[str, Dict[str, float]] = {}
+    for k, vals in per_stat.items():
+        arr = np.asarray(vals, dtype=np.float64)
+        out[k] = {
+            "mean": float(arr.mean()),
+            "min": float(arr.min()),
+            "max": float(arr.max()),
+            "std": float(arr.std()),
+            "n": float(len(arr)),
+        }
+    return out
+
+_MECH_REWARD_TABLES: dict[int, wandb.Table] = {}  # run-scoped cache
+
+def plot_training_results(
+    wandb_run: Run,
+    outer_iter: int,
+    training_episode: int,
+    results: dict,
+    *,
+    prefix_base: str = "ppo",
+    num_mechanisms: int = 16,
+) -> None:
+    """
+    Fixed:
+      - No attrs on wandb_run (W&B forbids it)
+      - Persistent table per run (cached in module dict)
+      - Stable metric names (no outer_iter in metric key path)
+      - ONE wandb_run.log call per step
+    """
+    if wandb_run is None:
+        return
+
+    # RLlib blocks
+    env = results.get("env_runners", {}) or {}
+    timers = results.get("timers", {}) or {}
+    info = results.get("info", {}) or {}
+    info_learner = info.get("learner", {}) or {}
+
+    prefix = prefix_base  # keep stable keys so charts show up easily
+
+    # --- persistent table per run ---
+    run_key = id(wandb_run)  # stable for life of this process
+    table = _MECH_REWARD_TABLES.get(run_key)
+    if table is None:
+        table = wandb.Table(columns=["outer_iter", "ppo_step", "mech", "reward_mean"])
+        _MECH_REWARD_TABLES[run_key] = table
+
+    metrics: Dict[str, Any] = {
+        f"{prefix}/outer_iter": outer_iter,
+        f"{prefix}/ppo_step": training_episode,
+        f"{prefix}/episode_reward_mean": _to_float(env.get("episode_reward_mean")),
+        f"{prefix}/episode_reward_min": _to_float(env.get("episode_reward_min")),
+        f"{prefix}/episode_reward_max": _to_float(env.get("episode_reward_max")),
+        f"{prefix}/episode_len_mean": _to_float(env.get("episode_len_mean")),
+        f"{prefix}/num_episodes": _to_float(env.get("num_episodes", env.get("episodes_this_iter"))),
+    }
+
+    # Per-policy rewards (may be empty depending on RLlib config)
+    policy_reward_mean = env.get("policy_reward_mean", {}) or {}
+    policy_reward_min = env.get("policy_reward_min", {}) or {}
+    policy_reward_max = env.get("policy_reward_max", {}) or {}
+
+    # Add points (this is what makes the line chart actually form lines)
+    for i in range(num_mechanisms):
+        pid = f"fisher_policy_{i}"
+        if pid in policy_reward_mean:
+            fv = _to_float(policy_reward_mean[pid])
+            if fv is not None and np.isfinite(fv):
+                table.add_data(outer_iter, training_episode, f"m{i:02d}", fv)
+                metrics[f"{prefix}/mech_reward_mean/m{i:02d}"] = fv  # optional scalars
+
+
+    
+
+    # Summary stats across policies
+    for k, v in _summarize_dict_of_scalars(policy_reward_mean).items():
+        metrics[f"{prefix}/policy_reward_mean_{k}"] = v
+    for k, v in _summarize_dict_of_scalars(policy_reward_min).items():
+        metrics[f"{prefix}/policy_reward_min_{k}"] = v
+    for k, v in _summarize_dict_of_scalars(policy_reward_max).items():
+        metrics[f"{prefix}/policy_reward_max_{k}"] = v
+
+    # Perf/timers
+    metrics[f"{prefix}/perf/env_steps_this_iter"] = _to_float(results.get("num_env_steps_sampled_this_iter"))
+    metrics[f"{prefix}/perf/env_steps_per_sec"] = _to_float(results.get("num_env_steps_sampled_throughput_per_sec"))
+
+    t = _to_float(timers.get("training_iteration_time_ms"))
+    if t is not None:
+        metrics[f"{prefix}/perf/training_iter_time_s"] = t / 1000.0
+    t = _to_float(timers.get("sample_time_ms"))
+    if t is not None:
+        metrics[f"{prefix}/perf/sample_time_s"] = t / 1000.0
+    t = _to_float(timers.get("learn_time_ms"))
+    if t is not None:
+        metrics[f"{prefix}/perf/learn_time_s"] = t / 1000.0
+    t = _to_float(timers.get("synch_weights_time_ms"))
+    if t is not None:
+        metrics[f"{prefix}/perf/sync_weights_time_s"] = t / 1000.0
+
+    metrics[f"{prefix}/perf/learn_throughput"] = _to_float(timers.get("learn_throughput"))
+
+    # Learner stats aggregated across policies
+    learner_stats_summary = _aggregate_learner_stats(info_learner)
+    for stat_name, stats in learner_stats_summary.items():
+        for agg, val in stats.items():
+            metrics[f"{prefix}/learner/{stat_name}_{agg}"] = val
+
+    for key in [
+        "kl",
+        "entropy",
+        "vf_loss",
+        "policy_loss",
+        "total_loss",
+        "vf_explained_var",
+        "grad_gnorm",
+        "cur_lr",
+        "cur_kl_coeff",
+    ]:
+        if key in learner_stats_summary:
+            metrics[f"{prefix}/ppo/{key}"] = learner_stats_summary[key]["mean"]
+
+    # Add the “one chart with 16 lines”
+    metrics[f"{prefix}/mech_reward_mean_table"] = table
+    # Most compatible across wandb versions: use positional args.
+
+    # clean out None values
+    metrics = {k: v for k, v in metrics.items() if v is not None}
+
+    wandb_run.log(metrics, step=training_episode, commit=True)
