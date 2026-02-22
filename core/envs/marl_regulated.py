@@ -42,6 +42,8 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
     ):
         super().__init__(world=world, opt_id=opt_id, **kwargs)
         self.agents = agents
+        self.action_spaces = kwargs.get("action_spaces", {})
+        self.observation_spaces = kwargs.get("action_spaces", {})
 
     @abstractmethod
     def _step(
