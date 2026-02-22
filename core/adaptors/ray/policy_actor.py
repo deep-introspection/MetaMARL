@@ -17,7 +17,7 @@ class PolicyActor:
         # Store config for reset capability
         self.algo_config = algo_config
         # Build Algorithm INSIDE actor (critical)
-        self.algo: Algorithm = algo_config.build()
+        self.algo: Algorithm = algo_config.build_algo()
 
     def train(self):
         return self.algo.train()
