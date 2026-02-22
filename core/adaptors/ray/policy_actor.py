@@ -18,6 +18,8 @@ class PolicyActor:
         self.algo_config = algo_config
         # Build Algorithm INSIDE actor (critical)
         self.algo: Algorithm = algo_config.build_algo()
+        # Store initial weights
+        self._init_weights = self.algo.get_weights()
 
     def train(self):
         return self.algo.train()
@@ -49,9 +51,8 @@ class PolicyActor:
             return np.asarray(actions)
 
     def reset(self):
-        """Reset by rebuilding the entire algorithm from scratch."""
-        self.algo.stop()
-        self.algo = self.algo_config.build()
+        """Reset to initial weights."""
+        self.algo.set_weights(self._init_weights)
 
     def stop(self):
         self.algo.stop()
