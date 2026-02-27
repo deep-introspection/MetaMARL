@@ -209,10 +209,23 @@ class RayOptimizerConfig(OptimizerConfig):
         self.env_config.update({"observation_spaces": observation_spaces})
         self.env_config.update({"action_spaces": action_spaces})
 
-        def policy_mapping_fn(agent_id, episode, worker, **kwargs):
+        def policy_mapping_fn(agent_id, episode, *_, **__):
             base_policy = agent_type_map[agent_id]
-            # Route to policy based on environment index
-            env_idx = episode.env_id if hasattr(episode, "env_id") else 0
+            
+            # Old Api Stack Route to policy based on environment index
+            env_idx = getattr(episode, "env_id", None)
+            
+            # New Api fallback
+            if env_idx is None:
+                env_idx = int(episode.id_.split("|")[0])
+            
+            if env_idx is None:
+                raise RuntimeError(
+                    "No environment index found on episode. "
+                    "Expected episode.env_id (old stack) or "
+                    "episode.custom_data['env_idx'] (new stack)."
+                )
+            env_idx = int(env_idx) % num_mechanisms
             return f"{base_policy}_{env_idx}"
 
         all_policies = list(policies.keys())
@@ -263,7 +276,10 @@ class RayOptimizerConfig(OptimizerConfig):
 
         def env_creator(env_ctx):
             return self._env_creator(
-                world=world, opt_id=opt_id, agents=agents, **dict(env_ctx)
+                world=world, 
+                opt_id=opt_id, 
+                agents=agents,
+                **dict(env_ctx)
             )
 
         register_env(env_name, env_creator)
