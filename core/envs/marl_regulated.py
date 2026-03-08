@@ -4,6 +4,7 @@ from typing import Any, SupportsFloat, Tuple
 
 import numpy as np
 from gymnasium.core import ActType, ObsType
+from gymnasium import spaces
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.typing import AgentID, MultiAgentDict
 
@@ -42,8 +43,13 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
     ):
         super().__init__(world=world, opt_id=opt_id, **kwargs)
         self.agents = agents
+        self.possible_agents = list(self.agents)
         self.action_spaces = kwargs.get("action_spaces", {})
-        self.observation_spaces = kwargs.get("action_spaces", {})
+        self.observation_spaces = kwargs.get("observation_spaces", {})
+
+        # TODO move this to baseenv later
+        self.observation_space = spaces.Dict(self.observation_spaces)
+        self.action_space = spaces.Dict(self.action_spaces)
 
     @abstractmethod
     def _step(
@@ -139,7 +145,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         return np.concatenate([base_obs, theta], axis=0)
 
     @abstractmethod
-    def _is_terminated(self) -> bool: ...
+    def _is_truncated(self) -> bool: ...
 
     @abstractmethod
     def aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict: ...
@@ -200,30 +206,13 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         # check terminated and truncated conditions
         # terminated = natural end (e.g., goal reached or failure)
         # truncated = artificial time limit (horizon reached)
-        terminated = {"__all__": False}
-        truncated = {"__all__": self._is_terminated()}
+        time_limit = self._is_truncated()
 
-        # TODO dont log at every step
-        # if self._t % 1 == 0:
-        #     logger.info(
-        #         "[STEP %d] fish=%.4f→%.4f algae=%.4f→%.4f reward=%.4f",
-        #         self._t,
-        #         prev_state["fish"],
-        #         self.S_t["fish"],
-        #         prev_state["algae"],
-        #         self.S_t["algae"],
-        #         float(np.mean(list(rewards.values()))),
-        #     )
+        terminated = {aid: False for aid in self.agents}
+        terminated["__all__"] = False
 
-        #     logger.debug(
-        #         "[ACTIONS] %s",
-        #         {k: float(np.asarray(v).item()) for k, v in action_dict.items()},
-        #     )
-
-        #     logger.debug(
-        #         "[MECHANISM] %s",
-        #         dict(zip(self.m.param_names(), self.m.to_vector())),
-        #     )
+        truncated = {aid: time_limit for aid in self.agents}
+        truncated["__all__"] = time_limit
 
         infos = {agent_id: {"fine": fines.get(agent_id, 0.0)} for agent_id in self.agents}
         return obs, rewards, terminated, truncated, infos
