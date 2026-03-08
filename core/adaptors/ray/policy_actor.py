@@ -22,10 +22,25 @@ class PolicyActor:
         self._init_weights = self.algo.get_weights()
 
     def train(self):
+        # TODO config ability to debug remote actors
+        # import debugpy, os
+        # debugpy.listen(("127.0.0.1", 5678))
+        # print(f"[debugpy] worker pid={os.getpid()} listening on 5678")
+        # debugpy.wait_for_client()
+        # debugpy.breakpoint()
+
         return self.algo.train()
 
     def evaluate(self):
         return self.algo.evaluate()
+    
+    def get_metrics(self):
+        reduced = self.algo.metrics.reduce()
+        full = self.algo.metrics.peek((), default={})
+        return {
+            "reduced": reduced,
+            "full": full,
+        }
 
     def compute_actions(
         self,
