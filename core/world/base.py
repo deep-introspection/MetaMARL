@@ -91,6 +91,7 @@ class World:
                 return m_ctx
         return None
 
+    # TODO fix this function. now the primary key is ctx_id
     def get_mechanism_by_index(self, index: int) -> MechanismContext:
         return self._mechanism_registry[index]
 
@@ -117,7 +118,7 @@ class World:
         self._contexts[ctx.id] = ctx
 
         if isinstance(ctx.payload, MechanismContext):
-            self._mechanism_registry[ctx.payload.index] = ctx.payload
+            self._mechanism_registry[ctx.id] = ctx.payload
 
         # Track optimizer → context mapping
         if ctx.opt_id is not None:
@@ -172,7 +173,7 @@ class World:
         if isinstance(ctx.payload, MechanismContext):
             if ctx.payload.env_id is None:
                 raise ValueError("MechanismContext must include env_id")
-            self._mechanism_registry[ctx.payload.index] = ctx.payload
+            self._mechanism_registry[ctx.id] = ctx.payload
 
         if ctx.opt_id is not None:
             if ctx.opt_id not in self._opt_ctx_map:
@@ -194,7 +195,7 @@ class World:
         if isinstance(ctx.payload, MechanismContext):
             if ctx.payload.env_id is None:
                 raise ValueError("MechanismContext must include env_id")
-            self._mechanism_registry[ctx.payload.index] = ctx.payload
+            self._mechanism_registry[ctx.id] = ctx.payload
 
     def remove_context(self, ctx: Context) -> None:
         """
@@ -211,6 +212,7 @@ class World:
             if not lst:
                 del self._opt_ctx_map[ctx.opt_id]
 
+    # TODO fix this function. now the primary key is ctx_id
     def flush(self, job: Optional[MechanismStatus] = None) -> None:
         to_delete = []
 
