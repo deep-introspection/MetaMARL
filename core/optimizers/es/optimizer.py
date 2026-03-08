@@ -65,6 +65,10 @@ class ESOptimizer(Optimizer):
     def batch_capacity(self, value: int) -> None:
         if value <= 0:
             raise ValueError("population_size must be positive")
+        
+        if value == 1:
+            self._batch_capacity = value
+            return
 
         if not self.break_symmetry and value % 2 != 0:
             raise ValueError(
