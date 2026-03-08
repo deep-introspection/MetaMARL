@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from typing import Any, Optional, SupportsFloat
+import uuid
 
 import numpy as np
 import ray
@@ -24,7 +25,6 @@ class BaseEnv(Env):
         opt_id: OptimizerID | None = None,
         horizon: Optional[int] = None,
         mechanism_space: MechanismSpace = None,
-        vector_index: Optional[int] = None,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -39,7 +39,7 @@ class BaseEnv(Env):
             self.m_space: MechanismSpace = mechanism_space
         self.m_ctx: MechanismContext = None
         self.m: Mechanism = None
-        self.env_id = vector_index
+        self.env_id = uuid.uuid4().hex[:8]
 
     # Setter
     def set_opt_id(self, opt_id: OptimizerID) -> None:
