@@ -63,11 +63,12 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         }
         return obs
 
-    def _is_terminated(self) -> bool:
+    def _is_truncated(self) -> bool:
         # does the episode terminate when the water is depleted ?
         return self._t >= self.horizon
 
     def intrinsic_utility(
+            
         self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
         # return action * S_t["fish"]

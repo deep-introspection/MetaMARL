@@ -52,7 +52,7 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         obs = {agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents}
         return obs
 
-    def _is_terminated(self) -> bool:
+    def _is_truncated(self) -> bool:
         return self._t >= self.horizon
 
     def intrinsic_utility(

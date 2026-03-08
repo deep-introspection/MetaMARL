@@ -69,7 +69,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         }
         return obs
 
-    def _is_terminated(self) -> bool:
+    def _is_truncated(self) -> bool:
         return self._t >= self.horizon
 
     def intrinsic_utility(
