@@ -25,10 +25,10 @@ REGISTRY = {
     "env": {
         "FisheryRegulatorEnv": FisheryRegulatorEnv,
         "FisheryRegulatedEnv": FisheryRegulatedEnv,
-    "WaterRegulatorEnv": WaterRegulatorEnv,
-    "WaterRegulatedEnv": WaterRegulatedEnv,
-    # Generic bilevel aliases (map to water example by default)
-    "RegulatorEnv": WaterRegulatorEnv,
-    "RegulatedEnv": WaterRegulatedEnv,
+        "WaterRegulatorEnv": WaterRegulatorEnv,
+        "WaterRegulatedEnv": WaterRegulatedEnv,
+        # Generic bilevel aliases (map to water example by default)
+        "RegulatorEnv": WaterRegulatorEnv,
+        "RegulatedEnv": WaterRegulatedEnv,
     },
 }

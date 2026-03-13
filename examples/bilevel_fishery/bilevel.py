@@ -69,7 +69,9 @@ class BilevelConfigLoader:
 
         fisher_cfg = cfg["inner"]["agents"]["fisher"]
         # Agent sees all mechanism params, not just the ones ES optimizes
-        obs_dim = 5 + mechanism_space.full_dimension  # fish, algae, ban, quota, no_fish_zone + θ
+        obs_dim = (
+            5 + mechanism_space.full_dimension
+        )  # fish, algae, ban, quota, no_fish_zone + θ
         action_cfg = fisher_cfg["action_space"]
 
         bilevel = bilevel.inner(

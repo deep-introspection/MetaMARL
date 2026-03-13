@@ -69,13 +69,20 @@ def main():
         max_ban = scaling_cfg.get("max_ban", 50)
 
         # Load ecology config for sustainability threshold
-        outer_ecology = raw_cfg.get("outer", {}).get("environment", {}).get("env_config", {}).get("ecology_cfg", {})
+        outer_ecology = (
+            raw_cfg.get("outer", {})
+            .get("environment", {})
+            .get("env_config", {})
+            .get("ecology_cfg", {})
+        )
         sus_threshold = outer_ecology.get("sus_threshold", 0.1)
         max_fish = outer_ecology.get("max_fish", 2.0)
         raw_sus_threshold = sus_threshold * max_fish
 
         mechanism_params = None
-        if results.get("best_mechanism") is not None and hasattr(optimizer, "mechanism_space"):
+        if results.get("best_mechanism") is not None and hasattr(
+            optimizer, "mechanism_space"
+        ):
             # Decode using mechanism space to get actual parameter values
             best_mech = optimizer.mechanism_space.decode(results["best_mechanism"])
             mechanism_params = {
