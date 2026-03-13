@@ -57,7 +57,9 @@ class BilevelConfigLoader:
         inner_env_cls = REGISTRY["env"][cfg["inner"]["environment"]["env"]]
 
         fisher_cfg = cfg["inner"]["agents"]["fisher"]
-        obs_dim = 5 + mechanism_space.dimension  # fish, algae, ban, quota, no_fish_zone + θ
+        obs_dim = (
+            5 + mechanism_space.dimension
+        )  # fish, algae, ban, quota, no_fish_zone + θ
         action_cfg = fisher_cfg["action_space"]
 
         bilevel = bilevel.inner(

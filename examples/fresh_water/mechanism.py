@@ -20,12 +20,10 @@ class WaterMechanism(Mechanism):
         fine_amount: Penalty per unit over-harvest (0 to max_fine)
         ban_period: Duration of ban after violation (0 to max_ban periods)
 
-        # new water usage is like the fitness 
+        # new water usage is like the fitness
     """
 
     water_threshold: float
-
-
 
     prop_quota: float
     min_stock: float

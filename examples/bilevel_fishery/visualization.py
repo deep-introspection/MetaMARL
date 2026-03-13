@@ -16,6 +16,7 @@ Provides functions to visualize fish/algae populations, harvest actions,
 and regulatory mechanism effects over time.
 """
 
+
 def plot_ecosystem_dynamics(
     trajectories: list[dict[str, Any]],
     title: str = "Ecosystem Dynamics",
@@ -164,7 +165,9 @@ def plot_combined_trial_analysis(
     axes[0, 1].legend()
 
     # Bottom left: Harvest vs quota (if available)
-    has_harvest = any("harvest" in data and data["harvest"] for data in episodes.values())
+    has_harvest = any(
+        "harvest" in data and data["harvest"] for data in episodes.values()
+    )
     if has_harvest:
         for i, (ep, data) in enumerate(episodes.items()):
             if data.get("harvest"):
@@ -193,7 +196,9 @@ def plot_combined_trial_analysis(
         axes[1, 0].legend()
     else:
         # Plot rewards instead if no harvest data
-        has_rewards = any("rewards" in data and data["rewards"] for data in episodes.values())
+        has_rewards = any(
+            "rewards" in data and data["rewards"] for data in episodes.values()
+        )
         if has_rewards:
             for i, (ep, data) in enumerate(episodes.items()):
                 if data.get("rewards"):
@@ -212,8 +217,12 @@ def plot_combined_trial_analysis(
             axes[1, 0].legend()
         else:
             axes[1, 0].text(
-                0.5, 0.5, "No harvest/reward data",
-                ha="center", va="center", transform=axes[1, 0].transAxes
+                0.5,
+                0.5,
+                "No harvest/reward data",
+                ha="center",
+                va="center",
+                transform=axes[1, 0].transAxes,
             )
 
     # Bottom right: Phase plot (fish vs algae)
@@ -295,7 +304,14 @@ def _group_by_episode(trajectories: list[dict[str, Any]]) -> dict[int, dict[str,
     return episodes
 
 
-ALL_PARAM_NAMES = ["fixed_quota", "prop_quota", "min_stock", "fine_amount", "ban_period", "catch_prob"]
+ALL_PARAM_NAMES = [
+    "fixed_quota",
+    "prop_quota",
+    "min_stock",
+    "fine_amount",
+    "ban_period",
+    "catch_prob",
+]
 ALL_PARAM_SCALES = [1.0, 1.0, 1.0, 5.0, 50.0, 1.0]  # Denormalization factors
 
 # Default: only optimized params
@@ -327,7 +343,10 @@ def plot_fitness_vs_parameters(
 
     param_names = optimize_params or DEFAULT_OPTIMIZE_PARAMS
     if param_scales:
-        scales = [param_scales.get(p, ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)]) for p in param_names]
+        scales = [
+            param_scales.get(p, ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)])
+            for p in param_names
+        ]
     else:
         scales = [ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)] for p in param_names]
 
@@ -384,7 +403,9 @@ def plot_fitness_vs_parameters(
         if iteration not in best_per_iter:
             best_per_iter[iteration] = float(fitness.max())
         else:
-            best_per_iter[iteration] = max(best_per_iter[iteration], float(fitness.max()))
+            best_per_iter[iteration] = max(
+                best_per_iter[iteration], float(fitness.max())
+            )
 
     iters = sorted(best_per_iter.keys())
     best_vals = [best_per_iter[i] for i in iters]
@@ -455,10 +476,24 @@ def plot_es_metrics(
 
     # Top right: Fish population (mean and min)
     ax = axes[0, 1]
-    ax.plot(generations, mean_fish, "o-", linewidth=2, markersize=5,
-            color="tab:blue", label="Mean Fish")
-    ax.plot(generations, min_fish, "s--", linewidth=2, markersize=5,
-            color="tab:orange", label="Min Fish")
+    ax.plot(
+        generations,
+        mean_fish,
+        "o-",
+        linewidth=2,
+        markersize=5,
+        color="tab:blue",
+        label="Mean Fish",
+    )
+    ax.plot(
+        generations,
+        min_fish,
+        "s--",
+        linewidth=2,
+        markersize=5,
+        color="tab:orange",
+        label="Min Fish",
+    )
     ax.set_xlabel("Generation", fontsize=11)
     ax.set_ylabel("Fish Population (normalized)", fontsize=11)
     ax.set_title("Fish Population per Generation", fontsize=12)
@@ -467,7 +502,9 @@ def plot_es_metrics(
 
     # Bottom left: Collapse rate
     ax = axes[1, 0]
-    ax.plot(generations, collapse_rate, "o-", linewidth=2, markersize=5, color="tab:purple")
+    ax.plot(
+        generations, collapse_rate, "o-", linewidth=2, markersize=5, color="tab:purple"
+    )
     ax.axhline(y=0.0, color="green", linestyle="--", alpha=0.5, label="No collapse")
     ax.set_xlabel("Generation", fontsize=11)
     ax.set_ylabel("Collapse Rate", fontsize=11)
@@ -478,7 +515,9 @@ def plot_es_metrics(
 
     # Bottom right: Best fitness
     ax = axes[1, 1]
-    ax.plot(generations, best_fitness, "o-", linewidth=2, markersize=5, color="tab:green")
+    ax.plot(
+        generations, best_fitness, "o-", linewidth=2, markersize=5, color="tab:green"
+    )
     ax.set_xlabel("Generation", fontsize=11)
     ax.set_ylabel("Best Fitness", fontsize=11)
     ax.set_title("Best Fitness per Generation", fontsize=12)
@@ -518,7 +557,10 @@ def plot_parameter_evolution(
 
     param_names = optimize_params or DEFAULT_OPTIMIZE_PARAMS
     if param_scales:
-        scales = [param_scales.get(p, ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)]) for p in param_names]
+        scales = [
+            param_scales.get(p, ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)])
+            for p in param_names
+        ]
     else:
         scales = [ALL_PARAM_SCALES[ALL_PARAM_NAMES.index(p)] for p in param_names]
 
@@ -593,7 +635,9 @@ def _summarize_dict_of_scalars(d: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
-def _aggregate_learner_stats(info_learner: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
+def _aggregate_learner_stats(
+    info_learner: Dict[str, Any],
+) -> Dict[str, Dict[str, float]]:
     per_stat: Dict[str, list[float]] = {}
     for _, policy_block in (info_learner or {}).items():
         if not isinstance(policy_block, dict):
@@ -619,7 +663,9 @@ def _aggregate_learner_stats(info_learner: Dict[str, Any]) -> Dict[str, Dict[str
         }
     return out
 
+
 _MECH_REWARD_TABLES: dict[int, wandb.Table] = {}  # run-scoped cache
+
 
 def plot_training_results(
     wandb_run: Run,
@@ -662,7 +708,9 @@ def plot_training_results(
         f"{prefix}/episode_reward_min": _to_float(env.get("episode_reward_min")),
         f"{prefix}/episode_reward_max": _to_float(env.get("episode_reward_max")),
         f"{prefix}/episode_len_mean": _to_float(env.get("episode_len_mean")),
-        f"{prefix}/num_episodes": _to_float(env.get("num_episodes", env.get("episodes_this_iter"))),
+        f"{prefix}/num_episodes": _to_float(
+            env.get("num_episodes", env.get("episodes_this_iter"))
+        ),
     }
 
     # Per-policy rewards (may be empty depending on RLlib config)
@@ -679,9 +727,6 @@ def plot_training_results(
                 table.add_data(outer_iter, training_episode, f"m{i:02d}", fv)
                 metrics[f"{prefix}/mech_reward_mean/m{i:02d}"] = fv  # optional scalars
 
-
-    
-
     # Summary stats across policies
     for k, v in _summarize_dict_of_scalars(policy_reward_mean).items():
         metrics[f"{prefix}/policy_reward_mean_{k}"] = v
@@ -691,8 +736,12 @@ def plot_training_results(
         metrics[f"{prefix}/policy_reward_max_{k}"] = v
 
     # Perf/timers
-    metrics[f"{prefix}/perf/env_steps_this_iter"] = _to_float(results.get("num_env_steps_sampled_this_iter"))
-    metrics[f"{prefix}/perf/env_steps_per_sec"] = _to_float(results.get("num_env_steps_sampled_throughput_per_sec"))
+    metrics[f"{prefix}/perf/env_steps_this_iter"] = _to_float(
+        results.get("num_env_steps_sampled_this_iter")
+    )
+    metrics[f"{prefix}/perf/env_steps_per_sec"] = _to_float(
+        results.get("num_env_steps_sampled_throughput_per_sec")
+    )
 
     t = _to_float(timers.get("training_iteration_time_ms"))
     if t is not None:
@@ -707,7 +756,9 @@ def plot_training_results(
     if t is not None:
         metrics[f"{prefix}/perf/sync_weights_time_s"] = t / 1000.0
 
-    metrics[f"{prefix}/perf/learn_throughput"] = _to_float(timers.get("learn_throughput"))
+    metrics[f"{prefix}/perf/learn_throughput"] = _to_float(
+        timers.get("learn_throughput")
+    )
 
     # Learner stats aggregated across policies
     learner_stats_summary = _aggregate_learner_stats(info_learner)

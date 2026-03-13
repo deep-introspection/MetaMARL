@@ -41,7 +41,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
         self.max_fish = ecology_cfg.get("max_fish", 2.0)
         self.max_algae = ecology_cfg.get("max_algae", 2.0)
         # Denormalized threshold for visualization
-        self.raw_sustainability_threshold = self.sustainability_threshold * self.max_fish
+        self.raw_sustainability_threshold = (
+            self.sustainability_threshold * self.max_fish
+        )
         self.trajectories: dict[int, list[dict[str, Any]]] = {}
 
     @override(RegulatorEnv)
@@ -130,13 +132,15 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     algae[i] = obs[1] if len(obs) > 1 else 0.0
 
                 # Denormalize for trajectory storage (visualization uses raw values)
-                trajectory.append({
-                    "episode": 0,
-                    "step": i,
-                    "fish_population": float(fish[i] * self.max_fish),
-                    "algae_population": float(algae[i] * self.max_algae),
-                    "reward": float(rewards[i]),
-                })
+                trajectory.append(
+                    {
+                        "episode": 0,
+                        "step": i,
+                        "fish_population": float(fish[i] * self.max_fish),
+                        "algae_population": float(algae[i] * self.max_algae),
+                        "reward": float(rewards[i]),
+                    }
+                )
 
             self.trajectories[idx] = trajectory
 

@@ -93,7 +93,11 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def violation_signal(
         self, agent_id: AgentID, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
-        quota = max(0.0, u_i - min(self.m.fixed_quota, self.m.prop_quota * S_t["fish"] / self.max_fish))
+        quota = max(
+            0.0,
+            u_i
+            - min(self.m.fixed_quota, self.m.prop_quota * S_t["fish"] / self.max_fish),
+        )
         ban = float(S_t["fish"] / self.max_fish < self.m.min_stock) * u_i
         v = float(quota + ban)
         # if v > 0.0:
@@ -176,10 +180,16 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         effective_quota = min(self.m.fixed_quota, self.m.prop_quota * fish_norm)
         no_fish_zone = float(fish_norm < self.m.min_stock)
 
-        return np.array([
-            fish_norm, algae_norm, ban_remaining,
-            effective_quota, no_fish_zone,
-        ], dtype=np.float32)
+        return np.array(
+            [
+                fish_norm,
+                algae_norm,
+                ban_remaining,
+                effective_quota,
+                no_fish_zone,
+            ],
+            dtype=np.float32,
+        )
 
     def _is_banned(self, agent_id: AgentID) -> bool:
         """Check if agent is currently banned."""

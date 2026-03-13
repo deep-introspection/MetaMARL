@@ -49,10 +49,7 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         # Reset ban counters for all agents
         self._agent_bans = {agent_id: 0 for agent_id in self.agents}
 
-        initial_water = max(
-            EPS,
-            self.rng.normal(self.water_init, 0.05)
-        )
+        initial_water = max(EPS, self.rng.normal(self.water_init, 0.05))
 
         # TODO initial water amount
         self.S_t = {
@@ -68,11 +65,12 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         return self._t >= self.horizon
 
     def intrinsic_utility(
-            
         self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
         # return action * S_t["fish"]
-        action = float(np.asarray(action).item())  # cast to scalar - this would be the amound of water consumed
+        action = float(
+            np.asarray(action).item()
+        )  # cast to scalar - this would be the amound of water consumed
         action = np.clip(action, 0.0, 1.0)
         water_norm = S_t["water"] / self.max_water
         effective_consumption = action * min(1.0, water_norm)
@@ -84,7 +82,11 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
     def violation_signal(
         self, agent_id: AgentID, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
-        quota = max(0.0, u_i - min(self.m.fixed_quota, self.m.prop_quota * S_t["fish"] / self.max_fish))
+        quota = max(
+            0.0,
+            u_i
+            - min(self.m.fixed_quota, self.m.prop_quota * S_t["fish"] / self.max_fish),
+        )
         ban = float(S_t["fish"] / self.max_fish < self.m.min_stock) * u_i
         v = float(quota + ban)
         return v
@@ -98,17 +100,13 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         water_norm = S_t["water"] / self.max_water
 
         # Quota violation: consumption beyond allowed limit
-        effective_quota = min(
-            self.m.fixed_quota,
-            self.m.prop_quota * water_norm
-        )
+        effective_quota = min(self.m.fixed_quota, self.m.prop_quota * water_norm)
         quota_violation = max(0.0, float(u_i) - effective_quota)
 
         # Critical level violation: any consumption when water is scarce
         critical_violation = 0.0
         if water_norm < self.m.min_stock:
             critical_violation = float(u_i)
-
 
         quota_violation = max(0.0, float(u_i) - effective_quota)
         total_desired = sum(desired.values())
@@ -163,10 +161,16 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         effective_quota = min(self.m.fixed_quota, self.m.prop_quota * fish_norm)
         no_fish_zone = float(fish_norm < self.m.min_stock)
 
-        return np.array([
-            fish_norm, algae_norm, ban_remaining,
-            effective_quota, no_fish_zone,
-        ], dtype=np.float32)
+        return np.array(
+            [
+                fish_norm,
+                algae_norm,
+                ban_remaining,
+                effective_quota,
+                no_fish_zone,
+            ],
+            dtype=np.float32,
+        )
 
     def _is_banned(self, agent_id: AgentID) -> bool:
         """Check if agent is currently banned."""

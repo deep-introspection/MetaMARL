@@ -158,7 +158,9 @@ def plot_combined_trial_analysis(
     axes[0, 1].legend()
 
     # Bottom left: Harvest vs quota (if available)
-    has_harvest = any("harvest" in data and data["harvest"] for data in episodes.values())
+    has_harvest = any(
+        "harvest" in data and data["harvest"] for data in episodes.values()
+    )
     if has_harvest:
         for i, (ep, data) in enumerate(episodes.items()):
             if data.get("harvest"):
@@ -187,7 +189,9 @@ def plot_combined_trial_analysis(
         axes[1, 0].legend()
     else:
         # Plot rewards instead if no harvest data
-        has_rewards = any("rewards" in data and data["rewards"] for data in episodes.values())
+        has_rewards = any(
+            "rewards" in data and data["rewards"] for data in episodes.values()
+        )
         if has_rewards:
             for i, (ep, data) in enumerate(episodes.items()):
                 if data.get("rewards"):
@@ -206,8 +210,12 @@ def plot_combined_trial_analysis(
             axes[1, 0].legend()
         else:
             axes[1, 0].text(
-                0.5, 0.5, "No harvest/reward data",
-                ha="center", va="center", transform=axes[1, 0].transAxes
+                0.5,
+                0.5,
+                "No harvest/reward data",
+                ha="center",
+                va="center",
+                transform=axes[1, 0].transAxes,
             )
 
     # Bottom right: Phase plot (fish vs algae)
@@ -247,7 +255,13 @@ def plot_combined_trial_analysis(
 
     if mechanism_params:
         info_parts = []
-        for key in ["fixed_quota", "prop_quota", "fine_amount", "min_stock", "ban_period"]:
+        for key in [
+            "fixed_quota",
+            "prop_quota",
+            "fine_amount",
+            "min_stock",
+            "ban_period",
+        ]:
             if key in mechanism_params:
                 info_parts.append(f"{key}={mechanism_params[key]:.3f}")
         if info_parts:
@@ -365,7 +379,9 @@ def plot_fitness_vs_parameters(
         if iteration not in best_per_iter:
             best_per_iter[iteration] = float(fitness.max())
         else:
-            best_per_iter[iteration] = max(best_per_iter[iteration], float(fitness.max()))
+            best_per_iter[iteration] = max(
+                best_per_iter[iteration], float(fitness.max())
+            )
 
     iters = sorted(best_per_iter.keys())
     best_vals = [best_per_iter[i] for i in iters]

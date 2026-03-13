@@ -40,7 +40,9 @@ class SimpleFisheryEnv(gym.Env):
 
         # Observation: 5 base features + mechanism params (matching real env)
         mechanism_dim = len(self.mechanism.to_vector())
-        self.observation_space = spaces.Box(-np.inf, np.inf, (5 + mechanism_dim,), np.float32)
+        self.observation_space = spaces.Box(
+            -np.inf, np.inf, (5 + mechanism_dim,), np.float32
+        )
         self.action_space = spaces.Box(0.0, 1.0, (1,), np.float32)
 
         self._t = 0
@@ -77,10 +79,16 @@ class SimpleFisheryEnv(gym.Env):
         no_fish_zone = float(fish_norm < m.min_stock)
 
         # Base observation + mechanism vector (matching marl_regulated.py observation())
-        base_obs = np.array([
-            fish_norm, algae_norm, ban_norm,
-            effective_quota, no_fish_zone,
-        ], dtype=np.float32)
+        base_obs = np.array(
+            [
+                fish_norm,
+                algae_norm,
+                ban_norm,
+                effective_quota,
+                no_fish_zone,
+            ],
+            dtype=np.float32,
+        )
 
         theta = m.to_vector()
         return np.concatenate([base_obs, theta], axis=0)
@@ -138,9 +146,7 @@ class SimpleFisheryEnv(gym.Env):
 
         # Lotka-Volterra dynamics (matching real env)
         fish_next = self.fish + self.dt * (
-            self.delta * self.algae * self.fish
-            - self.gamma_eco * self.fish
-            - H
+            self.delta * self.algae * self.fish - self.gamma_eco * self.fish - H
         )
         algae_next = self.algae + self.dt * (
             self.alpha * self.algae - self.beta * self.algae * self.fish
@@ -240,9 +246,11 @@ def test_ppo_convergence(
 
     print(f"Training PPO for {train_iters} iterations...")
     print(f"  gamma={gamma}, lr={lr}, envs={num_envs}")
-    print(f"  mechanism: fixed_q={mechanism.fixed_quota}, prop_q={mechanism.prop_quota}, "
-          f"min_stock={mechanism.min_stock}, fine={mechanism.fine_amount}, ban={mechanism.ban_period}, "
-          f"catch_prob={mechanism.catch_prob}")
+    print(
+        f"  mechanism: fixed_q={mechanism.fixed_quota}, prop_q={mechanism.prop_quota}, "
+        f"min_stock={mechanism.min_stock}, fine={mechanism.fine_amount}, ban={mechanism.ban_period}, "
+        f"catch_prob={mechanism.catch_prob}"
+    )
     print()
 
     for i in range(train_iters):
@@ -261,16 +269,24 @@ def test_ppo_convergence(
             .get("learner_stats", {})
         )
 
-        policy_losses.append(learner_stats.get("policy_loss", learner_stats.get("total_loss", 0)))
-        vf_losses.append(learner_stats.get("vf_loss", learner_stats.get("vf_loss_unclipped", 0)))
-        entropies.append(learner_stats.get("entropy", learner_stats.get("curr_entropy_coeff", 0)))
+        policy_losses.append(
+            learner_stats.get("policy_loss", learner_stats.get("total_loss", 0))
+        )
+        vf_losses.append(
+            learner_stats.get("vf_loss", learner_stats.get("vf_loss_unclipped", 0))
+        )
+        entropies.append(
+            learner_stats.get("entropy", learner_stats.get("curr_entropy_coeff", 0))
+        )
 
         if i == 0:
             # Debug: print learner_stats keys on first iteration
             print(f"  learner_stats keys: {list(learner_stats.keys())}")
 
         if (i + 1) % 10 == 0:
-            print(f"  iter {i+1:3d}: reward={rewards[-1]:.4f}, policy_loss={policy_losses[-1]:.4f}")
+            print(
+                f"  iter {i + 1:3d}: reward={rewards[-1]:.4f}, policy_loss={policy_losses[-1]:.4f}"
+            )
 
     algo.stop()
 
@@ -282,7 +298,7 @@ def test_ppo_convergence(
     axes[0, 0].set_xlabel("Iteration")
     axes[0, 0].set_ylabel("Episode Reward Mean")
     axes[0, 0].set_title("Reward")
-    axes[0, 0].axhline(y=0, color='r', linestyle='--', alpha=0.5)
+    axes[0, 0].axhline(y=0, color="r", linestyle="--", alpha=0.5)
 
     axes[0, 1].plot(policy_losses)
     axes[0, 1].set_xlabel("Iteration")
@@ -325,7 +341,9 @@ if __name__ == "__main__":
     import yaml
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default=None, help="Path to config YAML to load defaults")
+    parser.add_argument(
+        "--config", type=str, default=None, help="Path to config YAML to load defaults"
+    )
     parser.add_argument("--iters", type=int, default=50)
     parser.add_argument("--gamma", type=float, default=0.95)
     parser.add_argument("--lr", type=float, default=0.005)
