@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
-    def __init__(
+    def __init__( 
         self,
         *,
         world: World,
@@ -214,5 +214,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         truncated = {aid: time_limit for aid in self.agents}
         truncated["__all__"] = time_limit
 
-        infos = {agent_id: {"fine": fines.get(agent_id, 0.0)} for agent_id in self.agents}
+        infos = {
+            agent_id: {"fine": fines.get(agent_id, 0.0)} for agent_id in self.agents
+        }
         return obs, rewards, terminated, truncated, infos

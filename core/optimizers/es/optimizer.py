@@ -37,7 +37,9 @@ class ESOptimizer(Optimizer):
         if config.initial_mean is not None:
             self.mean = np.array(config.initial_mean, dtype=np.float32)
         else:
-            self.mean = np.full(shape=config.dimension, fill_value=0.5, dtype=np.float32)
+            self.mean = np.full(
+                shape=config.dimension, fill_value=0.5, dtype=np.float32
+            )
         self.sigma = float(config.sigma)
 
         # Random number generator
@@ -65,7 +67,7 @@ class ESOptimizer(Optimizer):
     def batch_capacity(self, value: int) -> None:
         if value <= 0:
             raise ValueError("population_size must be positive")
-        
+
         if value == 1:
             self._batch_capacity = value
             return
