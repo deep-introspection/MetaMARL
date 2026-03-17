@@ -1,16 +1,14 @@
 from dataclasses import Field
 from typing import Optional, TypeAlias
-from dataclasses import dataclass
 
 from loggers.schemas import LoggerSchema
 
 PolicyID: TypeAlias = str 
 EnvID: TypeAlias = str
+StepID: TypeAlias = int
 
-# TODO review this hierarchy
-
-@dataclass
-class TransitionStats:
+# TODO add recducer identity
+class EnvStepSchema(LoggerSchema): #attention this is aggregate by env not by env step
     # TODO models such as PILCO, Dyna, Qyna-Q
     # statistics collected at env-step level
     action: float
@@ -26,11 +24,9 @@ class TransitionStats:
     advantage: Optional[float] = None
     td_error: Optional[float] = None
     q_pred: Optional[float] = None
-
     
-@dataclass
-class LearnerStats(LoggerSchema):
-    batch_size: int = Field(default=0, json_schema_extra={"reduce"})
+class PolicyLearnerSchema(LoggerSchema):
+    batch_size: int
     # Value, Q, advantage debugging
     total_loss: Optional[float] = None
     residual_variance: Optional[float] = None
@@ -64,13 +60,10 @@ class LearnerStats(LoggerSchema):
     gradient_norm: float
     gradient_noise: float
 
-PolicyStats: TypeAlias = dict[PolicyID, LearnerStats]
-EnvStats: TypeAlias = dict[EnvID, TransitionStats]
 
-@dataclass
-class EpisodeStats:
+class EpisodeRolloutSchema(LoggerSchema): # Episode rollout = aggregate over env steps
     # Reward (R) statistics
-    reward: Optional[float]
+    reward_total: Optional[float] = None
     reward_mean: Optional[float]
     reward_min: float
     reward_max: float
@@ -78,35 +71,32 @@ class EpisodeStats:
     reward_terminal: float
 
     # Value (V) statistics
-    value_terminal: float
-    value_penultimate: float
+    value_terminal: Optional[float] = None
+    value_penultimate: Optional[float] = None
 
     # Trajectory info
     episode_len_mean: float
     episode_len_max: float
     episode_len_min: float
 
-    # Learner statistics
-    learner: PolicyStats = Field(default_factory=dict)
+class EnvRolloutSchema(LoggerSchema):
+    aggregate: EpisodeRolloutSchema
+    by_step: dict[StepID, EnvStepSchema]
 
-    # transition statistics
-    env: EnvStats = Field(default_factory=dict)
+class RolloutSchema(LoggerSchema):
+    aggregate: EpisodeRolloutSchema
+    by_env: dict[EnvID, EnvRolloutSchema] = Field(default_factory=dict)
 
+class LearnerSchema(LoggerSchema):
+    by_policy: dict[PolicyID, PolicyLearnerSchema] = Field(default_factory=dict)
 
+class TrainSchema(LoggerSchema):
+    rollout: RolloutSchema
+    learner: LearnerSchema
+
+class EvalSchema(LoggerSchema):
+    rollout: RolloutSchema
 
 class PPOStats(LoggerSchema):
-    train_episode: EpisodeStats = Field(default_factory=dict)
-    eval_episode: EpisodeStats = Field(default_factory=dict)
-
-
-
-    # @dataclass
-# class AggEpisodeStats:
-#     episode_reward_mean: float
-#     episode_reward_min: float
-#     episode_reward_max: float
-#     episode_len_mean: float  # accross different episodes
-#     episode_len_max: float  # accross different episodes
-#     episode_len_min: float
-
-
+    train: TrainSchema
+    eval: EvalSchema
