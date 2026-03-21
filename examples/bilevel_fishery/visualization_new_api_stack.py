@@ -14,6 +14,12 @@ logger = logging.getLogger(__name__)
 # helpers
 # --------------------------
 
+def _safe_ratio(num: Any, den: Any) -> Optional[float]:
+    fnum = _finite(num)
+    fden = _finite(den)
+    if fnum is None or fden is None or fden == 0.0:
+        return None
+    return float(fnum) / float(fden)
 
 def _to_float(x: Any) -> Optional[float]:
     if x is None:
@@ -171,6 +177,20 @@ def extract_learner_metrics_newstack(
     out: Dict[str, Dict[str, Optional[float]]] = {}
     if not isinstance(learners, dict):
         return out
+    
+    learner_group = results.get("learner_group", {}) or {}
+    mean_training_calls_since_sync = _finite(
+        results.get("mean_num_training_step_calls_since_last_synch_worker_weights")
+    )
+    outstanding_async_reqs = _finite(
+        learner_group.get("actor_manager_num_outstanding_async_reqs")
+    )
+
+    # Useful global proxy source from __all_modules__
+    all_modules_stats = learners.get("__all_modules__", {}) or {}
+    learner_queue_wait = _finite(
+        all_modules_stats.get("learner_thread_in_queue_wait_timer")
+    )
 
     for learner_id, stats in learners.items():
         if not isinstance(stats, dict):
@@ -197,6 +217,31 @@ def extract_learner_metrics_newstack(
             m["module_steps_throughput_since_last_restore"] = _finite(
                 thr.get("throughput_since_last_restore")
             )
+
+        # Derived metrics
+        # policy_relative_entropy = entropy / entropy coeff
+        entropy = m.get("entropy")
+        entropy_coeff = m.get("curr_entropy_coeff")
+
+        m["policy_relative_entropy"] = _safe_ratio(entropy, entropy_coeff)
+
+        # optional but often useful
+        if _finite(entropy) is not None and _finite(entropy_coeff) is not None:
+            m["entropy_pressure"] = float(entropy) * float(entropy_coeff)
+
+        # sample staleness proxy
+        # best available ingredients from your dump:
+        # - diff_num_grad_updates_vs_sampler_policy
+        # - mean_num_training_step_calls_since_last_synch_worker_weights
+        # - learner_group.actor_manager_num_outstanding_async_reqs
+        # - learner_thread_in_queue_wait_timer (__all_modules__)
+        lag1 = m.get("diff_num_grad_updates_vs_sampler_policy")
+        lag2 = mean_training_calls_since_sync
+        lag3 = outstanding_async_reqs
+        lag4 = learner_queue_wait
+
+        parts = [x for x in (lag1, lag2, lag3, lag4) if x is not None]
+        m["sample_staleness"] = float(sum(parts)) if parts else None
 
         out[str(learner_id)] = m
 
@@ -233,19 +278,23 @@ _DEFAULT_LEARNER_PLOT_WHITELIST = {
     "total_loss",
     "policy_loss",
     "vf_loss",
-    "value_loss",
     "entropy",
-    "entropy_coeff",
+    # "curr_entropy_coeff",
+    "policy_relative_entropy",
+    "entropy_pressure",
     "kl",
+    # "curr_kl_coeff",
     "vf_explained_var",
     "grad_gnorm",
-    "lr",
+    "sample_staleness",
+    # "lr",
+    # "learning_rate",
+    # "default_optimizer_learning_rate",
 }
 
 
 def _should_plot_metric(metric_key: str, whitelist: set[str]) -> bool:
-    k = str(metric_key).lower()
-    return any(w in k for w in whitelist)
+    return str(metric_key).lower() in whitelist
 
 
 def _table_to_line_series_arrays(
