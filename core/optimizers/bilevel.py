@@ -3,6 +3,7 @@ import uuid
 from typing import Optional, Self
 
 import wandb
+import matplotlib.pyplot as plt
 
 from core.adaptors.ray.runtime import DeviceType, RayRuntime, RayRuntimeConfig
 from core.annotations import override
@@ -10,6 +11,7 @@ from core.mechanism.base import Mechanism
 from core.mechanism.space import MechanismSpace
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
+from core.visualizers.bilevel_viz_reporter import BilevelVizReporter
 from core.world.base import World
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,12 @@ class BilevelConfig(OptimizerConfig):
         self.default_mechanism: Optional[Mechanism] = None
         self.output_dir: str | None = None
 
+    # @override(OptimizerConfig)
+    # def _get_logger_schema(self):
+    #     return LoggerSchema(
+    #         inner: self.inner_cfg._get_logger_schema
+    #         outer: self.inner_cfg._get_logger_schema
+    #     )
     def inner(self, cfg: OptimizerConfig = None) -> Self:
         if cfg is not None:
             self.inner_cfg = cfg
@@ -84,6 +92,12 @@ class BilevelConfig(OptimizerConfig):
             init_kwargs=kwargs,
         )
         return self
+    
+    def reporting(
+            self,
+    ) -> Self:
+        # TODO
+        pass
 
     @override(OptimizerConfig)
     def build_optimizer(self):
@@ -117,7 +131,6 @@ class BilevelConfig(OptimizerConfig):
         # override outer_opt population size with inner_opt batch_size
         # set inner batch capacity to be the same as inner for batch sampling
         outer_opt.batch_capacity = inner_opt.batch_capacity
-
         return self.opt_class(config=self, outer=outer_opt, inner=inner_opt)
 
 
@@ -150,6 +163,22 @@ class BilevelOptimizer(Optimizer):
                 "world_name": self.world_name,
             },
             reinit=True,
+            settings=wandb.Settings(
+                x_disable_stats=True,
+                x_disable_meta=True,
+                quiet=True,
+                max_end_of_run_history_metrics=0,
+                max_end_of_run_summary_metrics=0,
+            )
+        )
+
+        # TODO temporary
+        self.viz = BilevelVizReporter(
+            wandb_run=self.wandb_run,
+            output_dir=self.output_dir,  # optional
+            mechanism_space=self.mechanism_space,  # optional
+            optimize_params=getattr(self.mechanism_space, "optimize_params", None),
+            num_mechanisms=16,  # TODO make this dynamic
         )
 
         # Attach run handle to inner/outer (simple, no interface changes)
@@ -161,6 +190,11 @@ class BilevelOptimizer(Optimizer):
         wandb.define_metric("ppo/ppo_step")
         wandb.define_metric("ppo/*", step_metric="ppo/ppo_step")
 
+    def _wandb_log_fig(self, key: str, fig, step: int):
+        if not self.wandb_run:
+            return
+        self.wandb_run.log({key: wandb.Image(fig)}, step=step)
+        plt.close(fig)  # IMPORTANT: prevent memory leak
 
     def run(self) -> None:
         logger.info(
@@ -179,36 +213,24 @@ class BilevelOptimizer(Optimizer):
 
             outer_metrics = self.outer.run()
 
-
-            trajectory = outer_metrics.get("best_trajectory")
-            fitness = outer_metrics.get("best_fitness", -float("inf"))
-            pop_history = outer_metrics.get("population_history", [])
-
-            if pop_history:
-                self.population_history.append((i, pop_history[-1]))
-
-            # Collect ES metrics for plotting
-            self._collect_es_metrics(i, fitness)
-
-            if trajectory:
-                self.best_trajectory = trajectory
-                self.all_trajectories.append((i, fitness, trajectory))
-                self._save_intermediate_plot(i, fitness, trajectory)
-
-            self._save_parameter_plots()
-            self._save_es_metrics_plot()
+            # one single call that logs everything
+            self.viz.on_outer_iteration_end(
+                outer_iter=i,
+                outer=self.outer,
+                outer_metrics=outer_metrics,
+            )
 
             self.metrics.log_dict(
                 {
                     "bilevel/outer_iter": i,
-                    "bilevel/best_fitness": fitness,
+                    "bilevel/best_fitness": outer_metrics.get(
+                        "best_fitness", -float("inf")
+                    ),
                 }
             )
 
-            # ---- Early stopping ----
             if outer_metrics.get("converged", False):
                 self.converged = True
-
                 logger.info(
                     "[Bilevel] EARLY STOP | "
                     "outer optimizer converged | "
@@ -225,9 +247,8 @@ class BilevelOptimizer(Optimizer):
             self.outer.best_fitness,
         )
 
-        if self.wandb_run:
-            wandb.finish()
-
+        self.viz.finish()
+        wandb.finish()
         return {
             "converged": self.converged,
             "outer_iters": self.outer_iter + 1,
@@ -237,139 +258,3 @@ class BilevelOptimizer(Optimizer):
             "all_trajectories": self.all_trajectories,
             "population_history": self.population_history,
         }
-
-    def _save_intermediate_plot(
-        self, iteration: int, fitness: float, trajectory: list[dict]
-    ) -> None:
-        """Save intermediate visualization for this iteration."""
-        if not self.output_dir:
-            return
-
-        try:
-            from pathlib import Path
-
-            from examples.bilevel_fishery.visualization import (
-                plot_combined_trial_analysis,
-            )
-
-            output_path = Path(self.output_dir)
-            output_path.mkdir(parents=True, exist_ok=True)
-
-            mechanism_params = None
-            if self.mechanism_space is not None and self.outer.best_candidate is not None:
-                candidate = self.outer.best_candidate
-                # Decode candidate using mechanism space to get actual values
-                mechanism = self.mechanism_space.decode(candidate)
-                # Only show optimized params
-                optimize_params = getattr(self.mechanism_space, "optimize_params", None)
-                if optimize_params:
-                    mechanism_params = {p: getattr(mechanism, p) for p in optimize_params}
-                else:
-                    mechanism_params = {
-                        "min_stock": mechanism.min_stock,
-                        "fine_amount": mechanism.fine_amount,
-                    }
-
-            save_path = output_path / f"iter_{iteration:03d}.png"
-            plot_combined_trial_analysis(
-                trajectory,
-                mechanism_params=mechanism_params,
-                title=f"Iteration {iteration} (fitness={fitness:.4f})",
-                save_path=str(save_path),
-            )
-            logger.info("[Bilevel] Saved intermediate plot to %s", save_path)
-
-        except Exception as e:
-            logger.warning("[Bilevel] Failed to save intermediate plot: %s", e)
-
-    def _collect_es_metrics(self, iteration: int, fitness: float) -> None:
-        """Collect ES metrics from outer optimizer's env for plotting."""
-        metrics = {
-            "generation": iteration,
-            "best_fitness": fitness,
-            "total_fines": 0.0,
-            "mean_fish": 0.0,
-            "min_fish": 1.0,
-            "mean_collapse_rate": 0.0,
-        }
-
-        # Try to get metrics from the regulator env
-        if hasattr(self.outer, "env") and hasattr(self.outer.env, "last_metrics"):
-            env_metrics = self.outer.env.last_metrics
-            if env_metrics:
-                import numpy as np
-                metrics["total_fines"] = sum(m.get("total_fines", 0.0) for m in env_metrics)
-                metrics["mean_fish"] = float(np.mean([m.get("mean_fish", 0.0) for m in env_metrics]))
-                metrics["min_fish"] = float(min(m.get("min_fish", 1.0) for m in env_metrics))
-                metrics["mean_collapse_rate"] = float(np.mean([m.get("collapse_rate", 0.0) for m in env_metrics]))
-
-        self.es_metrics_history.append(metrics)
-
-    def _save_es_metrics_plot(self) -> None:
-        """Save ES metrics plot (fines, fish, collapse rate)."""
-        if not self.output_dir or not self.es_metrics_history:
-            return
-
-        try:
-            from pathlib import Path
-
-            from examples.bilevel_fishery.visualization import plot_es_metrics
-
-            output_path = Path(self.output_dir)
-            output_path.mkdir(parents=True, exist_ok=True)
-
-            plot_es_metrics(
-                self.es_metrics_history,
-                save_path=str(output_path / "es_metrics.png"),
-            )
-            logger.info("[Bilevel] Saved ES metrics plot")
-
-        except Exception as e:
-            logger.warning("[Bilevel] Failed to save ES metrics plot: %s", e)
-
-    def _save_parameter_plots(self) -> None:
-        """Save parameter evolution and fitness plots."""
-        if not self.output_dir or not self.population_history:
-            return
-
-        try:
-            from pathlib import Path
-
-            from examples.bilevel_fishery.visualization import (
-                plot_fitness_vs_parameters,
-                plot_parameter_evolution,
-            )
-
-            output_path = Path(self.output_dir)
-            output_path.mkdir(parents=True, exist_ok=True)
-
-            # Get optimize_params and scales from mechanism space if available
-            optimize_params = None
-            param_scales = None
-            if hasattr(self, "mechanism_space"):
-                if hasattr(self.mechanism_space, "optimize_params"):
-                    optimize_params = self.mechanism_space.optimize_params
-                # Build param_scales from mechanism space
-                param_scales = {
-                    "fine_amount": getattr(self.mechanism_space, "max_fine", 5.0),
-                    "ban_period": getattr(self.mechanism_space, "max_ban", 50),
-                }
-
-            plot_fitness_vs_parameters(
-                self.population_history,
-                save_path=str(output_path / "fitness_vs_params.png"),
-                optimize_params=optimize_params,
-                param_scales=param_scales,
-            )
-            logger.info("[Bilevel] Saved fitness vs parameters plot")
-
-            plot_parameter_evolution(
-                self.population_history,
-                save_path=str(output_path / "param_evolution.png"),
-                optimize_params=optimize_params,
-                param_scales=param_scales,
-            )
-            logger.info("[Bilevel] Saved parameter evolution plot")
-
-        except Exception as e:
-            logger.warning("[Bilevel] Failed to save parameter plots: %s", e)
