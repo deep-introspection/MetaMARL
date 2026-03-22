@@ -59,7 +59,7 @@ def main():
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        from examples.bilevel_fishery.visualization import plot_combined_trial_analysis
+        from core.reporting.utils.ray_old_api_stack import plot_combined_trial_analysis
 
         # Load scaling values from config
         with open(config_path, "r") as f:

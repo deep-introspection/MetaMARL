@@ -36,7 +36,7 @@ class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        
+
         # Ensure number of agents == 1
         if len(self.agents) != 1:
             raise ValueError(
@@ -56,9 +56,10 @@ class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
 
         self.S_t: np.ndarray | None = None
         self._last_reset_seed: int | None = None
-    
+
     @override(MultiAgentRegulatedEnv)
-    def reset(self, *, seed: int | None = None, options: dict | None = None
+    def reset(
+        self, *, seed: int | None = None, options: dict | None = None
     ) -> tuple[MultiAgentDict, MultiAgentDict]:
         self._base_reset(seed=seed)
         self._last_reset_seed = seed
@@ -69,13 +70,12 @@ class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
         observations = {self.agent_id: self.S_t}
         infos = {self.agent_id: info}
         return observations, infos
-    
+
     def _reset(self) -> MultiAgentDict:
         obs, _ = self.env.reset(seed=self._last_reset_seed)
         self.S_t = np.asarray(obs, dtype=np.float32)
         return {self.agent_id: self.S_t}
 
-    
     @override(MultiAgentRegulatedEnv)
     def step(self, action_dict: MultiAgentDict):
         action = int(action_dict[self.agent_id])
@@ -98,6 +98,7 @@ class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
             EnvStepContext(
                 mechanism=self.m_ctx.index if self.m_ctx else None,
                 observation=observations,
+                observation_map=self.obs_map,
                 reward=rewards,
                 action={self.agent_id: action},
                 info=infos,
@@ -106,7 +107,6 @@ class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
 
         self._t += 1
         return observations, rewards, terminateds, truncateds, infos
-    
 
     def _is_truncated(self) -> bool:
         # Gym Cartpole truncation is handled by wrapped env
@@ -130,7 +130,7 @@ class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
     def transition_kernel(
         self, A_t: MultiAgentEnv, S_t: dict[str, float]
     ) -> dict[str, float]:
-        pass #TODO
+        pass  # TODO
 
     @override(MultiAgentRegulatedEnv)
     def aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict:
@@ -142,6 +142,6 @@ class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
         """We assume complete transparency. Observations normalized to [0, 1]."""
         del agent_id
         return np.asarray(S_t, dtype=np.float32)
-    
+
     def close(self) -> None:
         self.env.close()
