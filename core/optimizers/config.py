@@ -18,6 +18,8 @@ from core.world.base import World
 if TYPE_CHECKING:
     from core.optimizers.base import Optimizer
 
+# TODO
+LOGGER_SCHEMA_REGISTRY = {}
 
 class _Config(ABC):
     def to_dict(self) -> dict:
@@ -74,6 +76,9 @@ class OptimizerConfig(_Config, ABC):
             **extra,
         }
         return self
+
+    def _get_logger_schema(self) -> LoggerSchema:
+        return LOGGER_SCHEMA_REGISTRY[self.__class__]
 
     # TODO freezing for nested configs
     def freeze(self) -> None:

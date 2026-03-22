@@ -1,0 +1,2 @@
+class WandbConfig:
+    pass

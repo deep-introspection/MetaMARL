@@ -1,30 +1,44 @@
-from dataclasses import Field
+from pydantic import Field
 from typing import Optional, TypeAlias
+from loggers.enums import ReduceProtocol
 
 from loggers.schemas import LoggerSchema
 
 PolicyID: TypeAlias = str
 EnvID: TypeAlias = str
-StepID: TypeAlias = int
 
 
-# TODO add recducer identity
+# TODO add recducer metadata attachment.
 class EnvStepSchema(LoggerSchema):  # attention this is aggregate by env not by env step
     # TODO models such as PILCO, Dyna, Qyna-Q
     # statistics collected at env-step level
-    action: float
-    observation: float  # or state
-    reward: float
-    terminated: bool
-    truncated: bool
+    action: float = Field(
+        json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )  # TODO by agentID
+    observation: float = Field(json_schema_extra={"reduce": ReduceProtocol.SERIES})
+    reward: float = Field(json_schema_extra={"reduce": ReduceProtocol.SERIES})
+    terminated: bool = Field(json_schema_extra={"reduce": ReduceProtocol.SERIES})
+    truncated: bool = Field(json_schema_extra={"reduce": ReduceProtocol.SERIES})
 
     # calculated stats
-    logp: Optional[float] = None
-    value_pred: Optional[float] = None
-    value_target: Optional[float] = None
-    advantage: Optional[float] = None
-    td_error: Optional[float] = None
-    q_pred: Optional[float] = None
+    logp: Optional[float] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    value_pred: Optional[float] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    value_target: Optional[float] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    advantage: Optional[float] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    td_error: Optional[float] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    q_pred: Optional[float] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
 
 
 class PolicyLearnerSchema(LoggerSchema):
@@ -84,7 +98,8 @@ class EpisodeRolloutSchema(LoggerSchema):  # Episode rollout = aggregate over en
 
 class EnvRolloutSchema(LoggerSchema):
     aggregate: EpisodeRolloutSchema
-    by_step: dict[StepID, EnvStepSchema]
+    step_series: EnvStepSchema
+
 
 
 class RolloutSchema(LoggerSchema):
