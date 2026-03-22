@@ -50,6 +50,21 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         self.gamma = ecology_cfg["gamma"]
         self.dt = ecology_cfg["dt"]
 
+        # observation map
+        self.obs_map = [
+            "fish_norm",
+            "algae_norm",
+            "ban_remaining",
+            "effective_quota",
+            "no_fish_zone",
+            "fixed_quota",
+            "prop_quota",
+            "min_stock",
+            "fine_amount",
+            "ban_period",
+            "catch_prob",
+        ]
+
     def _reset(self):
         # Reset ban counters for all agents
         self._agent_bans = {agent_id: 0 for agent_id in self.agents}

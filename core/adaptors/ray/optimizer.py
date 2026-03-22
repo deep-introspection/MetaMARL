@@ -9,11 +9,20 @@ import numpy as np
 import ray
 from ray.rllib.utils.typing import AgentID
 from ray.train._internal.checkpoint_manager import _TrainingResult
+from ray.actor import ActorHandle
 
 from core.annotations import override
 from core.optimizers.base import Optimizer
 from core.world.base import World
-from examples.bilevel_fishery.visualization import plot_training_results
+from core.reporting.wandb import WandbReporter
+from core.utils import to_float
+
+# TODO temporary
+from core.adaptors.ray.utils import (
+    get_env_steps,
+    get_episode_return_mean,
+    get_policy_loss_if_present,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +36,18 @@ class RayOptimizer(Optimizer):
         self,
         # algo: Algorithm,
         config: RayOptimizerConfig,
-        world: World,
+        world: ActorHandle[World],
+        reporting: ActorHandle[WandbReporter],
     ):
         super().__init__(config)
         # self.algo = algo
         self.world = world  # TODO replace by envFactory
+        self.reporting = reporting
         # self.eval_episodes = config.eval_episodes
+        # TODO fallback if rollout_fragment_length not in eval_cfg
         self.eval_episodes = (
             config.rllib_cfg.evaluation_duration
-            // config.rllib_cfg.rollout_fragment_length
+            // config.rllib_cfg.evaluation_config.get("rollout_fragment_length")
         )
         self.eval_base_seed = config.eval_base_seed
         # self.rollout_fragment_length = config.rollout_fragment_length
@@ -49,9 +61,6 @@ class RayOptimizer(Optimizer):
         self._training_losses: list[float] = []
         self._es_round: int = 0
         self._training_iter: int = 0
-
-        # W&B
-        self.wandb_run = None
 
     @property
     @override(Optimizer)
@@ -85,41 +94,37 @@ class RayOptimizer(Optimizer):
         logger.info("[PPO] Training step started")
         result = ray.get(self.policy_actor.train.remote())
 
-        # plot training results with wandb
-        plot_training_results(
-            wandb_run=self.wandb_run,
-            outer_iter = self._es_round,
-            training_episode = self._training_iter,
-            results = result)
-        self._training_iter += 1
-
-        # Extract metrics for logging
-        ep_reward = result.get("env_runners", result).get(
-            "episode_reward_mean", result.get("episode_reward_mean", 0)
+        # TODO make this more dynamic NEW_STACK
+        # TODO move this to world
+        ray.get(
+            self.reporting.plot_ray_result.remote(
+                outer_iter=self._es_round,
+                training_episode=self._training_iter,
+                results=result,
+                prefix="appo",
+            )
         )
-        iteration = result.get("training_iteration", 0)
-        timesteps = result.get("timesteps_total", 0)
+
+        # TODO temporary to be moved to a logger Extract metrics
+        ep_return = get_episode_return_mean(result)
+        steps_iter, steps_life = get_env_steps(result)
+        iteration = int(to_float(result.get("training_iteration")) or 0)
 
         # Track metrics
-        self._training_rewards.append(ep_reward or 0)
-        learner_info = result.get("info", {}).get("learner", {})
-        # Extract policy loss - policies are named fisher_policy_0, fisher_policy_1, etc.
-        policy_loss = 0.0
-        if learner_info:
-            # Average loss across all policies
-            losses = []
-            for policy_name, policy_stats in learner_info.items():
-                ls = policy_stats.get("learner_stats", {})
-                if "policy_loss" in ls:
-                    losses.append(ls["policy_loss"])
-            if losses:
-                policy_loss = sum(losses) / len(losses)
+        self._training_rewards.append(ep_return)
+        policy_loss = get_policy_loss_if_present(result)
         self._training_losses.append(policy_loss)
 
         logger.info(
-            "[PPO] Training step completed | iter=%d | reward=%.4f | timesteps=%d",
-            iteration, ep_reward or 0, timesteps,
+            "[PPO] Training step completed | iter=%d | ep_return=%.4f | env_steps_iter=%d | env_steps_lifetime=%d | policy_loss=%s",
+            iteration,
+            ep_return,
+            steps_iter,
+            steps_life,
+            f"{policy_loss:.6f}" if np.isfinite(policy_loss) else "NA",
         )
+
+        self._training_iter += 1
 
     @override(Optimizer)
     def evaluate(self) -> None:
@@ -131,43 +136,10 @@ class RayOptimizer(Optimizer):
     def reset(self) -> None:
         """Reset policy weights to random initialization."""
         logger.info("[PPO] Resetting policy weights")
-        # Plot learning curve before reset (if we have data)
-        if self._training_rewards:
-            self._plot_learning_curve()
-        # Clear metrics and increment round
         self._training_rewards = []
         self._training_losses = []
         self._es_round += 1
         ray.get(self.policy_actor.reset.remote())
-
-    def _plot_learning_curve(self, output_dir: str = "results/ppo_curves") -> None:
-        """Plot and save PPO learning curve for current ES round."""
-        if not self._training_rewards:
-            return
-
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-
-        fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-        fig.suptitle(f"PPO Learning - ES Round {self._es_round}")
-
-        # Reward curve
-        axes[0].plot(self._training_rewards)
-        axes[0].set_xlabel("PPO Iteration")
-        axes[0].set_ylabel("Episode Reward Mean")
-        axes[0].set_title("Reward")
-        axes[0].axhline(y=0, color='r', linestyle='--', alpha=0.3)
-
-        # Policy loss curve
-        axes[1].plot(self._training_losses)
-        axes[1].set_xlabel("PPO Iteration")
-        axes[1].set_ylabel("Policy Loss")
-        axes[1].set_title("Policy Loss")
-
-        plt.tight_layout()
-        out_path = Path(output_dir) / f"es_round_{self._es_round:03d}.png"
-        plt.savefig(out_path, dpi=100)
-        plt.close(fig)
-        logger.info(f"[PPO] Saved learning curve to {out_path}")
 
     @override(Optimizer)
     def stop(self) -> None:
@@ -175,4 +147,5 @@ class RayOptimizer(Optimizer):
 
     @override(Optimizer)
     def save(self, checkpoint_dir: Optional[str] = None) -> _TrainingResult:
-        return self.algo.save(checkpoint_dir)
+        # TODO
+        pass
