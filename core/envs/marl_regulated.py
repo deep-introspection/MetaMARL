@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
-    def __init__( 
+    def __init__(
         self,
         *,
         world: World,
@@ -87,6 +87,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
             EnvStepContext(
                 mechanism=self.m_ctx.index if self.m_ctx else None,
                 observation=obs,
+                observation_map=self.obs_map,
                 reward=rewards,
                 action=actions,
                 info=infos,
