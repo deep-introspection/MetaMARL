@@ -67,7 +67,7 @@ bilevel_opt_cfg: BilevelConfig = (
             env=DummyRegulatorEnv,
             env_config={},
             horizon=1000,
-            train_iters=50,  # TODO implement early stop for plateau
+            train_iters=200,  # TODO implement early stop for plateau
         )
     )
     .inner(

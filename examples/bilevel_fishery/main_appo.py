@@ -27,6 +27,7 @@ ray.shutdown()
 # Register custom MPS model
 from ray.rllib.models import ModelCatalog
 from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
+
 ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
 
 bilevel_opt_cfg: BilevelConfig = (
@@ -41,10 +42,10 @@ bilevel_opt_cfg: BilevelConfig = (
             default_min_stock=0.10,
             default_fine_amount=0.5,
             default_ban_period=0,
-            default_catch_prob=1.0
+            default_catch_prob=1.0,
         ),
     )
-    .training(outer_iters=100)
+    .training(outer_iters=1)
     .ray(
         device="cpu",
         num_cpus=4,
@@ -79,7 +80,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 },
             },
             horizon=1000,
-            train_iters=50 #TODO implement early stop for plateau
+            train_iters=50,  # TODO implement early stop for plateau
         )
     )
     .inner(
@@ -94,8 +95,7 @@ bilevel_opt_cfg: BilevelConfig = (
         # .model(custom_model="mps_fcnet")
         # TODO use the new api stack and better custom model integration
         .api_stack(
-            enable_rl_module_and_learner=True, 
-            enable_env_runner_and_connector_v2=True
+            enable_rl_module_and_learner=True, enable_env_runner_and_connector_v2=True
         )
         .environment(
             env=FisheryRegulatedEnv,
@@ -124,27 +124,36 @@ bilevel_opt_cfg: BilevelConfig = (
             rollout_fragment_length=200,  # must be same as env horizon 200
             batch_mode="truncate_episodes",
         )
-        .learners(
-            num_learners=1,
-            num_gpus_per_learner=0
-        )
+        .learners(num_learners=1, num_gpus_per_learner=0)
         .callbacks(
-            on_episode_created=tag_episode_with_env_idx # New API stack
+            on_episode_created=tag_episode_with_env_idx  # New API stack
         )
         .training(
             vtrace=True,
-            circular_buffer_num_batches=2, # TODO review
-            circular_buffer_iterations_per_batch=1, # TODO review
+            circular_buffer_num_batches=2,  # TODO review
+            circular_buffer_iterations_per_batch=1,  # TODO review
             # minibatch_buffer_size=200,
             broadcast_interval=5,
             # learner_queue_size=64,
             # learner_queue_timeout=300,
             timeout_s_sampler_manager=300,
             timeout_s_aggregator_manager=300,
-            gamma=0.95,
+            gamma=0.99,
             lr=0.001,
             train_batch_size=3200,  # 3200
             minibatch_size=800,  # 512
+            entropy_coeff=0.01,
+            # entropy_coeff_schedule=[
+            #     [0, 0.01],
+            #     [200_000, 0.001],
+            #     [1_000_000, 0.0],
+            # ],
+            grad_clip=40.0,
+            # lr_schedule=[
+            #     [0, 1e-3],
+            #     [300_000, 3e-4],
+            #     [1_000_000, 1e-4],
+            # ]
         )
         .evaluation(
             evaluation_interval=None,
@@ -169,7 +178,9 @@ bilevel_opt_cfg: BilevelConfig = (
                     "observation_space": spaces.Box(
                         low=-np.inf,
                         high=np.inf,
-                        shape=(5 + FisheryMechanismSpace().full_dimension, ),  # fish and alage #mechanism conditioned-RL
+                        shape=(
+                            5 + FisheryMechanismSpace().full_dimension,
+                        ),  # fish and alage #mechanism conditioned-RL
                         dtype=np.float32,
                     ),
                     "action_space": spaces.Box(
