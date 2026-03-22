@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from typing import Any, Optional, SupportsFloat
+import uuid
 
 import numpy as np
 import ray
@@ -24,7 +25,6 @@ class BaseEnv(Env):
         opt_id: OptimizerID | None = None,
         horizon: Optional[int] = None,
         mechanism_space: MechanismSpace = None,
-        vector_index: Optional[int] = None,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -32,10 +32,17 @@ class BaseEnv(Env):
         self._opt_id = opt_id
         self.horizon = horizon
         self._t = 0
-        self.m_space: MechanismSpace = mechanism_space()
+        # mechanism_space can be a class or an instance
+        if isinstance(mechanism_space, type):
+            self.m_space: MechanismSpace = mechanism_space()
+        else:
+            self.m_space: MechanismSpace = mechanism_space
         self.m_ctx: MechanismContext = None
         self.m: Mechanism = None
-        self.env_id = vector_index
+        self.env_id = uuid.uuid4().hex[:8]
+
+        # observation map
+        self.obs_map: dict[int, str] = None
 
     # Setter
     def set_opt_id(self, opt_id: OptimizerID) -> None:
@@ -90,6 +97,7 @@ class BaseEnv(Env):
             EnvStepContext(
                 mechanism=m_idx,  # TODO link with mechanismID rather than mechanism
                 observation=obs,
+                observation_map=self.obs_map,
                 reward=reward,
                 action=action,
                 info=info,
@@ -106,6 +114,7 @@ class BaseEnv(Env):
             EnvStepContext(
                 mechanism=self.m_ctx.index,
                 observation=obs,
+                observation_map=self.obs_map,
                 reward=0.0,
                 action=None,
                 info={},

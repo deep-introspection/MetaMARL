@@ -41,8 +41,11 @@ class FisheryRegulatorEnv(RegulatorEnv):
         self.max_fish = ecology_cfg.get("max_fish", 2.0)
         self.max_algae = ecology_cfg.get("max_algae", 2.0)
         # Denormalized threshold for visualization
-        self.raw_sustainability_threshold = self.sustainability_threshold * self.max_fish
+        self.raw_sustainability_threshold = (
+            self.sustainability_threshold * self.max_fish
+        )
         self.trajectories: dict[int, list[dict[str, Any]]] = {}
+        self.last_metrics: list[dict[str, float]] = []
 
     @override(RegulatorEnv)
     def observation(self, obs: ObsType) -> ObsType:
@@ -112,6 +115,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
             rewards = np.empty(min_len, dtype=np.float32)
             fish = np.empty(min_len, dtype=np.float32)
             algae = np.empty(min_len, dtype=np.float32)
+            fines = np.empty(min_len, dtype=np.float32)
             trajectory: list[dict[str, Any]] = []
 
             for i, s in enumerate(steps):
@@ -129,14 +133,26 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     fish[i] = obs[0]
                     algae[i] = obs[1] if len(obs) > 1 else 0.0
 
+                # Extract fines from info dict
+                info = s.payload.info
+                step_fines = 0.0
+                if isinstance(info, dict):
+                    for agent_info in info.values():
+                        if isinstance(agent_info, dict) and "fine" in agent_info:
+                            step_fines += agent_info["fine"]
+                fines[i] = step_fines
+
                 # Denormalize for trajectory storage (visualization uses raw values)
-                trajectory.append({
-                    "episode": 0,
-                    "step": i,
-                    "fish_population": float(fish[i] * self.max_fish),
-                    "algae_population": float(algae[i] * self.max_algae),
-                    "reward": float(rewards[i]),
-                })
+                trajectory.append(
+                    {
+                        "episode": 0,
+                        "step": i,
+                        "fish_population": float(fish[i] * self.max_fish),
+                        "algae_population": float(algae[i] * self.max_algae),
+                        "reward": float(rewards[i]),
+                        "fines": float(step_fines),
+                    }
+                )
 
             self.trajectories[idx] = trajectory
 
@@ -145,6 +161,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
             min_fish = fish.min()
             mean_fish = fish.mean()
+            total_fines = fines.sum()
 
             collapse_mask = fish < self.sustainability_threshold
             collapse_rate = collapse_mask.mean()
@@ -160,6 +177,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
                 collapse_rate=float(collapse_rate),
                 sustainability_penalty=float(penalties.mean()),
                 sustainability_weight=self.sustainability_weight,
+                total_fines=float(total_fines),
+                mean_fish=float(mean_fish),
+                min_fish=float(min_fish),
             )
 
             self._publish(
@@ -184,6 +204,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     "collapse_rate": collapse_rate,
                     "min_fish": min_fish,
                     "mean_fish": mean_fish,
+                    "total_fines": total_fines,
                 }
             )
 
@@ -212,5 +233,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
             collapse_rates.mean(),
             collapse_rates.max(),
         )
+
+        # Store metrics for ES logging
+        self.last_metrics = per_mech_metrics
 
         return fitness.tolist()

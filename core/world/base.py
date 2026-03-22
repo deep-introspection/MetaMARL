@@ -3,10 +3,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, KeysView, Optional
 
 import ray
-
+from core.reporting.wandb import WandbReporter
 from core.types import ContextID, OptimizerID
 from core.utils import generate_uuid
-from core.world.context import Context, ContextSchema, MechanismContext, MechanismStatus
+from core.world.context import (
+    Context,
+    ContextSchema,
+    EnvStepContext,
+    MechanismContext,
+    MechanismStatus,
+)
 
 if TYPE_CHECKING:
     from core.optimizers.base import Optimizer
@@ -26,7 +32,8 @@ class World:
     It only tracks identifiers and context payloads.
     """
 
-    def __init__(self):
+    # TODO the reporting type annotation to add
+    def __init__(self, reporting: WandbReporter = None):
         # Maps optimizer IDs to the list of context IDs they own
         # TODO replace with registry
         self._opt_ctx_map: dict[OptimizerID, list[ContextID]] = {}
@@ -36,6 +43,9 @@ class World:
 
         # Mechanism registry
         self._mechanism_registry: dict[int, MechanismContext] = {}
+
+        # TODO wrap this into generic logger class - for now use W&B
+        self.reporting: WandbReporter = reporting
 
     def __deepcopy__(self, memo):
         return self
@@ -91,6 +101,7 @@ class World:
                 return m_ctx
         return None
 
+    # TODO fix this function. now the primary key is ctx_id
     def get_mechanism_by_index(self, index: int) -> MechanismContext:
         return self._mechanism_registry[index]
 
@@ -117,13 +128,27 @@ class World:
         self._contexts[ctx.id] = ctx
 
         if isinstance(ctx.payload, MechanismContext):
-            self._mechanism_registry[ctx.payload.index] = ctx.payload
+            self._mechanism_registry[ctx.id] = ctx.payload
 
         # Track optimizer → context mapping
         if ctx.opt_id is not None:
             if ctx.opt_id not in self._opt_ctx_map:
                 self._set_new_opt_id(ctx.opt_id)
             self._opt_ctx_map[ctx.opt_id].append(ctx.id)
+
+        # if env-step-context call reporter actor
+        if self.reporting is not None and isinstance(ctx.payload, EnvStepContext):
+            self.reporting.plot_env_step.remote(
+                ctx=ctx,
+                obs_keys_skip=(
+                    "fixed_quota",
+                    "prop_quota",
+                    "min_stock",
+                    "fine_amount",
+                    "ban_period",
+                    "catch_prob",
+                ),
+            )
 
         return ctx.id
 
@@ -172,7 +197,7 @@ class World:
         if isinstance(ctx.payload, MechanismContext):
             if ctx.payload.env_id is None:
                 raise ValueError("MechanismContext must include env_id")
-            self._mechanism_registry[ctx.payload.index] = ctx.payload
+            self._mechanism_registry[ctx.id] = ctx.payload
 
         if ctx.opt_id is not None:
             if ctx.opt_id not in self._opt_ctx_map:
@@ -194,7 +219,7 @@ class World:
         if isinstance(ctx.payload, MechanismContext):
             if ctx.payload.env_id is None:
                 raise ValueError("MechanismContext must include env_id")
-            self._mechanism_registry[ctx.payload.index] = ctx.payload
+            self._mechanism_registry[ctx.id] = ctx.payload
 
     def remove_context(self, ctx: Context) -> None:
         """
@@ -211,6 +236,7 @@ class World:
             if not lst:
                 del self._opt_ctx_map[ctx.opt_id]
 
+    # TODO fix this function. now the primary key is ctx_id
     def flush(self, job: Optional[MechanismStatus] = None) -> None:
         to_delete = []
 

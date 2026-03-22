@@ -4,6 +4,7 @@ import numpy as np
 import ray
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
+from ray.rllib.utils.typing import ResultDict
 
 
 @ray.remote(num_cpus=1)
@@ -17,13 +18,30 @@ class PolicyActor:
         # Store config for reset capability
         self.algo_config = algo_config
         # Build Algorithm INSIDE actor (critical)
-        self.algo: Algorithm = algo_config.build()
+        self.algo: Algorithm = algo_config.build_algo()
+        # Store initial weights
+        self._init_weights = self.algo.get_weights()
 
-    def train(self):
+    def train(self) -> ResultDict:
+        # TODO config ability to debug remote actors
+        # import debugpy, os
+        # debugpy.listen(("127.0.0.1", 5678))
+        # print(f"[debugpy] worker pid={os.getpid()} listening on 5678")
+        # debugpy.wait_for_client()
+        # debugpy.breakpoint()
+        # TODO mapping result
         return self.algo.train()
 
-    def evaluate(self):
+    def evaluate(self) -> ResultDict:
         return self.algo.evaluate()
+
+    def get_metrics(self):
+        reduced = self.algo.metrics.reduce()
+        full = self.algo.metrics.peek((), default={})
+        return {
+            "reduced": reduced,
+            "full": full,
+        }
 
     def compute_actions(
         self,
@@ -49,9 +67,8 @@ class PolicyActor:
             return np.asarray(actions)
 
     def reset(self):
-        """Reset by rebuilding the entire algorithm from scratch."""
-        self.algo.stop()
-        self.algo = self.algo_config.build()
+        """Reset to initial weights."""
+        self.algo.set_weights(self._init_weights)
 
     def stop(self):
         self.algo.stop()

@@ -59,7 +59,7 @@ def main():
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        from examples.bilevel_fishery.visualization import plot_combined_trial_analysis
+        from core.reporting.utils.ray_old_api_stack import plot_combined_trial_analysis
 
         # Load scaling values from config
         with open(config_path, "r") as f:
@@ -69,19 +69,26 @@ def main():
         max_ban = scaling_cfg.get("max_ban", 50)
 
         # Load ecology config for sustainability threshold
-        outer_ecology = raw_cfg.get("outer", {}).get("environment", {}).get("env_config", {}).get("ecology_cfg", {})
+        outer_ecology = (
+            raw_cfg.get("outer", {})
+            .get("environment", {})
+            .get("env_config", {})
+            .get("ecology_cfg", {})
+        )
         sus_threshold = outer_ecology.get("sus_threshold", 0.1)
         max_fish = outer_ecology.get("max_fish", 2.0)
         raw_sus_threshold = sus_threshold * max_fish
 
         mechanism_params = None
-        if results.get("best_mechanism") is not None:
+        if results.get("best_mechanism") is not None and hasattr(
+            optimizer, "mechanism_space"
+        ):
+            # Decode using mechanism space to get actual parameter values
+            best_mech = optimizer.mechanism_space.decode(results["best_mechanism"])
             mechanism_params = {
-                "fixed_quota": float(results["best_mechanism"][0]),
-                "prop_quota": float(results["best_mechanism"][1]),
-                "min_stock": float(results["best_mechanism"][2]),
-                "fine_amount": float(results["best_mechanism"][3]) * max_fine,
-                "ban_period": float(results["best_mechanism"][4]) * max_ban,
+                "min_stock": best_mech.min_stock,
+                "fine_amount": best_mech.fine_amount,
+                "catch_prob": best_mech.catch_prob,
             }
 
         save_path = output_dir / "trial_analysis.png"

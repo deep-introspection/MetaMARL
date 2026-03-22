@@ -11,6 +11,7 @@ from core.types import ContextID, OptimizerID
 
 
 class MechanismStatus(Enum):
+    init = "init"
     published = "published"
     assigned = "assigned"
     train = "train"
@@ -40,6 +41,7 @@ class MechanismContext(ContextSchema):
 class EnvStepContext(ContextSchema):
     mechanism: Optional[int]
     observation: ObsType | MultiAgentDict
+    observation_map: Optional[list[str]]
     reward: SupportsFloat | MultiAgentDict | list[float]
     action: ActType | MultiAgentDict
     info: dict | MultiAgentDict | None

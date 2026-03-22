@@ -1,0 +1,16 @@
+# -----------------------------------------------------------------------------
+#     File type:  Raven RVC ASCII v4.n
+#    Model info:  CanShield Model for Ontario Hydrologic Modeling System (OHMS)
+#    Created by:  Bryan Tolson, James Craig
+#   Modified by:  Hongren Shen, Ming Han
+# Creation date:  September 2025
+# -----------------------------------------------------------------------------
+
+# below works even if Raven throws an error for LAKE soils for example.  
+# Raven internally corrects initial conditions to be feasible given max/min state variable value. Corrected to max or min allowable state variable values.
+:UniformInitialConditions       SOIL[0]         5
+:UniformInitialConditions       SOIL[1]         5
+:UniformInitialConditions       SOIL[2]         5
+
+:InitialReservoirStage 29012877 481.2
+:InitialReservoirStage 29012889 417.7

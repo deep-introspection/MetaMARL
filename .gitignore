@@ -90,3 +90,12 @@ ray_session*/
 # Keep only essential config/docs
 CLAUDE.md
 .claude
+
+# Raven model outputs, binaries and helpers
+3_Model_output
+/raven/3_Model_output/
+/raven/2_Raven/Raven.exe
+/raven/2_Raven/run_raven.bat
+
+# GeoJSONs directory (project-specific large files)
+geojsons/

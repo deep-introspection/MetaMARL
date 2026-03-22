@@ -1,0 +1,81 @@
+# -----------------------------------------------------------------------------
+#     File type:  Raven RVI ASCII v4.n
+#    Model info:  CanShield Model for Ontario Hydrologic Modeling System (OHMS)
+#    Created by:  Bryan Tolson, James Craig
+#   Modified by:  Hongren Shen, Ming Han
+# Creation date:  September 2025
+
+# DO NOT RE-DISTRIBUTE or SHARE THE CONTENTS OF THIS FILE IN ANY WAY - ONLY LEAD WATER 602 Modellers should have this file.
+# ONLY TO BE USED IN WATER 602 UNLESS YOU GET EXPLICIT PERMISSION FROM BRYAN TOLSON (btolson@uwaterloo.ca) to use this elsewhere. 
+# In other words, you must ask Bryan for permission to utilize our research groups Model details and/or :HydrologicProcesses block below elsewhere.
+# The approximate stage-storage data provided by GRCA and is property of GRCA, shared with Bryan explictly only for WATER 602 purposes.
+# Please delete this file at the end of the Fall 2025 term.
+
+# -----------------------------------------------------------------------------
+
+# --Simulation Details -------------------------  
+:RunName         ohms_canshield                                                                           
+:StartDate       1980-01-01 00:00:00
+:EndDate         2023-12-31 00:00:00
+:Method          ORDERED_SERIES
+:TimeStep        24:00:00  
+#
+
+# --Model Details -------------------------------
+:Interpolation          INTERP_NEAREST_NEIGHBOR
+:PrecipIceptFract       PRECIP_ICEPT_USER
+:SoilModel              SOIL_MULTILAYER           3
+:Routing                ROUTE_DIFFUSIVE_WAVE
+:CatchmentRoute         ROUTE_TRI_CONVOLUTION
+:OW_Evaporation         PET_HARGREAVES_1985       # PET_PRIESTLEY_TAYLOR
+:Evaporation            PET_HARGREAVES_1985       # PET_PENMAN_MONTEITH
+:PotentialMeltMethod    POTMELT_HBV               # POTMELT_EB #POTMELT_HBV #POTMELT_EB
+:RainSnowFraction       RAINSNOW_DATA             # RAINSNOW_DINGMAN  RAINSNOW_DATA                                                                     
+
+# --Hydrologic Processes-------------------------
+:Alias       Soil1      SOIL[0]
+:Alias       Soil2      SOIL[1]
+:Alias       Soil3      SOIL[2]
+
+#######
+:HydrologicProcesses
+#
+  :SnowRefreeze      FREEZE_DEGREE_DAY            SNOW_LIQ          SNOW
+  :Precipitation     PRECIP_RAVEN                 ATMOS_PRECIP      MULTIPLE
+#
+  :CanopyEvaporation CANEVP_MAXIMUM               CANOPY            ATMOSPHERE
+  :CanopySnowEvap    CANEVP_MAXIMUM               CANOPY_SNOW       ATMOSPHERE
+#   
+  :SnowBalance       SNOBAL_SIMPLE_MELT           SNOW              SNOW_LIQ
+  :-->Overflow       RAVEN_DEFAULT                SNOW_LIQ          PONDED_WATER
+#
+  :Infiltration      INF_GREEN_AMPT               PONDED_WATER      MULTIPLE
+#######  
+# Soil1
+  :Percolation       PERC_GAWSER_CONSTRAIN        Soil1             Soil2
+  :Baseflow          BASE_THRESH_POWER            Soil1             SURFACE_WATER
+
+  :SoilEvaporation   SOILEVAP_SEQUEN              Soil1             ATMOSPHERE
+
+# Soil2
+  :Baseflow          BASE_THRESH_POWER            Soil2             SURFACE_WATER
+  :Percolation       PERC_GAWSER_CONSTRAIN        Soil2             Soil3
+
+# Soil3
+  :Baseflow          BASE_LINEAR_ANALYTIC         Soil3             SURFACE_WATER
+ 
+:EndHydrologicProcesses
+#######
+#---------------------------------------------------------                                                 
+# Output Options                                                                                           
+#
+:EvaluationPeriod    CALIBRATION     1994-01-01    2023-12-30
+
+:EvaluationMetrics    KLING_GUPTA        KLING_GUPTA_DEVIATION        NASH_SUTCLIFFE        PCT_BIAS
+
+#:WriteSubBasinAutoRVH
+#:WriteForcingFunctions
+#:SuppressOutput
+#:SilentMode 
+#:DontWriteWatershedStorage
+#######

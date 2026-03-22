@@ -18,6 +18,7 @@ class FisheryMechanism(Mechanism):
         min_stock: Minimum stock threshold for fishing (0 to 1)
         fine_amount: Penalty per unit over-harvest (0 to max_fine)
         ban_period: Duration of ban after violation (0 to max_ban periods)
+        catch_prob: Probability of detecting a violation (0 to 1)
     """
 
     fixed_quota: float
@@ -25,6 +26,7 @@ class FisheryMechanism(Mechanism):
     min_stock: float
     fine_amount: float
     ban_period: int
+    catch_prob: float
     # Scaling parameters (not optimized, used for normalization)
     max_fine: float = 5.0
     max_ban: int = 50
@@ -36,6 +38,7 @@ class FisheryMechanism(Mechanism):
         assert 0.0 <= self.min_stock <= 1.0
         assert 0.0 <= self.fine_amount <= self.max_fine
         assert 0 <= self.ban_period <= self.max_ban
+        assert 0.0 <= self.catch_prob <= 1.0
 
     @override(Mechanism)
     def to_vector(self) -> np.ndarray:
@@ -46,6 +49,7 @@ class FisheryMechanism(Mechanism):
                 self.min_stock,
                 self.fine_amount / self.max_fine,
                 self.ban_period / self.max_ban,
+                self.catch_prob,
             ],
             dtype=np.float32,
         )
@@ -57,21 +61,64 @@ class FisheryMechanism(Mechanism):
             "min_stock",
             "fine_amount",
             "ban_period",
+            "catch_prob",
         ]
 
 
 class FisheryMechanismSpace(MechanismSpace):
+    # All optimizable parameter names
+    ALL_PARAMS = [
+        "fixed_quota",
+        "prop_quota",
+        "min_stock",
+        "fine_amount",
+        "ban_period",
+        "catch_prob",
+    ]
+
     def __init__(
         self,
         use_stochastic_roundting: bool = True,
         max_fine: float = 5.0,
         max_ban: int = 50,
+        # Which parameters ES optimizes (default: only min_stock, fine_amount)
+        optimize_params: list[str] | None = None,
+        # Default/fixed values for all parameters
+        default_fixed_quota: float = 1.0,
+        default_prop_quota: float = 1.0,
+        default_min_stock: float = 0.1,
+        default_fine_amount: float = 0.5,
+        default_ban_period: int = 0,
+        default_catch_prob: float = 1.0,
     ):
         super().__init__()
         self.use_stochastic_roundting = use_stochastic_roundting
         self.max_fine = max_fine
         self.max_ban = max_ban
-        self.dimension = 5
+
+        # Parameters to optimize (default: min_stock, fine_amount)
+        # TODO ability to toggle this from config
+        self.optimize_params = optimize_params or [
+            "fixed_quota",
+            "prop_quota",
+            "min_stock",
+            "fine_amount",
+            "ban_period",
+            "catch_prob",
+        ]
+        self.dimension = len(self.optimize_params)
+        # Full mechanism dimension (for observation space - agent sees all params)
+        self.full_dimension = len(self.ALL_PARAMS)
+
+        # Default values for fixed parameters
+        self.defaults = {
+            "fixed_quota": default_fixed_quota,
+            "prop_quota": default_prop_quota,
+            "min_stock": default_min_stock,
+            "fine_amount": default_fine_amount,
+            "ban_period": default_ban_period,
+            "catch_prob": default_catch_prob,
+        }
 
     # private
     def _discretize_ban(self, ban_period_cont: float, u: np.ndarray) -> int:
@@ -88,40 +135,74 @@ class FisheryMechanismSpace(MechanismSpace):
             return floor + 1
         return floor
 
+    def _denormalize_param(self, name: str, value: float) -> float:
+        """Denormalize a single parameter from [0,1] to its actual range."""
+        if name == "fine_amount":
+            return value * self.max_fine
+        elif name == "ban_period":
+            return value * self.max_ban
+        else:
+            # fixed_quota, prop_quota, min_stock, catch_prob are all [0,1]
+            return value
+
     def _denormalize(self, u: np.ndarray) -> dict:
-        return {
-            "fixed_quota": float(u[0]),
-            "prop_quota": float(u[1]),
-            "min_stock": float(u[2]),
-            "fine_amount": float(u[3]) * self.max_fine,
-            "ban_period_cont": float(u[4]) * self.max_ban,
-        }
+        """Denormalize only the optimized parameters."""
+        result = {}
+        for i, name in enumerate(self.optimize_params):
+            result[name] = self._denormalize_param(name, float(u[i]))
+        return result
 
     def default(self) -> FisheryMechanism:
-        # Permissive defaults so PPO learns to fish (not just avoid penalties)
         return FisheryMechanism(
-            fixed_quota=0.7,
-            prop_quota=0.6,
-            min_stock=0.15,
-            fine_amount=0.5,
-            ban_period=3,
+            fixed_quota=self.defaults["fixed_quota"],
+            prop_quota=self.defaults["prop_quota"],
+            min_stock=self.defaults["min_stock"],
+            fine_amount=self.defaults["fine_amount"],
+            ban_period=int(self.defaults["ban_period"]),
+            catch_prob=self.defaults["catch_prob"],
             max_fine=self.max_fine,
             max_ban=self.max_ban,
         )
 
+    def _normalize_param(self, name: str, value: float) -> float:
+        """Normalize a parameter to [0,1] range."""
+        if name == "fine_amount":
+            return value / self.max_fine
+        elif name == "ban_period":
+            return value / self.max_ban
+        else:
+            return value
+
     def encode(self, m: FisheryMechanism) -> NDArray[np.float32]:
-        return m.to_vector()
+        """Encode only the optimized parameters."""
+        values = []
+        for name in self.optimize_params:
+            raw = getattr(m, name)
+            values.append(self._normalize_param(name, raw))
+        return np.array(values, dtype=np.float32)
 
     def decode(self, x: NDArray[np.float32]) -> Mechanism:
         # insure input is valid
         u = np.clip(self._validate(x), 0.0, 1.0)
 
-        params = self._denormalize(u)
-        ban = self._discretize_ban(params.pop("ban_period_cont"), u)
+        # Start with defaults, override with optimized params
+        params = dict(self.defaults)
+        optimized = self._denormalize(u)
+        params.update(optimized)
+
+        # Discretize ban_period if it was optimized
+        if "ban_period" in self.optimize_params:
+            params["ban_period"] = self._discretize_ban(params["ban_period"], u)
+        else:
+            params["ban_period"] = int(params["ban_period"])
 
         mech = FisheryMechanism(
-            **params,
-            ban_period=ban,
+            fixed_quota=params["fixed_quota"],
+            prop_quota=params["prop_quota"],
+            min_stock=params["min_stock"],
+            fine_amount=params["fine_amount"],
+            ban_period=params["ban_period"],
+            catch_prob=params["catch_prob"],
             max_fine=self.max_fine,
             max_ban=self.max_ban,
         )
@@ -135,9 +216,13 @@ class FisheryMechanismSpace(MechanismSpace):
             min_stock=float(np.clip(m.min_stock, 0, 1)),
             fine_amount=float(np.clip(m.fine_amount, 0, self.max_fine)),
             ban_period=int(np.clip(m.ban_period, 0, self.max_ban)),
+            catch_prob=float(np.clip(m.catch_prob, 0, 1)),
             max_fine=self.max_fine,
             max_ban=self.max_ban,
         )
 
     def from_dict(self, cfg: dict) -> FisheryMechanism:
+        # Default catch_prob to 1.0 if not specified (backwards compatible)
+        if "catch_prob" not in cfg:
+            cfg = {**cfg, "catch_prob": 1.0}
         return FisheryMechanism(**cfg, max_fine=self.max_fine, max_ban=self.max_ban)

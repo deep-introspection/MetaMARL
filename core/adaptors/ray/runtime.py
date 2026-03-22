@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Optional
+import logging
 
 import ray
 import torch
@@ -23,6 +24,8 @@ class RayRuntimeConfig:
     runtime_env: Optional[Dict[str, Any]] = None
     init_kwargs: Dict[str, Any] = field(default_factory=dict)
 
+    ray_debug: bool = True
+
     def _apply_env_vars(self):
         if self.device == "cpu":
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -35,6 +38,10 @@ class RayRuntimeConfig:
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
             os.environ["RLLIB_NUM_GPUS"] = "0"
             os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+        elif self.device == "cuda":
+            os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
+            if self.disable_cuda:
+                os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
         if self.num_gpus is not None:
             os.environ["RLLIB_NUM_GPUS"] = str(self.num_gpus)
@@ -42,10 +49,27 @@ class RayRuntimeConfig:
         if self.omp_threads is not None:
             os.environ["OMP_NUM_THREADS"] = str(self.omp_threads)
 
+        if self.ray_debug:
+            os.environ["RAY_DEBUG"] = "1"
+
+        # logging behaviour for workers
+        os.environ["RAY_LOG_TO_STDERR"] = "0"
+        os.environ["RAY_BACKEND_LOG_LEVEL"] = "error"
+        os.environ["TUNE_DISABLE_AUTO_CALLBACK_LOGGERS"] = "1"
+
         torch.set_default_device(self.device)
 
     def initialize(self):
         self._apply_env_vars()
+
+        # Silence noisy loggers globally
+        # # logging.getLogger().setLevel(logging.WARNING)
+        logging.getLogger("ray").setLevel(logging.WARNING)
+        logging.getLogger("ray.rllib").setLevel(logging.WARNING)
+        logging.getLogger("ray.tune").setLevel(logging.WARNING)
+        logging.getLogger("tensorboardX").setLevel(logging.ERROR)
+        logging.getLogger("asyncio").setLevel(logging.ERROR)
+
         ray.init(
             ignore_reinit_error=True,
             logging_level=self.logging_level,

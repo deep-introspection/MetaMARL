@@ -1,6 +1,9 @@
 import logging
 import uuid
-from typing import Optional, Self
+from typing import Any, Literal, Optional, Self
+
+import ray
+from ray.actor import ActorHandle
 
 from core.adaptors.ray.runtime import DeviceType, RayRuntime, RayRuntimeConfig
 from core.annotations import override
@@ -8,6 +11,8 @@ from core.mechanism.base import Mechanism
 from core.mechanism.space import MechanismSpace
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
+from core.reporting.wandb import WandbReporter
+from core.reporting.enums import ReporterType
 from core.world.base import World
 
 logger = logging.getLogger(__name__)
@@ -27,6 +32,21 @@ class BilevelConfig(OptimizerConfig):
         self.mechanism_space: Optional[MechanismSpace] = None
         self.default_mechanism: Optional[Mechanism] = None
         self.output_dir: str | None = None
+
+        # TODO generalize
+        self.wandb_cfg: dict[str, Any] | None = None
+        self._reporter: ActorHandle[WandbReporter] | None = None
+
+    # @override(OptimizerConfig)
+    # def _get_logger_schema(self):
+    #     return LoggerSchema(
+    #         inner: self.inner_cfg._get_logger_schema
+    #         outer: self.inner_cfg._get_logger_schema
+    #     )
+
+    @property
+    def reporter(self) -> ActorHandle[WandbReporter] | None:
+        return self._reporter
 
     def inner(self, cfg: OptimizerConfig = None) -> Self:
         if cfg is not None:
@@ -83,16 +103,52 @@ class BilevelConfig(OptimizerConfig):
         )
         return self
 
+    # TODO remote actor access to credentials
+    def reporting(
+        self,
+        reporter: Literal["wandb", "local"],
+        project_name: str,
+        config: Optional[dict[str, Any]] = None,
+        settings_dict: Optional[dict[str, Any]] = None,
+    ) -> Self:
+        if ReporterType(reporter) == ReporterType.wandb:
+            self.wandb_cfg = {
+                "project_name": project_name,
+                "config": config,
+                "settings": settings_dict or {},
+            }
+        elif ReporterType(reporter) == ReporterType.local:
+            raise TypeError("Local reporting is not available yet.")
+
+        return self
+
     @override(OptimizerConfig)
     def build_optimizer(self):
         RayRuntime.ensure_initialized(self.ray_cfg or RayRuntimeConfig())
-        world = World.options(name=self.world_name).remote()
+
+        if self.wandb_cfg:
+            project = self.wandb_cfg["project_name"]
+            extra_cfg = self.wandb_cfg.get("config") or {}
+            self._reporter = WandbReporter.options(
+                name=f"{self.world_name}_wandb"
+            ).remote(
+                project=project,
+                name=f"{project}-{self.world_name}",
+                config={
+                    "outer_iters": self.outer_iters,
+                    "world_name": self.world_name,
+                    **extra_cfg,
+                },
+                settings=self.wandb_cfg["settings"],
+            )
+
+        world = World.options(name=self.world_name).remote(reporting=self.reporter)
 
         inner_cfg = self.inner_cfg.copy()
         outer_cfg = self.outer_cfg.copy()
 
         if self.mechanism_space is not None:
-            outer_cfg.dimension = self.mechanism_space().dimension
+            outer_cfg.dimension = self.mechanism_space.dimension
 
             inner_cfg = inner_cfg._merge_env_config(
                 {
@@ -108,14 +164,15 @@ class BilevelConfig(OptimizerConfig):
             }
         )
 
-        inner_opt = inner_cfg.build_optimizer(world=world, world_name=self.world_name)
+        inner_opt = inner_cfg.build_optimizer(
+            world=world, world_name=self.world_name, reporting=self.reporter
+        )
         outer_opt = outer_cfg.build_optimizer(world=world, inner_opt=inner_opt)
 
         # what if outer_opt does not have that property ??
         # override outer_opt population size with inner_opt batch_size
         # set inner batch capacity to be the same as inner for batch sampling
         outer_opt.batch_capacity = inner_opt.batch_capacity
-
         return self.opt_class(config=self, outer=outer_opt, inner=inner_opt)
 
 
@@ -135,6 +192,11 @@ class BilevelOptimizer(Optimizer):
         self.best_trajectory: list[dict] | None = None
         self.all_trajectories: list[tuple[int, float, list[dict]]] = []
         self.population_history: list[tuple[int, list]] = []
+        self.es_metrics_history: list[dict] = []
+
+        # TODO avoid hardcoding prefix
+        # self.wandb_run.define_metric("ppo/ppo_step")
+        # self.wandb_run.define_metric("ppo/*", step_metric="ppo/ppo_step")
 
     def run(self) -> None:
         logger.info(
@@ -153,31 +215,17 @@ class BilevelOptimizer(Optimizer):
 
             outer_metrics = self.outer.run()
 
-            trajectory = outer_metrics.get("best_trajectory")
-            fitness = outer_metrics.get("best_fitness", -float("inf"))
-            pop_history = outer_metrics.get("population_history", [])
-
-            if pop_history:
-                self.population_history.append((i, pop_history[-1]))
-
-            if trajectory:
-                self.best_trajectory = trajectory
-                self.all_trajectories.append((i, fitness, trajectory))
-                self._save_intermediate_plot(i, fitness, trajectory)
-
-            self._save_parameter_plots()
-
             self.metrics.log_dict(
                 {
                     "bilevel/outer_iter": i,
-                    "bilevel/best_fitness": fitness,
+                    "bilevel/best_fitness": outer_metrics.get(
+                        "best_fitness", -float("inf")
+                    ),
                 }
             )
 
-            # ---- Early stopping ----
             if outer_metrics.get("converged", False):
                 self.converged = True
-
                 logger.info(
                     "[Bilevel] EARLY STOP | "
                     "outer optimizer converged | "
@@ -194,6 +242,10 @@ class BilevelOptimizer(Optimizer):
             self.outer.best_fitness,
         )
 
+        # TODO fig reporter with the new wandb reporter actor
+        if self.config.reporter is not None:
+            ray.get(self.config.reporter.finish.remote())
+
         return {
             "converged": self.converged,
             "outer_iters": self.outer_iter + 1,
@@ -203,86 +255,3 @@ class BilevelOptimizer(Optimizer):
             "all_trajectories": self.all_trajectories,
             "population_history": self.population_history,
         }
-
-    def _save_intermediate_plot(
-        self, iteration: int, fitness: float, trajectory: list[dict]
-    ) -> None:
-        """Save intermediate visualization for this iteration."""
-        if not self.output_dir:
-            return
-
-        try:
-            from pathlib import Path
-
-            from examples.bilevel_fishery.visualization import (
-                plot_combined_trial_analysis,
-            )
-
-            output_path = Path(self.output_dir)
-            output_path.mkdir(parents=True, exist_ok=True)
-
-            mechanism_params = None
-            if self.mechanism_space is not None and self.outer.best_candidate is not None:
-                candidate = self.outer.best_candidate
-                # Get scaling from default mechanism if available
-                default_m = self.config.default_mechanism
-                max_fine = getattr(default_m, "max_fine", 5.0) if default_m else 5.0
-                max_ban = getattr(default_m, "max_ban", 50) if default_m else 50
-                mechanism_params = {
-                    "fixed_quota": float(candidate[0]),
-                    "prop_quota": float(candidate[1]),
-                    "min_stock": float(candidate[2]),
-                    "fine_amount": float(candidate[3]) * max_fine,
-                    "ban_period": float(candidate[4]) * max_ban,
-                }
-
-            save_path = output_path / f"iter_{iteration:03d}.png"
-            plot_combined_trial_analysis(
-                trajectory,
-                mechanism_params=mechanism_params,
-                title=f"Iteration {iteration} (fitness={fitness:.4f})",
-                save_path=str(save_path),
-            )
-            logger.info("[Bilevel] Saved intermediate plot to %s", save_path)
-
-        except Exception as e:
-            logger.warning("[Bilevel] Failed to save intermediate plot: %s", e)
-
-    def _save_parameter_plots(self) -> None:
-        """Save parameter evolution and fitness plots."""
-        if not self.output_dir or not self.population_history:
-            return
-
-        try:
-            from pathlib import Path
-
-            from examples.bilevel_fishery.visualization import (
-                plot_fitness_vs_parameters,
-                plot_parameter_evolution,
-            )
-
-            output_path = Path(self.output_dir)
-            output_path.mkdir(parents=True, exist_ok=True)
-
-            # Get scaling from default mechanism if available
-            default_m = self.config.default_mechanism
-            max_fine = getattr(default_m, "max_fine", 5.0) if default_m else 5.0
-            max_ban = getattr(default_m, "max_ban", 50) if default_m else 50
-            param_scales = [1.0, 1.0, 1.0, max_fine, max_ban]
-
-            plot_fitness_vs_parameters(
-                self.population_history,
-                save_path=str(output_path / "fitness_vs_params.png"),
-                param_scales=param_scales,
-            )
-            logger.info("[Bilevel] Saved fitness vs parameters plot")
-
-            plot_parameter_evolution(
-                self.population_history,
-                save_path=str(output_path / "param_evolution.png"),
-                param_scales=param_scales,
-            )
-            logger.info("[Bilevel] Saved parameter evolution plot")
-
-        except Exception as e:
-            logger.warning("[Bilevel] Failed to save parameter plots: %s", e)

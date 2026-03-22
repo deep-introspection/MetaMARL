@@ -40,7 +40,9 @@ class SimpleFisheryEnv(gym.Env):
 
         # Observation: 5 base features + mechanism params (matching real env)
         mechanism_dim = len(self.mechanism.to_vector())
-        self.observation_space = spaces.Box(-np.inf, np.inf, (5 + mechanism_dim,), np.float32)
+        self.observation_space = spaces.Box(
+            -np.inf, np.inf, (5 + mechanism_dim,), np.float32
+        )
         self.action_space = spaces.Box(0.0, 1.0, (1,), np.float32)
 
         self._t = 0
@@ -77,10 +79,16 @@ class SimpleFisheryEnv(gym.Env):
         no_fish_zone = float(fish_norm < m.min_stock)
 
         # Base observation + mechanism vector (matching marl_regulated.py observation())
-        base_obs = np.array([
-            fish_norm, algae_norm, ban_norm,
-            effective_quota, no_fish_zone,
-        ], dtype=np.float32)
+        base_obs = np.array(
+            [
+                fish_norm,
+                algae_norm,
+                ban_norm,
+                effective_quota,
+                no_fish_zone,
+            ],
+            dtype=np.float32,
+        )
 
         theta = m.to_vector()
         return np.concatenate([base_obs, theta], axis=0)
@@ -118,11 +126,15 @@ class SimpleFisheryEnv(gym.Env):
             # Compute reward: u - penalty * violation (matching marl_regulated.py)
             u = self._intrinsic_utility(action_val)
             v = self._violation_signal(u)
-            reward = u - m.fine_amount * v
 
-            # Apply ban if violation occurred
-            if v > 0 and m.ban_period > 0:
-                self.ban_remaining = m.ban_period
+            # Stochastic enforcement: only penalize if violation is detected
+            if v > 0 and self._rng.random() < m.catch_prob:
+                reward = u - m.fine_amount * v
+                # Apply ban if violation detected
+                if m.ban_period > 0:
+                    self.ban_remaining = m.ban_period
+            else:
+                reward = u
 
         # Harvest calculation (matching FisheryRegulatedEnv.transition_kernel)
         # For single agent: H = max_fish * desired * scale
@@ -134,9 +146,7 @@ class SimpleFisheryEnv(gym.Env):
 
         # Lotka-Volterra dynamics (matching real env)
         fish_next = self.fish + self.dt * (
-            self.delta * self.algae * self.fish
-            - self.gamma_eco * self.fish
-            - H
+            self.delta * self.algae * self.fish - self.gamma_eco * self.fish - H
         )
         algae_next = self.algae + self.dt * (
             self.alpha * self.algae - self.beta * self.algae * self.fish
@@ -162,35 +172,47 @@ def test_ppo_convergence(
     lr: float = 0.001,
     num_envs: int = 16,
     horizon: int = 1000,
+    mechanism_kwargs: dict | None = None,
+    ecology_cfg: dict | None = None,
 ):
     """Train PPO and track learning progress."""
 
     ray.init(local_mode=True, ignore_reinit_error=True)
     register_env("fishery_test", env_creator)
 
-    # Balanced mechanism - allows fishing but with some constraints
-    mechanism = FisheryMechanism(
-        fixed_quota=0.5,
-        prop_quota=0.4,
-        min_stock=0.15,
-        fine_amount=0.5,
-        ban_period=5,
-    )
+    # Use provided mechanism kwargs or defaults
+    mech_defaults = {
+        "fixed_quota": 1.0,
+        "prop_quota": 1.0,
+        "min_stock": 0.10,
+        "fine_amount": 3.0,  # High enough to make sustainable fishing optimal
+        "ban_period": 0,
+        "catch_prob": 1.0,
+    }
+    if mechanism_kwargs:
+        mech_defaults.update(mechanism_kwargs)
+
+    mechanism = FisheryMechanism(**mech_defaults)
+
+    # Use provided ecology config or defaults
+    eco_defaults = {
+        "algae_init": 1.0,
+        "fish_init": 1.0,
+        "max_fish": 5.0,
+        "max_algae": 5.0,
+        "alpha": 0.5,
+        "beta": 0.1,
+        "delta": 0.2,
+        "gamma": 0.4,
+        "dt": 0.01,
+    }
+    if ecology_cfg:
+        eco_defaults.update(ecology_cfg)
 
     env_config = {
         "mechanism": mechanism,
         "horizon": horizon,
-        "ecology_cfg": {
-            "algae_init": 1.0,
-            "fish_init": 1.0,
-            "max_fish": 5.0,
-            "max_algae": 5.0,
-            "alpha": 0.5,
-            "beta": 0.1,
-            "delta": 0.2,
-            "gamma": 0.4,
-            "dt": 0.01,
-        },
+        "ecology_cfg": eco_defaults,
     }
 
     config = (
@@ -224,8 +246,11 @@ def test_ppo_convergence(
 
     print(f"Training PPO for {train_iters} iterations...")
     print(f"  gamma={gamma}, lr={lr}, envs={num_envs}")
-    print(f"  mechanism: fixed_q={mechanism.fixed_quota}, prop_q={mechanism.prop_quota}, "
-          f"min_stock={mechanism.min_stock}, fine={mechanism.fine_amount}, ban={mechanism.ban_period}")
+    print(
+        f"  mechanism: fixed_q={mechanism.fixed_quota}, prop_q={mechanism.prop_quota}, "
+        f"min_stock={mechanism.min_stock}, fine={mechanism.fine_amount}, ban={mechanism.ban_period}, "
+        f"catch_prob={mechanism.catch_prob}"
+    )
     print()
 
     for i in range(train_iters):
@@ -244,16 +269,24 @@ def test_ppo_convergence(
             .get("learner_stats", {})
         )
 
-        policy_losses.append(learner_stats.get("policy_loss", learner_stats.get("total_loss", 0)))
-        vf_losses.append(learner_stats.get("vf_loss", learner_stats.get("vf_loss_unclipped", 0)))
-        entropies.append(learner_stats.get("entropy", learner_stats.get("curr_entropy_coeff", 0)))
+        policy_losses.append(
+            learner_stats.get("policy_loss", learner_stats.get("total_loss", 0))
+        )
+        vf_losses.append(
+            learner_stats.get("vf_loss", learner_stats.get("vf_loss_unclipped", 0))
+        )
+        entropies.append(
+            learner_stats.get("entropy", learner_stats.get("curr_entropy_coeff", 0))
+        )
 
         if i == 0:
             # Debug: print learner_stats keys on first iteration
             print(f"  learner_stats keys: {list(learner_stats.keys())}")
 
         if (i + 1) % 10 == 0:
-            print(f"  iter {i+1:3d}: reward={rewards[-1]:.4f}, policy_loss={policy_losses[-1]:.4f}")
+            print(
+                f"  iter {i + 1:3d}: reward={rewards[-1]:.4f}, policy_loss={policy_losses[-1]:.4f}"
+            )
 
     algo.stop()
 
@@ -265,7 +298,7 @@ def test_ppo_convergence(
     axes[0, 0].set_xlabel("Iteration")
     axes[0, 0].set_ylabel("Episode Reward Mean")
     axes[0, 0].set_title("Reward")
-    axes[0, 0].axhline(y=0, color='r', linestyle='--', alpha=0.5)
+    axes[0, 0].axhline(y=0, color="r", linestyle="--", alpha=0.5)
 
     axes[0, 1].plot(policy_losses)
     axes[0, 1].set_xlabel("Iteration")
@@ -305,12 +338,32 @@ def test_ppo_convergence(
 
 if __name__ == "__main__":
     import argparse
+    import yaml
+
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config", type=str, default=None, help="Path to config YAML to load defaults"
+    )
     parser.add_argument("--iters", type=int, default=50)
     parser.add_argument("--gamma", type=float, default=0.95)
     parser.add_argument("--lr", type=float, default=0.005)
     parser.add_argument("--horizon", type=int, default=1000)
+    parser.add_argument("--catch-prob", type=float, default=None)
     args = parser.parse_args()
+
+    # Load from config if provided
+    mechanism_kwargs = {}
+    ecology_cfg = None
+    if args.config:
+        with open(args.config) as f:
+            cfg = yaml.safe_load(f)
+        mechanism_kwargs = cfg["mechanism"]["default"]
+        ecology_cfg = cfg["inner"]["environment"]["env_config"]["ecology_cfg"]
+        print(f"Loaded config from {args.config}")
+
+    # Override catch_prob if specified on command line
+    if args.catch_prob is not None:
+        mechanism_kwargs["catch_prob"] = args.catch_prob
 
     print(f"Testing PPO with horizon={args.horizon}, lr={args.lr}")
 
@@ -319,4 +372,6 @@ if __name__ == "__main__":
         gamma=args.gamma,
         lr=args.lr,
         horizon=args.horizon,
+        mechanism_kwargs=mechanism_kwargs if mechanism_kwargs else None,
+        ecology_cfg=ecology_cfg,
     )

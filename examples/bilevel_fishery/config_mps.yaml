@@ -17,11 +17,12 @@ mechanism:
     max_fine: 10.0
     max_ban: 200
   default:
-    fixed_quota: 0.5
-    prop_quota: 0.4
-    min_stock: 0.15
+    fixed_quota: 1.0
+    prop_quota: 1.0
+    min_stock: 0.10
     fine_amount: 0.5
-    ban_period: 5
+    ban_period: 0
+    catch_prob: 1.0
 
 training:
   outer_iters: 100
@@ -37,7 +38,7 @@ outer:
   environment:
     env: FisheryRegulatorEnv
     horizon: 500
-    train_iters: 100
+    train_iters: 30
     env_config:
       ecology_cfg:
         sus_weight: 1.0
@@ -60,7 +61,7 @@ inner:
 
   environment:
     env: FisheryRegulatedEnv
-    horizon: 1000
+    horizon: 300
     env_config:
       ecology_cfg:
         algae_init: 1.0
@@ -79,7 +80,7 @@ inner:
     num_cpus_per_env_runner: 1
     num_gpus_per_env_runner: 0
     num_envs_per_env_runner: 16
-    rollout_fragment_length: 1000
+    rollout_fragment_length: 300
     batch_mode: complete_episodes
 
   learners:
@@ -89,19 +90,19 @@ inner:
   training:
     gamma: 0.95
     lr: 0.001
-    train_batch_size: 16000
-    minibatch_size: 1024
+    train_batch_size: 4800
+    minibatch_size: 600
 
   evaluation:
     evaluation_interval: null
-    evaluation_duration: 16000
+    evaluation_duration: 4800
     evaluation_duration_unit: timesteps
     evaluation_num_env_runners: 1
     evaluation_config:
       explore: false
       seed: 42
       num_envs_per_env_runner: 16
-      rollout_fragment_length: 1000
+      rollout_fragment_length: 300
       batch_mode: complete_episodes
 
   agents:
