@@ -1,3 +1,4 @@
+from functools import cached_property
 import uuid
 from dataclasses import dataclass
 from typing import Callable, Optional, Self
@@ -14,8 +15,10 @@ from core.adaptors.ray.optimizer import RayOptimizer
 from core.annotations import override
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
+from core.reporting.wandb import WandbReporter
 from core.utils import generate_uuid
 from core.world.base import World
+# from core.adaptors.ray.protocols import PolicyResultMapper, from_new_api, from_old_api
 
 # TODO override environment to attach docstrings
 
@@ -46,6 +49,7 @@ class RayOptimizerConfig(OptimizerConfig):
         self.eval_episodes: Optional[int] = None
         self.eval_base_seed: Optional[int] = None
         self.rollout_fragment_length: Optional[int] = None
+        # self._result_mapper: ResultMapper = None
 
     def rllib_config_mutator(fn):
         def wrapper(self, *args, **kwargs):
@@ -91,9 +95,11 @@ class RayOptimizerConfig(OptimizerConfig):
 
     def model(self, **kwargs) -> Self:
         """Sets the model configuration."""
+
         def _set_model(cfg):
             cfg.model.update(kwargs)
             return cfg
+
         self._cfg_ops.append(_set_model)
         return self
 
@@ -211,14 +217,14 @@ class RayOptimizerConfig(OptimizerConfig):
 
         def policy_mapping_fn(agent_id, episode, *_, **__):
             base_policy = agent_type_map[agent_id]
-            
+
             # Old Api Stack Route to policy based on environment index
             env_idx = getattr(episode, "env_id", None)
-            
+
             # New Api fallback
             if env_idx is None:
                 env_idx = int(episode.id_.split("|")[0])
-            
+
             if env_idx is None:
                 raise RuntimeError(
                     "No environment index found on episode. "
@@ -241,14 +247,25 @@ class RayOptimizerConfig(OptimizerConfig):
         self.agent_specs = agents
         return self
 
+    # lazy resolution : better encapsulation ?
+    # @cached_property
+    # def result_mapper(self) -> ResultMapper:
+    #     return self._resolve_result_mapper()
+
+    # def _resolve_result_mapper(cfg: AlgorithmConfig) -> ResultMapper:
+    #     uses_new_stack = bool(
+    #         getattr(cfg, "enable_rl_module_and_learner", False)
+    #         and getattr(cfg, "enable_env_runner_and_connector_v2", False)
+    #     )
+    #     return from_new_api if uses_new_stack else from_old_api
+
     @override(OptimizerConfig)
     def build_optimizer(
         self,
         *,
-        world: Optional[ActorHandle[World]] = None,
+        world: ActorHandle[World],
         world_name: Optional[str] = None,
-        inner_opt: Optional[Optimizer] = None,
-        **kwargs,
+        reporting: ActorHandle[WandbReporter],
     ):
         if self.rllib_cfg is None:
             self.rllib_cfg = self.algo_class.get_default_config()
@@ -276,10 +293,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
         def env_creator(env_ctx):
             return self._env_creator(
-                world=world, 
-                opt_id=opt_id, 
-                agents=agents,
-                **dict(env_ctx)
+                world=world, opt_id=opt_id, agents=agents, **dict(env_ctx)
             )
 
         register_env(env_name, env_creator)
@@ -292,7 +306,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
         cfg = self.copy(copy_frozen=True)
         # TODO do not give world to ray optimizer. temp solution until environment factory
-        opt = RayOptimizer(config=cfg, world=world)
+        opt = RayOptimizer(config=cfg, world=world, reporting=reporting)
 
         # TODO refactor to env Factory later
         opt.world = world

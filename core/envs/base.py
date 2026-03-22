@@ -41,6 +41,9 @@ class BaseEnv(Env):
         self.m: Mechanism = None
         self.env_id = uuid.uuid4().hex[:8]
 
+        # observation map
+        self.obs_map: dict[int, str] = None
+
     # Setter
     def set_opt_id(self, opt_id: OptimizerID) -> None:
         self._opt_id = opt_id
@@ -94,6 +97,7 @@ class BaseEnv(Env):
             EnvStepContext(
                 mechanism=m_idx,  # TODO link with mechanismID rather than mechanism
                 observation=obs,
+                observation_map=self.obs_map,
                 reward=reward,
                 action=action,
                 info=info,
@@ -110,6 +114,7 @@ class BaseEnv(Env):
             EnvStepContext(
                 mechanism=self.m_ctx.index,
                 observation=obs,
+                observation_map=self.obs_map,
                 reward=0.0,
                 action=None,
                 info={},

@@ -3,10 +3,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, KeysView, Optional
 
 import ray
-
+from core.reporting.wandb import WandbReporter
 from core.types import ContextID, OptimizerID
 from core.utils import generate_uuid
-from core.world.context import Context, ContextSchema, MechanismContext, MechanismStatus
+from core.world.context import (
+    Context,
+    ContextSchema,
+    EnvStepContext,
+    MechanismContext,
+    MechanismStatus,
+)
 
 if TYPE_CHECKING:
     from core.optimizers.base import Optimizer
@@ -26,7 +32,8 @@ class World:
     It only tracks identifiers and context payloads.
     """
 
-    def __init__(self):
+    # TODO the reporting type annotation to add
+    def __init__(self, reporting: WandbReporter = None):
         # Maps optimizer IDs to the list of context IDs they own
         # TODO replace with registry
         self._opt_ctx_map: dict[OptimizerID, list[ContextID]] = {}
@@ -36,6 +43,9 @@ class World:
 
         # Mechanism registry
         self._mechanism_registry: dict[int, MechanismContext] = {}
+
+        # TODO wrap this into generic logger class - for now use W&B
+        self.reporting: WandbReporter = reporting
 
     def __deepcopy__(self, memo):
         return self
@@ -125,6 +135,20 @@ class World:
             if ctx.opt_id not in self._opt_ctx_map:
                 self._set_new_opt_id(ctx.opt_id)
             self._opt_ctx_map[ctx.opt_id].append(ctx.id)
+
+        # if env-step-context call reporter actor
+        if self.reporting is not None and isinstance(ctx.payload, EnvStepContext):
+            self.reporting.plot_env_step.remote(
+                ctx=ctx,
+                obs_keys_skip=(
+                    "fixed_quota",
+                    "prop_quota",
+                    "min_stock",
+                    "fine_amount",
+                    "ban_period",
+                    "catch_prob",
+                ),
+            )
 
         return ctx.id
 

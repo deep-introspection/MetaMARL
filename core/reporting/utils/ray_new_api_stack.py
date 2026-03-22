@@ -1,47 +1,15 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import wandb
 from wandb.sdk.wandb_run import Run
 
+from core.utils import safe_ratio, to_float, finite, sanitize_key
+
 logger = logging.getLogger(__name__)
-
-# --------------------------
-# helpers
-# --------------------------
-
-def _safe_ratio(num: Any, den: Any) -> Optional[float]:
-    fnum = _finite(num)
-    fden = _finite(den)
-    if fnum is None or fden is None or fden == 0.0:
-        return None
-    return float(fnum) / float(fden)
-
-def _to_float(x: Any) -> Optional[float]:
-    if x is None:
-        return None
-    try:
-        if isinstance(x, np.generic):
-            return float(x.item())
-        return float(x)
-    except Exception:
-        return None
-
-
-def _finite(x: Any) -> Optional[float]:
-    fx = _to_float(x)
-    if fx is None or not np.isfinite(fx):
-        return None
-    return fx
-
-
-def _sanitize_key(s: str) -> str:
-    # keep alnum, underscore, dash; replace everything else with underscore
-    return re.sub(r"[^0-9a-zA-Z_\-]+", "_", str(s))
 
 
 def _cap_table(table: wandb.Table, max_rows: int) -> wandb.Table:
@@ -60,7 +28,7 @@ def _cap_table(table: wandb.Table, max_rows: int) -> wandb.Table:
 def _summarize_dict_of_scalars(d: Dict[str, Any]) -> Dict[str, float]:
     vals: list[float] = []
     for v in (d or {}).values():
-        fv = _finite(v)
+        fv = finite(v)
         if fv is not None:
             vals.append(fv)
     if not vals:
@@ -80,30 +48,25 @@ def _global_step(outer_iter: int, train_step: int) -> int:
     return int(outer_iter) * 1_000_000 + int(train_step)
 
 
-# --------------------------
-# extractors (new stack)
-# --------------------------
-
-
 def extract_episode_metrics_newstack(
     results: Dict[str, Any],
 ) -> Dict[str, Optional[float]]:
     env = results.get("env_runners", {}) or {}
 
     # new-stack first, fallback to old-stack names if present
-    return_mean = _finite(env.get("episode_return_mean"))
+    return_mean = finite(env.get("episode_return_mean"))
     if return_mean is None:
-        return_mean = _finite(env.get("episode_reward_mean"))
+        return_mean = finite(env.get("episode_reward_mean"))
 
     return {
         "episode_return_mean": return_mean,
-        "episode_return_min": _finite(env.get("episode_return_min")),
-        "episode_return_max": _finite(env.get("episode_return_max")),
-        "episode_len_mean": _finite(env.get("episode_len_mean")),
-        "episode_len_min": _finite(env.get("episode_len_min")),
-        "episode_len_max": _finite(env.get("episode_len_max")),
-        "num_episodes": _finite(env.get("num_episodes")),
-        "num_episodes_lifetime": _finite(env.get("num_episodes_lifetime")),
+        "episode_return_min": finite(env.get("episode_return_min")),
+        "episode_return_max": finite(env.get("episode_return_max")),
+        "episode_len_mean": finite(env.get("episode_len_mean")),
+        "episode_len_min": finite(env.get("episode_len_min")),
+        "episode_len_max": finite(env.get("episode_len_max")),
+        "num_episodes": finite(env.get("num_episodes")),
+        "num_episodes_lifetime": finite(env.get("num_episodes_lifetime")),
     }
 
 
@@ -133,7 +96,7 @@ def extract_perf_newstack(results: Dict[str, Any]) -> Dict[str, Optional[float]]
     thr = env.get("num_env_steps_sampled_lifetime_throughput")
     throughput = None
     if isinstance(thr, dict):
-        throughput = _finite(thr.get("throughput_since_last_reduce")) or _finite(
+        throughput = finite(thr.get("throughput_since_last_reduce")) or finite(
             thr.get("throughput_since_last_restore")
         )
 
@@ -143,25 +106,25 @@ def extract_perf_newstack(results: Dict[str, Any]) -> Dict[str, Optional[float]]
     agent_steps_sum = None
     agent_steps_lt_sum = None
     if isinstance(agent_steps, dict):
-        agent_steps_sum = _finite(
-            sum((_to_float(v) or 0.0) for v in agent_steps.values())
+        agent_steps_sum = finite(
+            sum((to_float(v) or 0.0) for v in agent_steps.values())
         )
     if isinstance(agent_steps_lt, dict):
-        agent_steps_lt_sum = _finite(
-            sum((_to_float(v) or 0.0) for v in agent_steps_lt.values())
+        agent_steps_lt_sum = finite(
+            sum((to_float(v) or 0.0) for v in agent_steps_lt.values())
         )
 
     return {
-        "env_steps_this_iter": _finite(env.get("num_env_steps_sampled")),
-        "env_steps_lifetime": _finite(env.get("num_env_steps_sampled_lifetime")),
+        "env_steps_this_iter": finite(env.get("num_env_steps_sampled")),
+        "env_steps_lifetime": finite(env.get("num_env_steps_sampled_lifetime")),
         "agent_steps_this_iter_sum": agent_steps_sum,
         "agent_steps_lifetime_sum": agent_steps_lt_sum,
         "env_steps_throughput": throughput,
-        "training_iteration_s": _finite(timers.get("training_iteration")),
-        "training_step_s": _finite(timers.get("training_step")),
-        "sample_s": _finite(timers.get("sample")),
-        "learner_update_s": _finite(timers.get("learner_update_timer")),
-        "weights_seq_no": _finite(env.get("weights_seq_no")),
+        "training_iteration_s": finite(timers.get("training_iteration")),
+        "training_step_s": finite(timers.get("training_step")),
+        "sample_s": finite(timers.get("sample")),
+        "learner_update_s": finite(timers.get("learner_update_timer")),
+        "weights_seq_no": finite(env.get("weights_seq_no")),
     }
 
 
@@ -177,18 +140,18 @@ def extract_learner_metrics_newstack(
     out: Dict[str, Dict[str, Optional[float]]] = {}
     if not isinstance(learners, dict):
         return out
-    
+
     learner_group = results.get("learner_group", {}) or {}
-    mean_training_calls_since_sync = _finite(
+    mean_training_calls_since_sync = finite(
         results.get("mean_num_training_step_calls_since_last_synch_worker_weights")
     )
-    outstanding_async_reqs = _finite(
+    outstanding_async_reqs = finite(
         learner_group.get("actor_manager_num_outstanding_async_reqs")
     )
 
     # Useful global proxy source from __all_modules__
     all_modules_stats = learners.get("__all_modules__", {}) or {}
-    learner_queue_wait = _finite(
+    learner_queue_wait = finite(
         all_modules_stats.get("learner_thread_in_queue_wait_timer")
     )
 
@@ -203,7 +166,7 @@ def extract_learner_metrics_newstack(
         for k, v in stats.items():
             if isinstance(v, (dict, list, tuple)):
                 continue
-            fv = _finite(v)
+            fv = finite(v)
             if fv is None:
                 continue
             m[str(k)] = fv
@@ -211,10 +174,10 @@ def extract_learner_metrics_newstack(
         # Optionally unpack throughput dict if present (nice to have)
         thr = stats.get("num_module_steps_trained_lifetime_throughput")
         if isinstance(thr, dict):
-            m["module_steps_throughput_since_last_reduce"] = _finite(
+            m["module_steps_throughput_since_last_reduce"] = finite(
                 thr.get("throughput_since_last_reduce")
             )
-            m["module_steps_throughput_since_last_restore"] = _finite(
+            m["module_steps_throughput_since_last_restore"] = finite(
                 thr.get("throughput_since_last_restore")
             )
 
@@ -223,10 +186,10 @@ def extract_learner_metrics_newstack(
         entropy = m.get("entropy")
         entropy_coeff = m.get("curr_entropy_coeff")
 
-        m["policy_relative_entropy"] = _safe_ratio(entropy, entropy_coeff)
+        m["policy_relative_entropy"] = safe_ratio(entropy, entropy_coeff)
 
         # optional but often useful
-        if _finite(entropy) is not None and _finite(entropy_coeff) is not None:
+        if finite(entropy) is not None and finite(entropy_coeff) is not None:
             m["entropy_pressure"] = float(entropy) * float(entropy_coeff)
 
         # sample staleness proxy
@@ -324,8 +287,8 @@ def _table_to_line_series_arrays(
 
     grouped: dict[str, list[tuple[float, float]]] = {}
     for row in table.data:
-        x = _to_float(row[ix])
-        y = _to_float(row[iy])
+        x = to_float(row[ix])
+        y = to_float(row[iy])
         s = row[iser]
         if x is None or y is None:
             continue
@@ -365,9 +328,7 @@ def _log_multiline_table_as_plot(
         series_col=series_col,
     )
 
-    payload: Dict[str, Any] = {
-        f"{prefix}/tables/{plot_name}": table,
-    }
+    payload: Dict[str, Any] = {}
 
     # Only create plot if we have data.
     if keys and xs and ys:
@@ -451,10 +412,10 @@ def plot_training_results_new_stack(
     if isinstance(series_means, dict) and series_means:
         series_ids = list(series_means.keys())[:max_lines_returns]
         for sid in series_ids:
-            fv = _finite(series_means.get(sid))
+            fv = finite(series_means.get(sid))
             if fv is None:
                 continue
-            sid_clean = _sanitize_key(sid)
+            sid_clean = sanitize_key(sid)
             metrics[f"{prefix}/series/return_mean/{sid_clean}"] = fv
 
         summary = _summarize_dict_of_scalars(
@@ -467,13 +428,13 @@ def plot_training_results_new_stack(
     if log_per_policy_learner_scalars and isinstance(learner_by_policy, dict):
         scalar_wl = learner_scalar_whitelist or _DEFAULT_LEARNER_PLOT_WHITELIST
         for learner_id, lm in (learner_by_policy or {}).items():
-            learner_clean = _sanitize_key(learner_id)
+            learner_clean = sanitize_key(learner_id)
             for k, v in (lm or {}).items():
                 if v is None:
                     continue
                 if not _should_plot_metric(k, scalar_wl):
                     continue
-                k_clean = _sanitize_key(k)
+                k_clean = sanitize_key(k)
                 metrics[f"{prefix}/learner/{learner_clean}/{k_clean}"] = v
 
     # drop Nones
@@ -494,7 +455,7 @@ def plot_training_results_new_stack(
 
         series_ids = list(series_means.keys())[:max_lines_returns]
         for sid in series_ids:
-            fv = _finite(series_means.get(sid))
+            fv = finite(series_means.get(sid))
             if fv is None:
                 continue
             t.add_data(
@@ -541,7 +502,7 @@ def plot_training_results_new_stack(
                 if not _should_plot_metric(k, plot_wl):
                     continue  # <- key: do NOT plot every learner scalar
 
-                metric_name = _sanitize_key(k)
+                metric_name = sanitize_key(k)
                 t = per_metric.get(metric_name)
                 if t is None:
                     t = wandb.Table(
@@ -575,46 +536,3 @@ def plot_training_results_new_stack(
 
     # finalize
     wandb_run.log({}, step=gs, commit=True)
-
-
-# --------------------------
-# old helper fallbacks (kept, unused by plots above)
-# --------------------------
-
-
-def _get_env(result: dict) -> dict:
-    return result.get("env_runners", {}) or {}
-
-
-def _get_episode_return_mean(result: dict) -> float:
-    env = _get_env(result)
-    v = _to_float(env.get("episode_return_mean"))
-    if v is not None:
-        return v
-    v = _to_float(result.get("episode_reward_mean")) or _to_float(
-        env.get("episode_reward_mean")
-    )
-    return v if v is not None else 0.0
-
-
-def _get_env_steps(result: dict) -> tuple[int, int]:
-    env = _get_env(result)
-    steps_iter = _to_float(env.get("num_env_steps_sampled")) or _to_float(
-        result.get("timesteps_this_iter")
-    )
-    steps_life = _to_float(env.get("num_env_steps_sampled_lifetime")) or _to_float(
-        result.get("timesteps_total")
-    )
-    return int(steps_iter or 0), int(steps_life or 0)
-
-
-def _get_policy_loss_if_present(result: dict) -> float:
-    learner_info = (result.get("info") or {}).get("learner") or {}
-    losses = []
-    if isinstance(learner_info, dict):
-        for _, policy_stats in learner_info.items():
-            ls = (policy_stats or {}).get("learner_stats") or {}
-            v = _to_float(ls.get("policy_loss"))
-            if v is not None:
-                losses.append(v)
-    return float(np.mean(losses)) if losses else float("nan")
