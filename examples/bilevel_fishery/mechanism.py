@@ -98,14 +98,16 @@ class FisheryMechanismSpace(MechanismSpace):
 
         # Parameters to optimize (default: min_stock, fine_amount)
         # TODO ability to toggle this from config
-        self.optimize_params = optimize_params or [
-            "fixed_quota",
-            "prop_quota",
-            "min_stock",
-            "fine_amount",
-            "ban_period",
-            "catch_prob",
-        ]
+        # TODO ability to freeze mechanism for debugging
+        self.optimize_params = []
+        # optimize_params or [
+        #     "fixed_quota",
+        #     "prop_quota",
+        #     "min_stock",
+        #     "fine_amount",
+        #     "ban_period",
+        #     "catch_prob",
+        # ]
         self.dimension = len(self.optimize_params)
         # Full mechanism dimension (for observation space - agent sees all params)
         self.full_dimension = len(self.ALL_PARAMS)
