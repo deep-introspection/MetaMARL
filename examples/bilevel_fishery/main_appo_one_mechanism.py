@@ -48,11 +48,11 @@ bilevel_opt_cfg: BilevelConfig = (
         space=FisheryMechanismSpace(
             max_fine=10.0,
             max_ban=200,
-            default_fixed_quota=1.0,
-            default_prop_quota=1.0,
-            default_min_stock=0.10,
-            default_fine_amount=0.5,
-            default_ban_period=0,
+            default_fixed_quota=0.25,
+            default_prop_quota=0.25,
+            default_min_stock=0.40,
+            default_fine_amount=10.0,
+            default_ban_period=50,
             default_catch_prob=1.0,
         ),
     )
@@ -91,7 +91,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 },
             },
             horizon=1000,
-            train_iters=50,  # TODO implement early stop for plateau
+            train_iters=1000,  # TODO implement early stop for plateau
         )
     )
     .inner(
@@ -113,7 +113,7 @@ bilevel_opt_cfg: BilevelConfig = (
             env_config={
                 "ecology_cfg": {
                     "algae_init": 1.0,
-                    "fish_init": 1.0,
+                    "fish_init": 2.5,
                     "max_fish": 5.0,
                     "max_algae": 5.0,
                     "alpha": 0.5,
@@ -132,7 +132,7 @@ bilevel_opt_cfg: BilevelConfig = (
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
             num_envs_per_env_runner=1,  # batch evaluated mechanism or population size for ES 16
-            rollout_fragment_length=200,  # must be same as env horizon 200
+            rollout_fragment_length=1000,  # must be same as env horizon 200
             batch_mode="truncate_episodes",
         )
         .learners(num_learners=1, num_gpus_per_learner=0)
@@ -151,8 +151,8 @@ bilevel_opt_cfg: BilevelConfig = (
             timeout_s_aggregator_manager=300,
             gamma=0.99,
             lr=0.001,
-            train_batch_size=200,  # 3200
-            minibatch_size=200,  # 512
+            train_batch_size=1000,  # 3200
+            minibatch_size=1000,  # 512
             entropy_coeff=0.01,
             # entropy_coeff_schedule=[
             #     [0, 0.01],
