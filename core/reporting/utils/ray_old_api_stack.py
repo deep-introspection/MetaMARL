@@ -308,9 +308,10 @@ ALL_PARAM_NAMES = [
     "fixed_quota",
     "prop_quota",
     "min_stock",
+    "target_stock",
     "fine_amount",
-    "ban_period",
-    "catch_prob",
+    "risk_penalty_scale",
+    "risk_penalty_power",
 ]
 ALL_PARAM_SCALES = [1.0, 1.0, 1.0, 5.0, 50.0, 1.0]  # Denormalization factors
 

@@ -9,8 +9,8 @@ from core.optimizers.es.config import ESConfig
 from core.optimizers.appo.config import APPOptimizerConfig
 
 # Fishery-specific objects
-from examples.bilevel_fishery.mechanism import FisheryMechanismSpace
-from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
+from examples.bilevel_fishery.mechanism_v1 import FisheryMechanismSpace
+from examples.bilevel_fishery.regulated_env_v1 import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
 # TODO the default mechanism config and fisherman, and observation spaces and action spaces part of config
@@ -47,13 +47,13 @@ bilevel_opt_cfg: BilevelConfig = (
     .mechanism(
         space=FisheryMechanismSpace(
             max_fine=10.0,
-            max_ban=200,
             default_fixed_quota=0.25,
             default_prop_quota=0.25,
             default_min_stock=0.40,
+            default_target_stock = 0.6,
             default_fine_amount=10.0,
-            default_ban_period=50,
-            default_catch_prob=1.0,
+            default_risk_penalty_scale=8.0,
+            default_risk_penalty_power=2.0,
         ),
     )
     .training(outer_iters=100)
@@ -118,9 +118,9 @@ bilevel_opt_cfg: BilevelConfig = (
                     "max_algae": 5.0,
                     "alpha": 0.5,
                     "beta": 0.1,
-                    "delta": 0.2,
+                    "delta": 0.5,
                     "gamma": 0.4,
-                    "dt": 0.01,
+                    "dt": 0.1,
                 },
                 "seed": 0,
             },
@@ -132,7 +132,7 @@ bilevel_opt_cfg: BilevelConfig = (
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
             num_envs_per_env_runner=1,  # batch evaluated mechanism or population size for ES 16
-            rollout_fragment_length=1000,  # must be same as env horizon 200
+            rollout_fragment_length=500,  # must be same as env horizon 200
             batch_mode="truncate_episodes",
         )
         .learners(num_learners=1, num_gpus_per_learner=0)
@@ -141,23 +141,23 @@ bilevel_opt_cfg: BilevelConfig = (
         )
         .training(
             vtrace=True,
-            circular_buffer_num_batches=2,  # TODO review
+            circular_buffer_num_batches=4,  # TODO review
             circular_buffer_iterations_per_batch=1,  # TODO review
             # minibatch_buffer_size=200,
-            broadcast_interval=5,
+            broadcast_interval=1,
             # learner_queue_size=64,
             # learner_queue_timeout=300,
             timeout_s_sampler_manager=300,
             timeout_s_aggregator_manager=300,
             gamma=0.99,
             lr=0.001,
-            train_batch_size=1000,  # 3200
-            minibatch_size=1000,  # 512
-            entropy_coeff=0.01,
+            train_batch_size=4000,  # 3200
+            minibatch_size=500,  # 512
+            entropy_coeff=0.001,
             # entropy_coeff_schedule=[
             #     [0, 0.01],
-            #     [200_000, 0.001],
-            #     [1_000_000, 0.0],
+            #     [1e5, 0.001],
+            #     [5e5, 0.0001],
             # ],
             grad_clip=40.0,
             # lr_schedule=[
@@ -190,7 +190,7 @@ bilevel_opt_cfg: BilevelConfig = (
                         low=-np.inf,
                         high=np.inf,
                         shape=(
-                            5 + FisheryMechanismSpace().full_dimension,
+                            4 + FisheryMechanismSpace().full_dimension,
                         ),  # fish and alage #mechanism conditioned-RL
                         dtype=np.float32,
                     ),

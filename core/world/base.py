@@ -137,18 +137,19 @@ class World:
             self._opt_ctx_map[ctx.opt_id].append(ctx.id)
 
         # if env-step-context call reporter actor
-        if self.reporting is not None and isinstance(ctx.payload, EnvStepContext):
-            self.reporting.plot_env_step.remote(
-                ctx=ctx,
-                obs_keys_skip=(
-                    "fixed_quota",
-                    "prop_quota",
-                    "min_stock",
-                    "fine_amount",
-                    "ban_period",
-                    "catch_prob",
-                ),
-            )
+        # if self.reporting is not None and isinstance(ctx.payload, EnvStepContext):
+        #     self.reporting.plot_env_step.remote(
+        #         ctx=ctx,
+        #         obs_keys_skip=(
+        #             "fixed_quota",
+        #             "prop_quota",
+        #             "min_stock",
+        #             "target_stock",
+        #             "fine_amount",
+        #             "risk_penalty_scale",
+        #             "risk_penalty_power",
+        #         ),
+        #     )
 
         return ctx.id
 

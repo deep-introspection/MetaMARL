@@ -87,6 +87,31 @@ def _extract_observation_series(
 
     return out
 
+def _extract_info_series(info: Any) -> dict[str, dict[str, float]]:
+    out: dict[str, dict[str, float]] = {}
+
+    if not isinstance(info, dict):
+        raise TypeError("Expected info to be a dict-like multi-agent info.")
+
+    for agent_id, agent_info in info.items():
+        agent_id = str(agent_id)
+
+        if not isinstance(agent_info, dict):
+            raise TypeError(
+                f"Expected info for agent '{agent_id}' to be a dict."
+            )
+
+        for info_key, value in agent_info.items():
+            flat = flatten_numeric(value)
+
+            if len(flat) == 1:
+                out.setdefault(str(info_key), {})[agent_id] = flat[0]
+            else:
+                for i, v in enumerate(flat):
+                    out.setdefault(f"{info_key}_{i}", {})[agent_id] = v
+
+    return out
+
 
 def _table_to_line_series_arrays(
     table: wandb.Table,
@@ -168,6 +193,8 @@ _ENV_ACTION_TABLES: dict[int, wandb.Table] = {}
 # run_key -> obs_key -> table
 _ENV_OBS_TABLES: dict[int, dict[str, wandb.Table]] = {}
 
+# run_key -> info_key -> table
+_ENV_INFO_TABLES: dict[int, dict[str, wandb.Table]] = {}
 
 # --------------------------
 # env-step main plotter
@@ -180,6 +207,7 @@ def plot_env_step_context(
     ctx: Context,
     prefix: str = "env",
     obs_keys_skip: Optional[set[str]] = None,
+    infos_keys_skip: Optional[set[str]] = None,
 ) -> None:
     if wandb_run is None:
         return
@@ -285,6 +313,38 @@ def plot_env_step_context(
                 series_col="agent_id",
                 step=step,
                 title=f"Observation: {obs_key}",
+            )
+
+    # INFOS
+    info_omit = infos_keys_skip or set()
+    info_tables = _ENV_INFO_TABLES.setdefault(run_key, {})
+    info_by_key = _extract_info_series(payload.info)
+
+    for info_key, values_by_agent in info_by_key.items():
+        if info_key in info_omit:
+            continue
+
+        info_key_clean = sanitize_key(info_key)
+        table = info_tables.get(info_key_clean)
+        if table is None:
+            table = wandb.Table(columns=["env_step", "agent_id", "value"])
+            info_tables[info_key_clean] = table
+
+        touched_info = False
+        for agent_id, value in values_by_agent.items():
+            table.add_data(step, str(agent_id), float(value))
+            touched_info = True
+
+        if touched_info:
+            _log_multiline_table_as_plot(
+                wandb_run=wandb_run,
+                plot_key=f"{prefix}/plots/info/{info_key_clean}",
+                table=table,
+                x_col="env_step",
+                y_col="value",
+                series_col="agent_id",
+                step=step,
+                title=f"Info: {info_key}",
             )
 
     # finalize current env-step logging

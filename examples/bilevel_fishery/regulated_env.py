@@ -1,5 +1,5 @@
 import logging
-from typing import SupportsFloat
+from typing import SupportsFloat, Tuple
 
 import numpy as np
 from gymnasium.core import ActType
@@ -83,6 +83,98 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
         }
         return obs
+    
+    def _step(
+        self, action_dict: dict[AgentID, ActType]
+    ) -> Tuple[
+        MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
+    ]:
+        rewards = {}
+        fines = {}
+        utilities = {}
+        violations = {}
+        
+
+        # DEBUG: force all actions to zero
+        # effective_actions = {
+        #     agent_id: np.array([0.0], dtype=np.float32)
+        #     for agent_id in self.agents
+        # }
+        effective_actions = dict(action_dict)
+
+
+        for agent_id in self.agents:
+            # Check if agent is banned - zero out their action and apply penalty
+            if hasattr(self, "_is_banned") and self._is_banned(agent_id):
+                self._decrement_ban(agent_id)
+                # DEBUG force actions to zero
+                # effective_actions[agent_id] = np.array([0.0], dtype=np.float32)
+                effective_actions[agent_id] = action_dict[agent_id] * 0
+                # Mild ban penalty: just "time out", not heavy punishment
+                rewards[agent_id] = -0.01
+                fines[agent_id] = 0.0
+                utilities[agent_id] = 0.0
+                violations[agent_id] = 0.0
+                continue
+
+            # DEBUG: force actions to zero
+            # u = float(self.intrinsic_utility(agent_id, effective_actions[agent_id], self.S_t))
+            u = float(self.intrinsic_utility(agent_id, action_dict[agent_id], self.S_t))
+            v = float(self.violation_signal(agent_id, u, self.S_t))
+
+            utilities[agent_id] = u
+            violations[agent_id] = v
+
+            # Stochastic enforcement: only penalize if violation is detected
+            catch_prob = getattr(self.m, "catch_prob", 1.0)
+            if v > 0 and self.rng.random() < catch_prob:
+                fine = float(self.penalty() * v)
+                rewards[agent_id] = u - fine
+                fines[agent_id] = fine
+                # Apply ban if violation detected
+                if hasattr(self, "_apply_ban"):
+                    self._apply_ban(agent_id)
+            else:
+                rewards[agent_id] = u
+                fines[agent_id] = 0.0
+
+        rewards = self.aggregate_rewards(rewards)
+
+        realized_harvest, H_total, harvest_scale = self._compute_harvest_metrics(
+            effective_actions, self.S_t
+        )
+
+        # update obsevations
+        prev_state = dict(self.S_t)
+        self.S_t = self.transition_kernel(A_t=effective_actions, S_t=self.S_t)
+
+        obs = {
+            agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
+        }
+
+        # check terminated and truncated conditions
+        # terminated = natural end (e.g., goal reached or failure)
+        # truncated = artificial time limit (horizon reached)
+        time_limit = self._is_truncated()
+
+        terminated = {aid: False for aid in self.agents}
+        terminated["__all__"] = False
+
+        truncated = {aid: time_limit for aid in self.agents}
+        truncated["__all__"] = time_limit
+
+        infos = {
+            agent_id: {
+                "harvest": realized_harvest.get(agent_id, 0.0),
+                "intrinsic_utility": utilities.get(agent_id, 0.0),
+                "violation_signal": violations.get(agent_id, 0.0),
+                "fine": fines.get(agent_id, 0.0),
+                "harvest_scale": harvest_scale,
+                "H_total": H_total, 
+            } for agent_id in self.agents
+        }
+        return obs, rewards, terminated, truncated, infos
+
 
     def _is_truncated(self) -> bool:
         return self._t >= self.horizon
@@ -135,17 +227,8 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         fish = self.S_t["fish"]
         algae = self.S_t["algae"]
 
-        # Total Absolute harvest
-        fish_norm = fish / self.max_fish
-        desired = {
-            agent_id: self.intrinsic_utility(
-                agent_id=agent_id, action=A_t[agent_id], S_t=S_t
-            )
-            for agent_id in self.agents
-        }
-        total_desired = sum(desired.values())
-        scale = min(1.0, fish_norm / max(EPS, total_desired))
-        H = self.max_fish * sum(desired[agent_id] * scale for agent_id in self.agents)
+        # TODO scale is not used
+        _, H, _ = self._compute_harvest_metrics(A_t, S_t)
 
         # logger.debug(
         #     "[TRANSITION] fish=%.4f algae=%.4f fish_norm=%.4f "
@@ -206,6 +289,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             dtype=np.float32,
         )
 
+    # FISHERY SPECIFIC HELPERS
     def _is_banned(self, agent_id: AgentID) -> bool:
         """Check if agent is currently banned."""
         return self._agent_bans.get(agent_id, 0) > 0
@@ -219,3 +303,31 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         """Apply ban to agent based on mechanism's ban_period."""
         if self.m.ban_period > 0:
             self._agent_bans[agent_id] = self.m.ban_period
+
+    def _compute_harvest_metrics(
+        self, A_t: dict[AgentID, ActType], S_t: dict[str, float]
+    ) -> tuple[dict[AgentID, float], float, float]:
+        fish = S_t["fish"]
+        fish_norm = fish / self.max_fish
+
+        desired = {
+            agent_id: float(
+                self.intrinsic_utility(
+                    agent_id=agent_id,
+                    action=A_t[agent_id],
+                    S_t=S_t,
+                )
+            )
+            for agent_id in self.agents
+        }
+
+        total_desired = float(sum(desired.values()))
+        scale = min(1.0, fish_norm / max(EPS, total_desired))
+
+        realized_harvest = {
+            agent_id: self.max_fish * desired[agent_id] * scale
+            for agent_id in self.agents
+        }
+        H_total = float(sum(realized_harvest.values()))
+
+        return realized_harvest, H_total, scale
