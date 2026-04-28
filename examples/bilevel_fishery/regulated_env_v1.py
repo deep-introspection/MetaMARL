@@ -104,8 +104,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         realized_harvest, H_total, harvest_scale = self._compute_harvest_metrics(
             effective_actions, self.S_t
         )
+        S_t = self.S_t.copy()
 
-        self.S_t = self.transition_kernel(A_t=effective_actions, S_t=self.S_t)
+        self.S_t = self.transition_kernel(A_t=effective_actions, S_t=S_t)
 
         obs = {
             agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
@@ -129,6 +130,10 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
                 "fine": fines.get(agent_id, 0.0),
                 "harvest_scale": harvest_scale,
                 "H_total": H_total,
+                "below_target_zone": float(S_t["fish"] / self.max_fish < self.m.target_stock),
+                "target_shortfall": float(
+                    max(0.0, self.m.target_stock - (S_t["fish"] / self.max_fish))
+                ),
             }
             for agent_id in self.agents
         }
