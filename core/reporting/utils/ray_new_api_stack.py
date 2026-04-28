@@ -535,4 +535,4 @@ def plot_training_results_new_stack(
             )
 
     # finalize
-    wandb_run.log({}, step=gs, commit=True)
+    wandb_run.log({}, step=gs, commit=False)

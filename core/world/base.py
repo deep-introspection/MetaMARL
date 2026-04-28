@@ -84,6 +84,52 @@ class World:
         Return all optimizer IDs known to the world.
         """
         return set(self._opt_ctx_map.keys())
+    
+        # ADDED: helpers for reduced env plotting
+    def get_env_step_contexts(
+        self,
+        opt_id: Optional[OptimizerID] = None,
+    ) -> list[Context]:
+        """
+        Return all EnvStepContext objects for a given optimizer.
+        If opt_id is None, return all EnvStepContext objects in the world.
+        Order is preserved according to insertion order.
+        """
+        if opt_id is None:
+            ctxs = list(self._contexts.values())
+        else:
+            ctx_ids = self._opt_ctx_map.get(opt_id, [])
+            ctxs = [self._contexts[cid] for cid in ctx_ids if cid in self._contexts]
+
+        return [
+            ctx for ctx in ctxs
+            if ctx is not None and isinstance(ctx.payload, EnvStepContext)
+        ]
+
+    # ADDED: helpers for reduced env plotting
+    def get_latest_env_step_contexts(
+        self,
+        opt_id: Optional[OptimizerID] = None,
+    ) -> list[Context]:
+        """
+        Return only the latest contiguous env-step episode for an optimizer.
+
+        We assume env-step contexts are appended in order and that step resets
+        to 0 at the beginning of a new episode. We walk backward from the most
+        recent EnvStepContext until we hit step == 0.
+        """
+        env_ctxs = self.get_env_step_contexts(opt_id=opt_id)
+        if not env_ctxs:
+            return []
+
+        latest: list[Context] = []
+        for ctx in reversed(env_ctxs):
+            latest.append(ctx)
+            if int(ctx.step) == 0:
+                break
+
+        latest.reverse()
+        return latest
 
     def get_mechanism(self) -> MechanismContext:
         for m_ctx in self._mechanism_registry.values():

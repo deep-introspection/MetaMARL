@@ -8,6 +8,7 @@ import wandb
 from core.world.context import Context
 from core.reporting.utils.ray_new_api_stack import plot_training_results_new_stack
 from core.reporting.utils.env_step_context import plot_env_step_context
+from core.reporting.utils.env_reduced import plot_env_reduced, ReductionSpec
 
 
 # TODO inherits from abstract reporter
@@ -35,6 +36,13 @@ class WandbReporter:
             reinit=True,
             settings=wandb.Settings(**(settings or {})),
         )
+        self._run.define_metric("appo/train_step")
+        self._run.define_metric("appo/*", step_metric="appo/train_step")
+
+        self._run.define_metric("env_reduced/train_step")
+        self._run.define_metric("env_reduced/*", step_metric="env_reduced/train_step")
+
+        self._run.define_metric("env_reduced_scalar/*", step_metric="env_reduced/train_step")
 
     def define_metric(
         self,
@@ -108,4 +116,23 @@ class WandbReporter:
     ) -> None:
         plot_env_step_context(
             wandb_run=self._run, ctx=ctx, prefix=prefix, obs_keys_skip=obs_keys_skip
+        )
+
+    # TODO specific for the environment
+    def plot_env_reduced(
+        self,
+        *,
+        ctxs: list[Context],
+        outer_iter: int,
+        training_episode: int,
+        reducers: list[ReductionSpec],
+        prefix: str = "env_reduced",
+    ) -> None:
+        plot_env_reduced(
+            wandb_run=self._run,
+            ctxs=ctxs,
+            outer_iter=outer_iter,
+            training_episode=training_episode,
+            reducers=reducers,
+            prefix=prefix,
         )

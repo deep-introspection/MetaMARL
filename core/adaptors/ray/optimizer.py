@@ -23,6 +23,10 @@ from core.adaptors.ray.utils import (
     get_episode_return_mean,
     get_policy_loss_if_present,
 )
+from core.reporting.utils.env_reduced import (
+    ReductionSpec,
+    build_default_fishery_reduction_specs
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +64,12 @@ class RayOptimizer(Optimizer):
         self._training_rewards: list[float] = []
         self._training_losses: list[float] = []
         self._es_round: int = 0
-        self._training_iter: int = 0
+
+        # TODO remove this - temporary for testing
+        self._env_reducers: list[ReductionSpec] = getattr(config, "env_reducers", None) or []
+
+        if not self._env_reducers:
+            self._env_reducers = build_default_fishery_reduction_specs()
 
     @property
     @override(Optimizer)
@@ -93,22 +102,39 @@ class RayOptimizer(Optimizer):
     def run(self) -> None:
         logger.info("[PPO] Training step started")
         result = ray.get(self.policy_actor.train.remote())
+        step = int(to_float(result.get("training_iteration")) or 0)
 
         # TODO make this more dynamic NEW_STACK
         # TODO move this to world
         ray.get(
             self.reporting.plot_ray_result.remote(
                 outer_iter=self._es_round,
-                training_episode=self._training_iter,
+                training_episode=step,
                 results=result,
                 prefix="appo",
             )
         )
 
+        # TODO reduced env episode plotting
+        if self._env_reducers:
+            latest_env_ctxs = ray.get(
+                self.world.get_latest_env_step_contexts.remote(opt_id=self.opt_id)
+            )
+
+            if latest_env_ctxs:
+                ray.get(
+                    self.reporting.plot_env_reduced.remote(
+                        ctxs=latest_env_ctxs,
+                        outer_iter=self._es_round,
+                        training_episode=step,
+                        reducers=self._env_reducers,
+                        prefix="env_reduced",
+                    )
+                )
+
         # TODO temporary to be moved to a logger Extract metrics
         ep_return = get_episode_return_mean(result)
         steps_iter, steps_life = get_env_steps(result)
-        iteration = int(to_float(result.get("training_iteration")) or 0)
 
         # Track metrics
         self._training_rewards.append(ep_return)
@@ -117,14 +143,12 @@ class RayOptimizer(Optimizer):
 
         logger.info(
             "[PPO] Training step completed | iter=%d | ep_return=%.4f | env_steps_iter=%d | env_steps_lifetime=%d | policy_loss=%s",
-            iteration,
+            step,
             ep_return,
             steps_iter,
             steps_life,
             f"{policy_loss:.6f}" if np.isfinite(policy_loss) else "NA",
         )
-
-        self._training_iter += 1
 
     @override(Optimizer)
     def evaluate(self) -> None:
