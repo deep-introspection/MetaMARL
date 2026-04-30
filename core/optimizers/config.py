@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import copy
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional, Self, Type, Union
 
+import numpy as np
 import ray
 from gymnasium import Space
 from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
@@ -124,7 +125,24 @@ class OptimizerConfig(_Config, ABC):
         self,
         **env_ctx,
     ) -> BaseEnv:
-        return self.env(**env_ctx)
+        return self.env(seed=self._seed, **env_ctx)
+    
+    # Nadine : this must be implemented by any optimizer
+    @abstractmethod
+    def seed_aggregation(
+            self,
+            *,
+            enabled: bool = False,
+            num_seeds: int = 3,
+            base_seed: Optional[int] = None
+    ) -> Self:
+        if enabled:
+            ss = np.random.SeedSequence(base_seed)
+            self._seed = ss.generate_state(num_seeds).tolist()
+        else:
+            self._seed = None
+        return self
+
 
     # TODO deep copy allows on may be toggled later with use_copy
     # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,

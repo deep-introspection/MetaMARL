@@ -70,21 +70,26 @@ class RegulatorEnv(BaseEnv):
         if hasattr(self.inner, "reset"):
             self.inner.reset()
 
+        if self.seed is None:
+            self.seed = []
+
         # TODO PARALLELIZE Vectorize environment across θ candidates and train one ppo policy over mehcanism candidates
         # TODO other techiniques can also speed this up
         # for theta in thetas:
         #     self._publish(MechanismContext(theta=theta))
         for idx, m in enumerate(mechanisms):
-            self._publish(
-                MechanismContext(
-                    index=idx,
-                    status=MechanismStatus.published,
-                    job=MechanismStatus.train,
-                    env_id=None,
-                    mechanism=m,
-                    metrics=None,
+            for seed in self.seed:
+                self._publish(
+                    MechanismContext(
+                        index=idx,
+                        seed=seed,
+                        status=MechanismStatus.published,
+                        job=MechanismStatus.train,
+                        env_id=None,
+                        mechanism=m,
+                        metrics=None,
+                    )
                 )
-            )
 
         # Train policy for train_iters iterations
         for _ in range(self.train_iters):
@@ -94,16 +99,18 @@ class RegulatorEnv(BaseEnv):
         # reset mechanism contexts
         for _ in range(self.inner.eval_episodes):
             for idx, m in enumerate(mechanisms):
-                self._publish(
-                    MechanismContext(
-                        index=idx,
-                        status=MechanismStatus.published,
-                        job=MechanismStatus.eval,
-                        env_id=None,
-                        mechanism=m,
-                        metrics=None,
+                for seed in self.seed:
+                    self._publish(
+                        MechanismContext(
+                            index=idx,
+                            seed=seed,
+                            status=MechanismStatus.published,
+                            job=MechanismStatus.eval,
+                            env_id=None,
+                            mechanism=m,
+                            metrics=None,
+                        )
                     )
-                )
 
         ctx_registry_before = set(ray.get(self.world.get_ctx_registry.remote()).keys())
 

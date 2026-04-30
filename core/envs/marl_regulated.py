@@ -69,7 +69,13 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
     def reset(
         self, *, seed=None, options=None
     ) -> Tuple[MultiAgentDict, MultiAgentDict]:
-        self._base_reset(seed=seed)
+        if seed:
+            self.seed = seed
+            self._pre_reset(seed=seed)
+        else:
+            self._pre_reset(seed=None)
+        
+        self.rng = np.random.default_rng(self.seed)
         obs = self._reset()
         infos = {agent_id: {} for agent_id in self.agents}
         return obs, infos

@@ -204,6 +204,11 @@ bilevel_opt_cfg: BilevelConfig = (
             }
         )
         .fault_tolerance(restart_failed_env_runners=False)
+        .seed_aggregation(
+            enabled = True,
+            num_seeds = 3,
+            base_seed = 42
+        )
     )
 )
 

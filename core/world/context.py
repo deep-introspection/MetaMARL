@@ -31,6 +31,7 @@ class ContextSchema(BaseModel):
 class MechanismContext(ContextSchema):
     index: int
     env_id: Optional[str]
+    seed: Optional[int]
     status: MechanismStatus
     job: Optional[MechanismStatus]
     mechanism: SkipValidation[Mechanism]

@@ -2,6 +2,7 @@ import logging
 from abc import abstractmethod
 from typing import Optional, SupportsFloat
 
+import numpy as np
 import ray
 
 from core.annotations import override
@@ -24,7 +25,7 @@ class RegulatedEnv(BaseEnv):
         super().__init__(world=world, opt_id=opt_id, **kwargs)
 
     @override(BaseEnv)
-    def _pre_reset(self):
+    def _pre_reset(self, seed: Optional[int] = None):
         # Try to fetch a new mechanism if one is available (published)
         # Otherwise keep the current mechanism for subsequent episodes
         try:
@@ -53,6 +54,8 @@ class RegulatedEnv(BaseEnv):
                     metrics=None,
                 )
                 self.m = self.m_ctx.mechanism
+        
+        self.seed = seed if seed is not None else self.m_ctx.seed
 
     @abstractmethod
     def violation_signal(self, reward: Optional[SupportsFloat] = None) -> float:

@@ -157,6 +157,15 @@ class BilevelConfig(OptimizerConfig):
                 }
             )
 
+        # Assign see to outer cfg for looping
+        if inner_cfg.seed is not None:
+            outer_cfg._merge_env_config(
+                {
+                    "seed": inner_cfg.seed,
+                }
+            )
+            inner_cfg.seed = None
+
         outer_cfg = outer_cfg._merge_env_config(
             {
                 "mechanism_space": self.mechanism_space,

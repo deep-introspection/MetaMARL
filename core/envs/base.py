@@ -25,12 +25,14 @@ class BaseEnv(Env):
         opt_id: OptimizerID | None = None,
         horizon: Optional[int] = None,
         mechanism_space: MechanismSpace = None,
+        seed: Optional[int | list[int]] = None,
         **kwargs,
     ) -> None:
         super().__init__()
         self.world = world
         self._opt_id = opt_id
         self.horizon = horizon
+        self.seed = seed
         self._t = 0
         # mechanism_space can be a class or an instance
         if isinstance(mechanism_space, type):
@@ -65,11 +67,6 @@ class BaseEnv(Env):
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
         """Run one timestep of the environment's dynamics using the agent actions."""
         raise NotImplementedError
-
-    def _base_reset(self, *, seed=None):
-        self.rng = np.random.default_rng(seed)
-        self._t = 0
-        self._pre_reset()
 
     @abstractmethod
     def _pre_reset(self) -> None:
@@ -108,8 +105,16 @@ class BaseEnv(Env):
 
     @override(Env)
     def reset(self, *, seed=None, options=None):
-        self._base_reset(seed=seed)
-        obs = self._reset()
+        # Option to pass seed directly to env --> sequential
+        # TODO what are the options used for ?
+        if seed:
+            self.seed = seed
+            self._pre_reset(seed=seed)
+        else:
+            self._pre_reset(seed=None)
+        
+        self.rng = np.random.default_rng(self.seed)
+        obs = self._reset(seed=self.seed)
         self._publish(
             EnvStepContext(
                 mechanism=self.m_ctx.index,
