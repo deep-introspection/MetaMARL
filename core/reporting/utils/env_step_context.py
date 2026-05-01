@@ -87,6 +87,7 @@ def _extract_observation_series(
 
     return out
 
+
 def _extract_info_series(info: Any) -> dict[str, dict[str, float]]:
     out: dict[str, dict[str, float]] = {}
 
@@ -97,9 +98,7 @@ def _extract_info_series(info: Any) -> dict[str, dict[str, float]]:
         agent_id = str(agent_id)
 
         if not isinstance(agent_info, dict):
-            raise TypeError(
-                f"Expected info for agent '{agent_id}' to be a dict."
-            )
+            raise TypeError(f"Expected info for agent '{agent_id}' to be a dict.")
 
         for info_key, value in agent_info.items():
             flat = flatten_numeric(value)

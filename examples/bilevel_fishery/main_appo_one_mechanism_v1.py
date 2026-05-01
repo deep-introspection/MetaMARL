@@ -50,7 +50,7 @@ bilevel_opt_cfg: BilevelConfig = (
             default_fixed_quota=0.25,
             default_prop_quota=0.25,
             default_min_stock=0.40,
-            default_target_stock = 0.6,
+            default_target_stock=0.6,
             default_fine_amount=10.0,
             default_risk_penalty_scale=8.0,
             default_risk_penalty_power=2.0,
@@ -204,11 +204,7 @@ bilevel_opt_cfg: BilevelConfig = (
             }
         )
         .fault_tolerance(restart_failed_env_runners=False)
-        .seed_aggregation(
-            enabled = True,
-            num_seeds = 3,
-            base_seed = 42
-        )
+        .seed_aggregation(enabled=True, num_seeds=3, base_seed=42)
     )
 )
 

@@ -261,6 +261,7 @@ def make_mean_reducer(source: str, key: str) -> ReducerFn:
         if arr.size == 0:
             return None
         return float(np.mean(arr))
+
     return _fn
 
 
@@ -270,6 +271,7 @@ def make_sum_reducer(source: str, key: str) -> ReducerFn:
         if arr.size == 0:
             return None
         return float(np.sum(arr))
+
     return _fn
 
 
@@ -279,6 +281,7 @@ def make_std_reducer(source: str, key: str) -> ReducerFn:
         if arr.size == 0:
             return None
         return float(np.std(arr))
+
     return _fn
 
 
@@ -288,6 +291,7 @@ def make_positive_rate_reducer(source: str, key: str) -> ReducerFn:
         if arr.size == 0:
             return None
         return float(np.mean(arr > 0.0))
+
     return _fn
 
 
@@ -301,6 +305,7 @@ def make_binary_rate_reducer(
         if arr.size == 0:
             return None
         return float(np.mean(arr >= threshold))
+
     return _fn
 
 
@@ -316,6 +321,7 @@ def make_binary_transition_count_reducer(
         active = (arr >= threshold).astype(np.int32)
         transitions = np.logical_and(active[1:] == 1, active[:-1] == 0)
         return float(np.sum(transitions))
+
     return _fn
 
 
@@ -391,7 +397,7 @@ def plot_env_reduced(
 ) -> None:
     if wandb_run is None or ctxs is None or reducers is None:
         return
-    
+
     gs = _global_step(outer_iter, training_episode)
     ep = build_episode_series(ctxs)
     run_key = id(wandb_run)

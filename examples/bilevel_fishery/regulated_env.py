@@ -83,7 +83,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
         }
         return obs
-    
+
     def _step(
         self, action_dict: dict[AgentID, ActType]
     ) -> Tuple[
@@ -93,7 +93,6 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         fines = {}
         utilities = {}
         violations = {}
-        
 
         # DEBUG: force all actions to zero
         # effective_actions = {
@@ -101,7 +100,6 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         #     for agent_id in self.agents
         # }
         effective_actions = dict(action_dict)
-
 
         for agent_id in self.agents:
             # Check if agent is banned - zero out their action and apply penalty
@@ -170,11 +168,11 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
                 "violation_signal": violations.get(agent_id, 0.0),
                 "fine": fines.get(agent_id, 0.0),
                 "harvest_scale": harvest_scale,
-                "H_total": H_total, 
-            } for agent_id in self.agents
+                "H_total": H_total,
+            }
+            for agent_id in self.agents
         }
         return obs, rewards, terminated, truncated, infos
-
 
     def _is_truncated(self) -> bool:
         return self._t >= self.horizon

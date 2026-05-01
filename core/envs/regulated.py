@@ -54,7 +54,7 @@ class RegulatedEnv(BaseEnv):
                     metrics=None,
                 )
                 self.m = self.m_ctx.mechanism
-        
+
         self.seed = seed if seed is not None else self.m_ctx.seed
 
     @abstractmethod

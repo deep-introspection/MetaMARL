@@ -84,8 +84,9 @@ class World:
         Return all optimizer IDs known to the world.
         """
         return set(self._opt_ctx_map.keys())
-    
+
         # ADDED: helpers for reduced env plotting
+
     def get_env_step_contexts(
         self,
         opt_id: Optional[OptimizerID] = None,
@@ -102,7 +103,8 @@ class World:
             ctxs = [self._contexts[cid] for cid in ctx_ids if cid in self._contexts]
 
         return [
-            ctx for ctx in ctxs
+            ctx
+            for ctx in ctxs
             if ctx is not None and isinstance(ctx.payload, EnvStepContext)
         ]
 

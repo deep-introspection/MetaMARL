@@ -42,7 +42,9 @@ class WandbReporter:
         self._run.define_metric("env_reduced/train_step")
         self._run.define_metric("env_reduced/*", step_metric="env_reduced/train_step")
 
-        self._run.define_metric("env_reduced_scalar/*", step_metric="env_reduced/train_step")
+        self._run.define_metric(
+            "env_reduced_scalar/*", step_metric="env_reduced/train_step"
+        )
 
     def define_metric(
         self,

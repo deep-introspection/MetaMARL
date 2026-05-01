@@ -25,7 +25,7 @@ from core.adaptors.ray.utils import (
 )
 from core.reporting.utils.env_reduced import (
     ReductionSpec,
-    build_default_fishery_reduction_specs
+    build_default_fishery_reduction_specs,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,9 @@ class RayOptimizer(Optimizer):
         self._es_round: int = 0
 
         # TODO remove this - temporary for testing
-        self._env_reducers: list[ReductionSpec] = getattr(config, "env_reducers", None) or []
+        self._env_reducers: list[ReductionSpec] = (
+            getattr(config, "env_reducers", None) or []
+        )
 
         if not self._env_reducers:
             self._env_reducers = build_default_fishery_reduction_specs()

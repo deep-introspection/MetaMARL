@@ -112,7 +112,7 @@ class BaseEnv(Env):
             self._pre_reset(seed=seed)
         else:
             self._pre_reset(seed=None)
-        
+
         self.rng = np.random.default_rng(self.seed)
         obs = self._reset(seed=self.seed)
         self._publish(
