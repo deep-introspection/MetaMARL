@@ -221,17 +221,3 @@ bilevel_opt.run()
 
 # TODO add this after run done
 ray.shutdown()
-
-
-def main(cfg=None):
-    if cfg is None:
-        cfg = bilevel_opt_cfg
-
-    bilevel_opt = cfg.build_optimizer()
-    bilevel_opt.run()
-
-    ray.shutdown()
-
-
-if __name__ == "__main__":
-    main()
