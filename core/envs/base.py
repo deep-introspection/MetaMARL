@@ -104,10 +104,10 @@ class BaseEnv(Env):
         return obs, reward, terminated, truncated, info
 
     @override(Env)
-    def reset(self, *, seed=None, options=None):
+    def reset(self, *, seed: Optional[int] = None, options=None):
         # Option to pass seed directly to env --> sequential
         # TODO what are the options used for ?
-        if seed:
+        if seed is not None:
             self.seed = seed
             self._pre_reset(seed=seed)
         else:
