@@ -45,7 +45,7 @@ class OptimizerConfig(_Config, ABC):
         self.horizon: int = None  # TODO default value
 
         # --- training ---
-        self.seed: int = None
+        self.seed: Optional[int | list[int]] = None
 
         # --- eval ---
         self.evaluation_config: Optional["OptimizerConfig"] = None
@@ -125,24 +125,7 @@ class OptimizerConfig(_Config, ABC):
         self,
         **env_ctx,
     ) -> BaseEnv:
-        return self.env(seed=self._seed, **env_ctx)
-    
-    # Nadine : this must be implemented by any optimizer
-    @abstractmethod
-    def seed_aggregation(
-            self,
-            *,
-            enabled: bool = False,
-            num_seeds: int = 3,
-            base_seed: Optional[int] = None
-    ) -> Self:
-        if enabled:
-            ss = np.random.SeedSequence(base_seed)
-            self._seed = ss.generate_state(num_seeds).tolist()
-        else:
-            self._seed = None
-        return self
-
+        return self.env(**env_ctx)
 
     # TODO deep copy allows on may be toggled later with use_copy
     # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
@@ -254,15 +237,22 @@ class OptimizerConfig(_Config, ABC):
             self.disable_env_checking = disable_env_checking
 
         return self
-
-    def training(self, *, seed: Optional[float] = None) -> Self:
-        """
-
-        Args:
-            seed:
-        """
+    
+    @abstractmethod
+    def training(self):
+        raise NotImplementedError
+    
+    def debugging(
+        self,
+        *,
+        seed: Optional[int] = None,
+        num_seeds: int = 3,
+    ) -> Self:
         if seed is not None:
-            self.seed = seed
+            ss = np.random.SeedSequence(seed)
+            self.seed = ss.generate_state(num_seeds).tolist()
+        else:
+            self.seed = None
         return self
 
     # TODO Docstring explanation

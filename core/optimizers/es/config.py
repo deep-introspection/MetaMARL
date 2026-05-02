@@ -56,7 +56,6 @@ class ESConfig(OptimizerConfig):
         Returns:
             This updated OptimizerConfig object.
         """
-        super().training(**kwargs)
 
         if sigma is not None:
             self.sigma = sigma

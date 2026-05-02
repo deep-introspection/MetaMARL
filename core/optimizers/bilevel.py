@@ -72,12 +72,10 @@ class BilevelConfig(OptimizerConfig):
         return self
 
     def training(
-        self, *, outer_iters: int, seed=None, output_dir: str | None = None, **kwargs
+        self, *, outer_iters: int, output_dir: str | None = None, **kwargs
     ) -> Self:
         if outer_iters is not None:
             self.outer_iters = outer_iters
-        if seed is not None:
-            self.seed = seed
         self.output_dir = output_dir
         return self
 
@@ -164,7 +162,7 @@ class BilevelConfig(OptimizerConfig):
                     "seed": inner_cfg.seed,
                 }
             )
-            inner_cfg.seed = None
+            # inner_cfg.seed = None
 
         outer_cfg = outer_cfg._merge_env_config(
             {
