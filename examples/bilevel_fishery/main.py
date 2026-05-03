@@ -1,3 +1,37 @@
+"""YAML-configured bilevel fishery experiment entry point.
+
+This is the primary CLI script for running a bilevel fishery optimisation
+experiment.  All hyperparameters are read from a YAML configuration file;
+no hard-coded values are present in this module.
+
+Experiment overview
+-------------------
+- Outer loop: Evolution Strategies (ES) searches over a mechanism space
+  (regulatory parameters such as quotas, fines, and bans).
+- Inner loop: APPO trains N fishing agents to maximise harvest under the
+  current mechanism.
+- After the run the best mechanism trajectory is optionally visualised and
+  saved to ``--output-dir``.
+
+Usage
+-----
+::
+
+    uv run python -m examples.bilevel_fishery.main \\
+        --config configs/fishery_appo_v1.yaml \\
+        --output-dir results/
+
+Arguments
+---------
+--config PATH
+    Path to the YAML config file (absolute or relative to project root).
+    Required.
+--output-dir DIR
+    Directory for output artefacts (default: ``results``).
+--no-plots
+    Suppress plot generation even if the run finds a best trajectory.
+"""
+
 import argparse
 import logging
 from pathlib import Path
@@ -12,7 +46,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main() -> None:
+    """Parse CLI arguments, run the bilevel experiment, and optionally save plots.
+
+    Workflow
+    --------
+    1. Parse ``--config``, ``--output-dir``, and ``--no-plots`` arguments.
+    2. Load the YAML config via :class:`~examples.bilevel_fishery.bilevel.BilevelConfigLoader`.
+    3. Build and run the bilevel optimizer.
+    4. If ``--no-plots`` is not set and the run produced a ``best_trajectory``,
+       decode the best mechanism parameters and call
+       :func:`~core.reporting.utils.ray_old_api_stack.plot_combined_trial_analysis`
+       to save a PNG to ``<output_dir>/trial_analysis.png``.
+    """
     parser = argparse.ArgumentParser("Bilevel Fishery Experiment")
     parser.add_argument(
         "--config",

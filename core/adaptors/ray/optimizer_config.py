@@ -25,6 +25,21 @@ from core.world.base import World
 
 @dataclass
 class AgentSpec:
+    """Specification for a homogeneous group of agents sharing a single policy.
+
+    Parameters
+    ----------
+    count : int
+        Number of agents of this type in the environment.
+    policy : str
+        Base policy ID string.  One policy per mechanism will be derived from
+        this (e.g. ``"fisher_0"``, ``"fisher_1"``, …).
+    observation_space : Space
+        Gymnasium observation space shared by all agents of this type.
+    action_space : Space
+        Gymnasium action space shared by all agents of this type.
+    """
+
     count: int
     policy: str
     observation_space: Space
@@ -32,6 +47,45 @@ class AgentSpec:
 
 
 class RayOptimizerConfig(OptimizerConfig):
+    """Configuration for a Ray/RLlib-backed optimizer.
+
+    Acts as a fluent builder that accumulates RLlib ``AlgorithmConfig``
+    mutations (stored in ``_cfg_ops``) and applies them lazily when
+    ``build_optimizer`` is called.  Subclasses must set the class-level
+    attribute ``algo_class`` to the concrete RLlib ``Algorithm`` class to
+    use (e.g. ``APPO`` or ``PPO``).
+
+    The deferred-mutation pattern avoids constructing the heavy
+    ``AlgorithmConfig`` object until the full set of options is known,
+    which is important when configs are assembled across multiple files
+    or passed between processes.
+
+    Parameters
+    ----------
+    (no constructor arguments — configuration is built via the fluent
+    methods below, e.g. ``training()``, ``env_runners()``, etc.)
+
+    Attributes
+    ----------
+    algo_class : type[Algorithm]
+        RLlib Algorithm class; **must** be set on the concrete subclass.
+    _cfg_ops : list[Callable[[AlgorithmConfig], AlgorithmConfig]]
+        Ordered list of pending mutations to apply to the RLlib config.
+    rllib_cfg : AlgorithmConfig or None
+        The materialised RLlib config; ``None`` until ``build_optimizer``
+        is called.
+    agent_specs : dict or None
+        Mapping of agent-type name to spec dict (see ``agents()``).
+    world_name : str or None
+        Identifier for the Ray actor that owns the simulation world.
+    eval_episodes : int or None
+        Number of evaluation episodes per ``evaluate()`` call.
+    eval_base_seed : int or None
+        Base random seed used to initialise evaluation environments.
+    rollout_fragment_length : int or None
+        Number of environment steps per rollout fragment.
+    """
+
     # TODO review this
     # must be overriden in subclasses
     algo_class: type[Algorithm] = None
@@ -52,6 +106,30 @@ class RayOptimizerConfig(OptimizerConfig):
         # self._result_mapper: ResultMapper = None
 
     def rllib_config_mutator(fn):
+        """Decorator that converts a config-mutation function into a fluent builder method.
+
+        Wraps ``fn`` so that, instead of executing immediately, it is appended
+        to ``self._cfg_ops`` as a deferred lambda.  Each deferred operation
+        receives the ``AlgorithmConfig`` object and must return it (possibly
+        modified) so that operations can be chained.
+
+        The decorator is intentionally defined as a plain function (not a
+        ``staticmethod``) so that it can be used directly in the class body
+        during class construction.
+
+        Parameters
+        ----------
+        fn : Callable[[AlgorithmConfig, ...], AlgorithmConfig]
+            A function whose first positional argument is the
+            ``AlgorithmConfig`` instance to mutate.
+
+        Returns
+        -------
+        Callable
+            A wrapper method that records the call as a pending operation and
+            returns ``self`` for method chaining.
+        """
+
         def wrapper(self, *args, **kwargs):
             self._cfg_ops.append(lambda cfg: fn(cfg, *args, **kwargs))
             return self
@@ -60,10 +138,19 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @rllib_config_mutator
     def validate(cfg, **kwargs) -> None:
+        """Validate the accumulated RLlib configuration.
+
+        Delegates to ``AlgorithmConfig.validate(**kwargs)``.  Call this after
+        all other builder methods to catch configuration errors early.
+        """
         return cfg.validate(**kwargs)
 
     @rllib_config_mutator
     def get_config_for_module(cfg, **kwargs) -> None:
+        """Return the per-module config subset from the RLlib config.
+
+        Delegates to ``AlgorithmConfig.get_config_for_module(**kwargs)``.
+        """
         return cfg.get_config_for_module(**kwargs)
 
     @rllib_config_mutator
@@ -137,6 +224,10 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @rllib_config_mutator
     def offline_data(cfg, **kwargs) -> None:
+        """Configure offline data settings in the RLlib config.
+
+        Delegates to ``AlgorithmConfig.offline_data(**kwargs)``.
+        """
         return cfg.offline_data(**kwargs)
 
     @rllib_config_mutator
@@ -154,6 +245,10 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @rllib_config_mutator
     def checkpointing(cfg, **kwargs) -> None:
+        """Configure checkpoint settings in the RLlib config.
+
+        Delegates to ``AlgorithmConfig.checkpointing(**kwargs)``.
+        """
         return cfg.checkpointing(**kwargs)
 
     @rllib_config_mutator
@@ -181,6 +276,25 @@ class RayOptimizerConfig(OptimizerConfig):
         return cfg.experimental(**kwargs)
 
     def _apply_agents_to_rllib(self) -> list[AgentID]:
+        """Materialise agent specs into the RLlib multi-agent configuration.
+
+        For each agent type in ``agent_specs``, creates one policy per
+        mechanism (``num_envs_per_env_runner``) following the naming
+        convention ``"{base_policy}_{mechanism_index}"``.  The resulting
+        ``policy_mapping_fn`` routes each agent to the policy that
+        corresponds to its environment index, enabling independent
+        per-mechanism policies within a single RLlib run.
+
+        Also populates ``env_config`` with per-agent observation and action
+        spaces so that the environment factory can resolve spaces at
+        creation time without a direct reference to the config object.
+
+        Returns
+        -------
+        list[AgentID]
+            Flat list of all agent IDs (e.g. ``["fisher:0", "fisher:1"]``)
+            in the order they were created.
+        """
         policies = {}
         agent_type_map = {}
         agents: list[AgentID] = []
@@ -244,6 +358,19 @@ class RayOptimizerConfig(OptimizerConfig):
 
     # TODO agent spec for stricter schema enforcement
     def agents(self, agents: dict[str, AgentSpec]) -> Self:
+        """Register the agent type specifications for multi-agent training.
+
+        Parameters
+        ----------
+        agents : dict[str, AgentSpec]
+            Mapping from agent-type name (e.g. ``"fisher"``) to its
+            ``AgentSpec`` describing count, policy base ID, and spaces.
+
+        Returns
+        -------
+        Self
+            This config object for method chaining.
+        """
         self.agent_specs = agents
         return self
 
@@ -267,6 +394,38 @@ class RayOptimizerConfig(OptimizerConfig):
         world_name: Optional[str] = None,
         reporting: ActorHandle[WandbReporter],
     ):
+        """Construct and return a configured ``RayOptimizer`` instance.
+
+        Applies all deferred ``_cfg_ops`` to the base ``AlgorithmConfig``,
+        registers a unique Gymnasium environment with Ray's global registry
+        (so that remote env-runner workers can instantiate it), wires up the
+        multi-agent policy mapping, and builds the ``RayOptimizer`` without
+        yet constructing the heavy ``Algorithm`` object (that is deferred to
+        the ``PolicyActor``).
+
+        Parameters
+        ----------
+        world : ActorHandle[World]
+            Ray remote actor handle for the simulation world.  Used to
+            generate a unique optimizer ID and to pass context to the
+            environment factory.
+        world_name : str, optional
+            Human-readable name for the world actor; required when
+            ``world`` is not ``None``.
+        reporting : ActorHandle[WandbReporter]
+            Ray remote actor handle for the W&B reporting backend.
+
+        Returns
+        -------
+        RayOptimizer
+            A fully configured but not yet started optimizer instance.
+
+        Raises
+        ------
+        ValueError
+            If ``opt_class`` is ``None`` or ``world_name`` is missing when
+            ``world`` is provided.
+        """
         if self.rllib_cfg is None:
             self.rllib_cfg = self.algo_class.get_default_config()
             for op in self._cfg_ops:

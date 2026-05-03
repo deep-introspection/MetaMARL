@@ -19,14 +19,43 @@ logger = logging.getLogger(__name__)
 
 
 class FisheryRegulatorEnv(RegulatorEnv):
-    """
-    Outer-loop environment for fishery mechanism optimization.
+    """Outer-loop regulator environment for fishery (and water) mechanism optimization.
 
-    Responsibilities:
-      - Publish candidate mechanisms
-      - Run inner PPO optimizer
-      - Collect performance metrics
-      - Convert to scalar ES reward
+    Implements the :class:`~core.envs.regulator.RegulatorEnv` interface for
+    the ES outer loop.  After each inner-loop PPO rollout it:
+
+    1. Groups step-level :class:`~core.world.context.EnvStepContext` payloads
+       by mechanism candidate index.
+    2. Computes episode-level metrics (mean reward, collapse rate, sustainability
+       penalty).
+    3. Combines them into a scalar ES fitness via
+       :meth:`~examples.fresh_water.contexts.FitnessContext.from_metrics`.
+    4. Stores per-mechanism trajectories for downstream visualization.
+
+    Parameters
+    ----------
+    ecology_cfg : dict[str, Any]
+        Ecology / sustainability configuration with optional keys:
+
+        * ``sus_weight`` (float): Weight of sustainability penalty in the
+          fitness objective.  Default ``5.0``.
+        * ``sus_threshold`` (float): Normalised fish-stock fraction below
+          which a timestep counts as a sustainability violation.
+          Default ``0.1``.
+        * ``max_fish`` (float): Maximum fish stock (for denormalization).
+          Default ``2.0``.
+        * ``max_algae`` (float): Maximum algae stock (for denormalization).
+          Default ``2.0``.
+    **kwargs
+        Forwarded to :class:`~core.envs.regulator.RegulatorEnv`.
+
+    Attributes
+    ----------
+    trajectories : dict[int, list[dict[str, Any]]]
+        Per-mechanism trajectory records populated after each call to
+        :meth:`aggregate_rewards`.  Each record contains ``episode``,
+        ``step``, ``fish_population``, ``algae_population``, and
+        ``reward`` fields.
     """
 
     def __init__(
@@ -48,19 +77,62 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
     @override(RegulatorEnv)
     def observation(self, obs: ObsType) -> ObsType:
+        """Return the regulator's observation of the inner environment state.
+
+        The ES outer loop does not use an environment observation to select
+        mechanisms (it uses the fitness signal instead), so this always
+        returns a constant scalar ``0.0``.
+
+        Parameters
+        ----------
+        obs : ObsType
+            Raw inner-environment observation (ignored).
+
+        Returns
+        -------
+        ObsType
+            Constant ``0.0``.
+        """
         return 0.0
 
     @override(RegulatorEnv)
     def aggregate_rewards(self, ctxs: list[Context]) -> list[float]:
-        """
-        Compute per-mechanism fitness from step-level EnvStepContexts.
+        """Compute per-mechanism ES fitness from inner-loop step contexts.
 
-        Semantics:
-        - Group contexts by mechanism
-        - Segment into episodes of length = horizon
-        - Drop incomplete episodes
-        - Compute episode-level metrics
-        - Aggregate exactly like legacy evaluator
+        Groups :class:`~core.world.context.EnvStepContext` payloads by
+        mechanism index, truncates all mechanism sequences to equal length
+        (elastic truncation to the shortest), then computes the ES objective
+        as ``mean_reward - sustainability_weight * sustainability_penalty``
+        for each candidate.  Also populates :attr:`trajectories` with
+        denormalized step data for visualization.
+
+        Steps
+        -----
+        1. Filter to :class:`~core.world.context.EnvStepContext` payloads.
+        2. Group by mechanism index.
+        3. Truncate all groups to ``min(len(group))`` steps.
+        4. Compute ``mean_reward``, ``collapse_rate``, and
+           ``sustainability_penalty`` per mechanism.
+        5. Build a :class:`~examples.fresh_water.contexts.FitnessContext` and
+           publish a :class:`~core.world.context.MechanismContext`.
+        6. Return a fitness list indexed by mechanism index.
+
+        Parameters
+        ----------
+        ctxs : list[Context]
+            Flat list of context objects published by inner environment
+            runners during the current outer-loop iteration.
+
+        Returns
+        -------
+        list[float]
+            ES fitness values indexed by mechanism index.  Entries for
+            indices with no step data are set to ``-inf``.
+
+        Warns
+        -----
+        Logs a warning if no :class:`~core.world.context.EnvStepContext`
+        objects are found in ``ctxs``.
         """
 
         per_mech_metrics: list[dict[str, float]] = []

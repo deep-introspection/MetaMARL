@@ -1,3 +1,20 @@
+"""CartPole bilevel experiment using APPO as the inner RL optimizer.
+
+Runs the bilevel optimization loop with:
+  - Outer loop: Evolution Strategies (ES) searching over a dummy 1-D mechanism space.
+  - Inner loop: Asynchronous Proximal Policy Optimization (APPO) training a single
+    CartPole-v1 agent.
+
+The dummy mechanism has no real effect on the CartPole environment; this script is
+used to validate the bilevel framework plumbing on a well-understood toy problem.
+
+Invoke
+------
+From the project root::
+
+    uv run python -m examples.cartpole.main_appo
+"""
+
 import numpy as np
 import ray
 from gymnasium import spaces

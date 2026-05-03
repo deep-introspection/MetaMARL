@@ -1,3 +1,22 @@
+"""Entry point for the fresh-water bilevel optimization experiment.
+
+Reads a YAML configuration file, builds a :class:`BilevelConfig` via
+:class:`~examples.fresh_water.bilevel.BilevelConfigLoader`, runs the
+bilevel ES/PPO optimizer, and optionally saves a combined trial-analysis
+visualization to disk.
+
+Invoke
+------
+From the project root::
+
+    uv run python -m examples.fresh_water.main --config path/to/config.yaml
+
+Optional flags::
+
+    --output-dir DIR    Directory for output files (default: results)
+    --no-plots          Disable visualization output
+"""
+
 import argparse
 import logging
 from pathlib import Path
@@ -12,7 +31,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main() -> None:
+    """Parse CLI arguments, run the bilevel experiment, and save plots.
+
+    Workflow
+    --------
+    1. Resolve the YAML config path (absolute or relative to project root).
+    2. Build a :class:`~core.optimizers.bilevel.BilevelConfig` via
+       :class:`~examples.fresh_water.bilevel.BilevelConfigLoader`.
+    3. Run the bilevel optimizer (ES outer loop + PPO inner loop).
+    4. If ``--no-plots`` is not set and a best trajectory was recorded, render
+       a combined trial-analysis figure and write it to ``<output_dir>/trial_analysis.png``.
+    """
     parser = argparse.ArgumentParser("Bilevel Fishery Experiment")
     parser.add_argument(
         "--config",

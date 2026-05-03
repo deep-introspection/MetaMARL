@@ -1,3 +1,30 @@
+"""Bilevel fishery experiment — PPO inner loop (new RLlib API stack).
+
+This script mirrors :mod:`main_appo` but uses synchronous PPO instead of
+APPO as the inner optimizer.  It is kept as a reference implementation for
+comparing on-policy convergence speeds between PPO and APPO on the same
+fishery environment.
+
+- **Outer loop**: ES with ``outer_iters=100``; each candidate runs
+  ``train_iters=50`` PPO iterations.
+- **Inner loop**: PPO (new RLlib API stack,
+  ``enable_rl_module_and_learner=True``) trains 3 fishing agents on
+  :class:`FisheryRegulatedEnv` (V0, ``horizon=1000``).
+- **Mechanism**: V0 :class:`FisheryMechanismSpace` with no ES optimisation
+  (all parameters fixed at default values).
+- **No W&B reporting**.
+
+Usage
+-----
+::
+
+    uv run python -m examples.bilevel_fishery.main_ppo_new_api_stack
+
+Notes
+-----
+This script executes the experiment at module-import time.
+"""
+
 import numpy as np
 import ray
 from gymnasium import spaces

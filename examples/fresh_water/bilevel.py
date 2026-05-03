@@ -14,8 +14,48 @@ ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
 
 
 class BilevelConfigLoader:
+    """Factory that constructs a :class:`~core.optimizers.bilevel.BilevelConfig`
+    from a YAML configuration file.
+
+    This is the canonical entry point for fresh-water bilevel experiments.
+    It reads all hyperparameters, mechanism-space settings, and RL training
+    options from the YAML file and assembles the full nested config without
+    any hard-coded values in the experiment scripts.
+    """
+
     @staticmethod
     def from_yaml(path: str, output_dir: str | None = None) -> BilevelConfig:
+        """Load a YAML config file and build a fully-configured
+        :class:`~core.optimizers.bilevel.BilevelConfig`.
+
+        The YAML file must contain the following top-level keys:
+
+        * ``world`` — world name.
+        * ``mechanism`` — mechanism space class name, default parameters, and
+          scaling bounds (``max_fine``, ``max_ban``).
+        * ``training`` — outer-loop iteration budget (``outer_iters``).
+        * ``ray`` — Ray initialisation options.
+        * ``outer`` — ES training and environment configuration.
+        * ``inner`` — PPO resources, framework, model, API-stack, learners,
+          environment, env-runners, training, evaluation, agent, and
+          fault-tolerance configuration.
+
+        Parameters
+        ----------
+        path : str
+            Path to the YAML configuration file (absolute or relative to the
+            current working directory).
+        output_dir : str or None, optional
+            Directory where results and plots will be written.  When ``None``
+            visualization output is disabled.  Forwarded to
+            :meth:`~core.optimizers.bilevel.BilevelConfig.training`.
+
+        Returns
+        -------
+        BilevelConfig
+            Fully assembled bilevel configuration ready to call
+            ``build_optimizer()`` on.
+        """
         with open(path, "r") as f:
             cfg = yaml.safe_load(f)
 

@@ -30,8 +30,34 @@ class FitnessContext(ContextSchema):
         sustainability_penalty: SupportsFloat,
         sustainability_weight: SupportsFloat,
     ) -> "FitnessContext":
-        """
-        Construct fitness context from evaluation metrics.
+        """Construct a :class:`FitnessContext` from raw evaluation metrics.
+
+        The scalar objective combines agent performance with a sustainability
+        penalty:
+
+        .. code-block:: text
+
+            objective = mean_reward - sustainability_weight * sustainability_penalty
+
+        Parameters
+        ----------
+        mean_reward : SupportsFloat
+            Mean step-level reward collected by inner-loop agents under this
+            mechanism.
+        collapse_rate : SupportsFloat
+            Fraction of timesteps where the resource stock fell below the
+            sustainability threshold (in ``[0, 1]``).
+        sustainability_penalty : SupportsFloat
+            Mean normalized depth of sustainability-threshold violations;
+            zero when the resource is always above the threshold.
+        sustainability_weight : SupportsFloat
+            Scalar weight controlling the trade-off between agent reward and
+            ecosystem sustainability in the objective.
+
+        Returns
+        -------
+        FitnessContext
+            Populated fitness context with the computed objective score.
         """
 
         objective = float(mean_reward - sustainability_weight * sustainability_penalty)

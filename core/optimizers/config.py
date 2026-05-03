@@ -17,21 +17,69 @@ if TYPE_CHECKING:
 
 
 class _Config(ABC):
+    """Private base class for all configuration objects in the optimizer graph.
+
+    Provides a minimal interface that every config subclass must implement.
+    """
+
     def to_dict(self) -> dict:
-        """Converts this configuration to dict format."""
+        """Serialise this configuration to a plain dictionary.
+
+        Returns
+        -------
+        dict
+            A dictionary representation of the configuration.
+
+        Raises
+        ------
+        NotImplementedError
+            Subclasses must implement this method.
+        """
         raise NotImplementedError
 
 
 class OptimizerConfig(_Config, ABC):
+    """Abstract base configuration for all optimizer nodes.
+
+    ``OptimizerConfig`` follows the same fluent builder pattern used across the
+    codebase: each mutating method returns ``self`` so calls can be chained.
+    Concrete subclasses (e.g. :class:`~core.optimizers.es.config.ESConfig`,
+    :class:`~core.adaptors.ray.optimizer_config.RayOptimizerConfig`) extend
+    this class with algorithm-specific parameters.
+
+    The config object can be frozen via :meth:`freeze` once an optimizer has
+    been built, making it read-only for the lifetime of the run.
+
+    Attributes
+    ----------
+    opt_class : type[Optimizer] or None
+        Concrete optimizer class to instantiate in :meth:`build_optimizer`.
+    _is_frozen : bool
+        When ``True``, attribute assignment raises :class:`AttributeError`.
+    env : str or type or None
+        Environment class or registered string identifier.
+    env_config : dict
+        Keyword arguments forwarded to the environment constructor.
+    horizon : int or None
+        Episode length (number of environment steps per rollout).
+    seed : int or None
+        Global random seed for reproducibility.
+    evaluation_config : OptimizerConfig or None
+        Optional sub-configuration used during evaluation rollouts.
+    stats_cls_lookup : dict
+        Mapping used by the Ray ``MetricsLogger`` to resolve statistic classes.
+    """
+
     # TODO registry to allow opt_class str
     # TODO runtime checking of opt_class
     def __init__(self, opt_class: Optional[Type[Optimizer]] = None):
-        """Initializes an OptimizerConfig instance.
+        """Initialise an ``OptimizerConfig`` instance.
 
-        Args:
-            optimizer_class: An optional Optimizer class that this config class belongs to.
-                Used (if provided) to build a respective Optimizer instance from this
-                config.
+        Parameters
+        ----------
+        opt_class : type[Optimizer], optional
+            Optimizer class that this config belongs to.  When provided,
+            :meth:`build_optimizer` instantiates ``opt_class(config=self)``.
         """
         self.opt_class = opt_class
 
@@ -64,6 +112,21 @@ class OptimizerConfig(_Config, ABC):
 
     # TODO generalize this function
     def _merge_env_config(self, extra: dict) -> Self:
+        """Merge additional key-value pairs into the environment config dict.
+
+        Existing keys are preserved; ``extra`` values take precedence on
+        collision.
+
+        Parameters
+        ----------
+        extra : dict
+            Key-value pairs to merge into ``self.env_config``.
+
+        Returns
+        -------
+        Self
+            This config instance (mutated in-place; returned for chaining).
+        """
         self.env_config = {
             **(self.env_config or {}),
             **extra,
@@ -103,7 +166,21 @@ class OptimizerConfig(_Config, ABC):
     # TODO review this
     @classmethod
     def from_dict(cls, data: dict) -> Self:
-        """Serialization from dict"""
+        """Deserialise a configuration object from a plain dictionary.
+
+        Only keys that correspond to existing attributes are applied; unknown
+        keys are silently ignored.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary produced by :meth:`to_dict` or a compatible mapping.
+
+        Returns
+        -------
+        Self
+            A new config instance populated with values from ``data``.
+        """
         cfg = cls()
         for k, v in data.items():
             if hasattr(cfg, k):
@@ -113,7 +190,21 @@ class OptimizerConfig(_Config, ABC):
     # TODO review this
     @classmethod
     def from_yaml(cls, path: str) -> Self:
-        """Serialization from yaml"""
+        """Deserialise a configuration object from a YAML file.
+
+        Loads the YAML document at ``path`` and delegates to
+        :meth:`from_dict`.
+
+        Parameters
+        ----------
+        path : str
+            Filesystem path to a YAML file containing the serialised config.
+
+        Returns
+        -------
+        Self
+            A new config instance populated with values from the YAML file.
+        """
         import yaml
 
         with open(path, "r") as f:
@@ -124,6 +215,20 @@ class OptimizerConfig(_Config, ABC):
         self,
         **env_ctx,
     ) -> BaseEnv:
+        """Instantiate the environment using the stored ``env`` class.
+
+        Parameters
+        ----------
+        **env_ctx : Any
+            Keyword arguments forwarded verbatim to the ``env`` constructor
+            (e.g. ``world``, ``opt_id``, ``agents``, and any ``env_config``
+            key-value pairs).
+
+        Returns
+        -------
+        BaseEnv
+            A freshly constructed environment instance.
+        """
         return self.env(**env_ctx)
 
     # TODO deep copy allows on may be toggled later with use_copy
@@ -238,10 +343,18 @@ class OptimizerConfig(_Config, ABC):
         return self
 
     def training(self, *, seed: Optional[float] = None) -> Self:
-        """
+        """Set base training hyperparameters shared by all optimizer types.
 
-        Args:
-            seed:
+        Parameters
+        ----------
+        seed : float, optional
+            Global random seed for reproducible runs.  Forwarded to the
+            optimizer's RNG (e.g. ``numpy.random.default_rng(seed)``).
+
+        Returns
+        -------
+        Self
+            This config instance (for method chaining).
         """
         if seed is not None:
             self.seed = seed

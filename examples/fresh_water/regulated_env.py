@@ -26,6 +26,31 @@ EPS = 1e-8
 
 # TODO number of agents spawned dynamically as a byproduct of config stating number of agents
 class WaterRegulatedEnv(MultiAgentRegulatedEnv):
+    """Multi-agent regulated environment for water-usage regulation.
+
+    Models a shared water resource consumed by multiple agents (e.g., data
+    centers).  The regulator applies quotas and bans via the mechanism
+    parameters; agents are rewarded for consuming water efficiently while
+    keeping usage within permitted limits.
+
+    This environment is the fresh-water analogue of the fishery regulated
+    environment: the resource dynamics (water stock evolution) are simpler
+    than the Lotka-Volterra ecology model used in the fishery variant, but
+    the regulatory mechanism structure is identical.
+
+    Parameters
+    ----------
+    water_cfg : dict
+        Water resource configuration with the following keys:
+
+        * ``water_init`` (float): Initial water level.
+        * ``max_water`` (float): Maximum water capacity (used for normalisation).
+        * ``min_water`` (float): Minimum water level (floor for dynamics).
+    **kwargs
+        Forwarded to
+        :class:`~core.envs.marl_regulated.MultiAgentRegulatedEnv`.
+    """
+
     def __init__(
         self,
         *,
@@ -46,6 +71,17 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         self.min_water = water_cfg["min_water"]
 
     def _reset(self):
+        """Reset the water environment to its initial state.
+
+        Clears all agent bans and samples a new water level from a normal
+        distribution centred on ``water_init`` (std = 0.05), clamped to
+        ``[0, max_water]``.
+
+        Returns
+        -------
+        dict
+            Initial observation dictionary keyed by agent ID.
+        """
         # Reset ban counters for all agents
         self._agent_bans = {agent_id: 0 for agent_id in self.agents}
 
@@ -61,12 +97,49 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         return obs
 
     def _is_truncated(self) -> bool:
+        """Return whether the episode should be truncated.
+
+        The episode is truncated when the timestep counter reaches the
+        configured horizon.
+
+        Returns
+        -------
+        bool
+            ``True`` if ``self._t >= self.horizon``.
+        """
         # does the episode terminate when the water is depleted ?
         return self._t >= self.horizon
 
     def intrinsic_utility(
         self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
+        """Compute the intrinsic utility of a water-consumption action.
+
+        Utility scales with the fraction of water consumed weighted by the
+        square-root of the current normalised water level, encouraging
+        agents to consume more when water is plentiful and less when it is
+        scarce.  Formally:
+
+        .. code-block:: text
+
+            u = action_clipped * sqrt(water_norm)  *  min(1, water_norm)
+
+        where ``water_norm = S_t["water"] / max_water``.
+
+        Parameters
+        ----------
+        agent_id : AgentID
+            Identifier of the acting agent (unused; utility is symmetric).
+        action : ActType
+            Desired water-consumption fraction in ``[0, 1]``.
+        S_t : dict[str, MultiAgentDict]
+            Current state containing key ``"water"`` (raw water level).
+
+        Returns
+        -------
+        SupportsFloat
+            Non-negative intrinsic utility for this action.
+        """
         # return action * S_t["fish"]
         action = float(
             np.asarray(action).item()
@@ -82,6 +155,26 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
     def violation_signal(
         self, agent_id: AgentID, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
+        """Compute the regulatory violation signal for one agent step.
+
+        A violation occurs when the agent's consumption exceeds the
+        mechanism quota **or** when the water stock is below the minimum
+        stock threshold.
+
+        Parameters
+        ----------
+        agent_id : AgentID
+            Identifier of the acting agent (unused).
+        u_i : SupportsFloat
+            Intrinsic utility (proxy for actual consumption) of the agent.
+        S_t : dict[str, MultiAgentDict]
+            Current state containing key ``"fish"`` (raw resource level).
+
+        Returns
+        -------
+        SupportsFloat
+            Non-negative violation magnitude; ``0.0`` if no violation.
+        """
         quota = max(
             0.0,
             u_i
@@ -92,11 +185,37 @@ class WaterRegulatedEnv(MultiAgentRegulatedEnv):
         return v
 
     def penalty(self) -> SupportsFloat:
+        """Return the per-step fine applied when a violation is detected.
+
+        Returns
+        -------
+        SupportsFloat
+            Fine amount from the current mechanism (``self.m.fine_amount``).
+        """
         return self.m.fine_amount
 
     def transition_kernel(
         self, A_t: MultiAgentEnv, S_t: dict[str, float]
     ) -> dict[str, float]:
+        """Compute the next water-resource state given joint actions and current state.
+
+        Applies quota enforcement, computes effective total consumption, and
+        evolves the water stock.  Currently mirrors fishery Lotka-Volterra
+        logic as a placeholder (implementation in progress).
+
+        Parameters
+        ----------
+        A_t : MultiAgentEnv
+            Joint action mapping (agent_id -> consumption fraction).
+        S_t : dict[str, float]
+            Current state containing ``"water"`` (and legacy ``"fish"`` /
+            ``"algae"`` keys from the fishery codebase).
+
+        Returns
+        -------
+        dict[str, float]
+            Next state with updated resource levels.
+        """
         water_norm = S_t["water"] / self.max_water
 
         # Quota violation: consumption beyond allowed limit

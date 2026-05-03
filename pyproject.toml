@@ -58,5 +58,6 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-# Exclude legacy, tests and examples directories from automatic package discovery
-exclude = ["legacy_code*", "tests*", "examples*"]
+# examples/ must be discoverable so absolute imports (from examples.X import Y) work
+# after `uv sync` without requiring PYTHONPATH manipulation
+exclude = ["legacy_code*", "tests*"]

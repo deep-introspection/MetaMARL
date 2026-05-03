@@ -1,4 +1,22 @@
-"""Test if PPO learns meaningful fishing behavior with current settings."""
+"""Standalone convergence test for PPO on the fresh-water fishery environment.
+
+Trains a single-agent PPO policy on :class:`SimpleFisheryEnv` (a self-contained
+replica of :class:`~examples.fresh_water.regulated_env.WaterRegulatedEnv`) and
+plots four learning-curve panels: episode reward, policy loss, value-function
+loss, and policy entropy.
+
+Designed for rapid iteration during hyperparameter tuning — no bilevel loop,
+no Ray multiprocessing overhead.
+
+Invoke
+------
+From the project root::
+
+    uv run python -m examples.fresh_water.test_ppo_convergence \\
+        --iters 50 --gamma 0.95 --lr 0.005 --horizon 1000
+
+Output is saved to ``results/ppo_convergence.png``.
+"""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,6 +41,22 @@ class SimpleFisheryEnv(gym.Env):
     """
 
     def __init__(self, config: dict):
+        """Initialise the simplified fishery environment.
+
+        Parameters
+        ----------
+        config : dict
+            Environment configuration dictionary with keys:
+
+            * ``mechanism`` (:class:`~examples.bilevel_fishery.mechanism.FisheryMechanism`):
+              Regulatory mechanism to apply.
+            * ``horizon`` (int, optional): Episode length in timesteps.
+              Default ``200``.
+            * ``ecology_cfg`` (dict, optional): Lotka-Volterra ecology
+              parameters.  Supported sub-keys: ``max_fish``, ``max_algae``,
+              ``alpha``, ``beta``, ``delta``, ``gamma``, ``dt``,
+              ``fish_init``, ``algae_init``.
+        """
         super().__init__()
         self.mechanism: FisheryMechanism = config["mechanism"]
         self.horizon = config.get("horizon", 200)
@@ -52,6 +86,22 @@ class SimpleFisheryEnv(gym.Env):
         self._rng = np.random.default_rng()
 
     def reset(self, *, seed=None, options=None):
+        """Reset the environment to its initial state.
+
+        Parameters
+        ----------
+        seed : int or None, optional
+            RNG seed.  When provided, reinitialises the internal
+            :class:`numpy.random.Generator`.
+        options : dict or None, optional
+            Unused; accepted for API compatibility.
+
+        Returns
+        -------
+        tuple[np.ndarray, dict]
+            ``(observation, info)`` where observation has shape
+            ``(5 + mechanism_dim,)``.
+        """
         super().reset(seed=seed)
         if seed is not None:
             self._rng = np.random.default_rng(seed)
@@ -110,6 +160,23 @@ class SimpleFisheryEnv(gym.Env):
         return float(quota + ban)
 
     def step(self, action: np.ndarray):
+        """Advance the fishery environment by one timestep.
+
+        Applies the regulatory mechanism (ban check, quota enforcement),
+        computes the agent reward, and evolves the Lotka-Volterra dynamics.
+
+        Parameters
+        ----------
+        action : np.ndarray
+            Shape ``(1,)`` desired water/fish consumption fraction in
+            ``[0, 1]``.
+
+        Returns
+        -------
+        tuple
+            ``(observation, reward, terminated, truncated, info)`` following
+            the Gymnasium step API.
+        """
         self._t += 1
         action_val = float(np.clip(action[0], 0, 1))
         m = self.mechanism
@@ -158,7 +225,19 @@ class SimpleFisheryEnv(gym.Env):
         return self._obs(), reward, terminated, truncated, {}
 
 
-def env_creator(config):
+def env_creator(config: dict) -> SimpleFisheryEnv:
+    """Ray-compatible environment factory for :class:`SimpleFisheryEnv`.
+
+    Parameters
+    ----------
+    config : dict
+        Forwarded unchanged to :class:`SimpleFisheryEnv.__init__`.
+
+    Returns
+    -------
+    SimpleFisheryEnv
+        New environment instance.
+    """
     return SimpleFisheryEnv(config)
 
 
@@ -168,8 +247,38 @@ def test_ppo_convergence(
     lr: float = 0.001,
     num_envs: int = 16,
     horizon: int = 1000,
-):
-    """Train PPO and track learning progress."""
+) -> list[float]:
+    """Train a PPO policy on :class:`SimpleFisheryEnv` and plot learning curves.
+
+    Uses Ray RLlib's old API stack (``enable_rl_module_and_learner=False``) for
+    simplicity and compatibility with the existing callback infrastructure.
+    Prints per-iteration diagnostics and saves a 2x2 figure with reward,
+    policy loss, value-function loss, and policy entropy panels.
+
+    Parameters
+    ----------
+    train_iters : int, optional
+        Number of PPO training iterations.  Default ``50``.
+    gamma : float, optional
+        Discount factor.  Default ``0.95``.
+    lr : float, optional
+        Adam learning rate.  Default ``0.001``.
+    num_envs : int, optional
+        Number of parallel environment copies per env-runner worker.
+        Default ``16``.
+    horizon : int, optional
+        Episode length (rollout fragment length).  Default ``1000``.
+
+    Returns
+    -------
+    list[float]
+        Mean episode reward recorded after each training iteration.
+
+    Notes
+    -----
+    The plot is saved to ``results/ppo_convergence.png`` relative to the
+    current working directory.
+    """
 
     ray.init(local_mode=True, ignore_reinit_error=True)
     register_env("fishery_test", env_creator)

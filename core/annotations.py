@@ -1,10 +1,36 @@
 def override(parent_cls):
-    """Decorator for documenting method overrides.
+    """Decorator for documenting and enforcing method overrides.
 
-    Args:
-        parent_cls: The superclass that provides the overridden method. If
-            `parent_class` does not actually have the method or the class, in which
-            method is defined is not a subclass of `parent_class`, an error is raised.
+    Validates at class-definition time that the decorated method:
+    (a) actually exists on ``parent_cls``, and (b) is defined on a proper
+    subclass of ``parent_cls``.  Raises ``NameError`` or ``TypeError``
+    otherwise.
+
+    Parameters
+    ----------
+    parent_cls : type
+        The superclass that provides the method being overridden.
+
+    Returns
+    -------
+    Callable
+        The original method, unchanged, after override validation passes.
+
+    Raises
+    ------
+    NameError
+        If the decorated method name does not exist on ``parent_cls``.
+    TypeError
+        If the class that owns the decorated method is not a subclass of
+        ``parent_cls``.
+
+    Examples
+    --------
+    >>> class Base:
+    ...     def step(self): ...
+    >>> class Child(Base):
+    ...     @override(Base)
+    ...     def step(self): return 42
     """
 
     class OverrideCheck:

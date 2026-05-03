@@ -23,20 +23,35 @@ def plot_ecosystem_dynamics(
     save_path: Optional[str] = None,
     sustainability_threshold: float = 0.1,
 ) -> plt.Figure:
-    """Plot fish and algae populations over time.
+    """Plot fish and algae population dynamics over time as a two-panel figure.
 
-    Args:
-        trajectories: List of trajectory records with keys:
-            - episode: int
-            - step: int
-            - fish_population: float
-            - algae_population: float
-        title: Plot title
-        save_path: Path to save figure (optional)
-        sustainability_threshold: Fish population collapse threshold
+    Produces a stacked layout with fish population (top) and algae population
+    (bottom) sharing the same x-axis.  A red dashed collapse-threshold line is
+    drawn on the fish panel.
 
-    Returns:
-        matplotlib Figure object
+    Parameters
+    ----------
+    trajectories : list[dict[str, Any]]
+        Flat list of step-level records.  Expected keys: ``"episode"`` (int),
+        ``"step"`` (int), ``"fish_population"`` (float),
+        ``"algae_population"`` (float).
+    title : str
+        Figure and sub-title prefix.  Defaults to ``"Ecosystem Dynamics"``.
+    save_path : str or None
+        If provided, the figure is saved to this path at 300 dpi.
+    sustainability_threshold : float
+        Fish population fraction below which collapse is declared.  Drawn as a
+        horizontal dashed line.  Defaults to ``0.1``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The completed figure object.
+
+    Raises
+    ------
+    ValueError
+        If ``trajectories`` is empty.
     """
     if not trajectories:
         raise ValueError("No trajectory data provided")
@@ -99,23 +114,41 @@ def plot_combined_trial_analysis(
     title: str = "Trial Analysis",
     save_path: Optional[str] = None,
 ) -> plt.Figure:
-    """Create comprehensive visualization combining ecosystem and action analysis.
+    """Create a 2×2 dashboard summarising a bilevel fishery trial.
 
-    Args:
-        trajectories: List of trajectory records with keys:
-            - episode: int
-            - step: int
-            - fish_population: float
-            - algae_population: float
-            - total_harvest: float (optional)
-            - quota_limit: float (optional)
-        mechanism_params: Mechanism parameters for context
-        sustainability_threshold: Fish population collapse threshold
-        title: Plot title
-        save_path: Path to save figure (optional)
+    Panels:
+    * top-left  — fish population dynamics with collapse threshold;
+    * top-right — algae population dynamics;
+    * bottom-left — harvest vs. quota (falls back to reward if absent);
+    * bottom-right — algae-fish phase plot coloured by reward or time.
 
-    Returns:
-        matplotlib Figure object
+    Parameters
+    ----------
+    trajectories : list[dict[str, Any]]
+        Flat list of step-level records.  Expected keys: ``"episode"`` (int),
+        ``"step"`` (int), ``"fish_population"`` (float),
+        ``"algae_population"`` (float), ``"total_harvest"`` (float, optional),
+        ``"quota_limit"`` (float, optional), ``"reward"`` (float, optional).
+    mechanism_params : dict[str, float] or None
+        Decoded mechanism parameter values annotated at the bottom of the
+        figure.  Omitted when ``None``.
+    sustainability_threshold : float
+        Fish population collapse threshold drawn as a dashed line.  Defaults
+        to ``0.1``.
+    title : str
+        Figure super-title.  Defaults to ``"Trial Analysis"``.
+    save_path : str or None
+        If provided, the figure is saved to this path at 300 dpi.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The completed figure object.
+
+    Raises
+    ------
+    ValueError
+        If ``trajectories`` is empty.
     """
     if not trajectories:
         raise ValueError("No trajectory data provided")
@@ -275,7 +308,23 @@ def plot_combined_trial_analysis(
 
 
 def _group_by_episode(trajectories: list[dict[str, Any]]) -> dict[int, dict[str, list]]:
-    """Group trajectory records by episode."""
+    """Organise flat trajectory records into per-episode data lists.
+
+    Parameters
+    ----------
+    trajectories : list[dict[str, Any]]
+        Flat list of step-level records.  Expected keys (all optional except
+        ``"episode"``): ``"episode"`` (int), ``"step"`` (int),
+        ``"fish_population"`` (float), ``"algae_population"`` (float),
+        ``"total_harvest"`` (float), ``"quota_limit"`` (float),
+        ``"reward"`` (float).
+
+    Returns
+    -------
+    dict[int, dict[str, list]]
+        Mapping ``{episode_id: {"steps": [...], "fish": [...], "algae": [...],
+        "harvest": [...], "quota": [...], "rewards": [...]}}``.
+    """
     episodes: dict[int, dict[str, list]] = {}
 
     for record in trajectories:
@@ -326,18 +375,37 @@ def plot_fitness_vs_parameters(
     optimize_params: Optional[list[str]] = None,
     param_scales: Optional[dict[str, float]] = None,
 ) -> plt.Figure:
-    """Plot fitness as a function of each mechanism parameter.
+    """Scatter-plot fitness against each mechanism parameter, plus best-fitness curve.
 
-    Args:
-        population_history: List of (iteration, (population, fitness)) tuples
-            where population is (N, num_params) and fitness is (N,)
-        title: Plot title
-        save_path: Path to save figure (optional)
-        optimize_params: List of parameter names being optimized
-        param_scales: Dict mapping param names to their max values (for denormalization)
+    Creates one sub-plot per optimised parameter (scatter of parameter value vs.
+    fitness, coloured by ES iteration) plus one additional sub-plot showing the
+    best fitness per iteration as a line chart.
 
-    Returns:
-        matplotlib Figure object
+    Parameters
+    ----------
+    population_history : list[tuple[int, tuple[np.ndarray, np.ndarray]]]
+        List of ``(iteration, (population, fitness))`` tuples where
+        ``population`` has shape ``(N, num_params)`` and ``fitness`` has shape
+        ``(N,)``.
+    title : str
+        Figure super-title.  Defaults to ``"Fitness vs Mechanism Parameters"``.
+    save_path : str or None
+        If provided, the figure is saved to this path at 300 dpi.
+    optimize_params : list[str] or None
+        Names of the parameters in the population vector.  Defaults to
+        :data:`DEFAULT_OPTIMIZE_PARAMS`.
+    param_scales : dict[str, float] or None
+        Denormalisation multiplier per parameter name.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The completed figure object.
+
+    Raises
+    ------
+    ValueError
+        If ``population_history`` is empty.
     """
     if not population_history:
         raise ValueError("No population history provided")
@@ -440,20 +508,35 @@ def plot_es_metrics(
     title: str = "ES Metrics Over Generations",
     save_path: Optional[str] = None,
 ) -> plt.Figure:
-    """Plot ES metrics (fines, fish population, collapse rate) over generations.
+    """Plot a 2×2 summary of ES-level sustainability metrics over generations.
 
-    Args:
-        metrics_history: List of metric dicts per generation with keys:
-            - generation: int
-            - total_fines: float
-            - mean_fish: float
-            - min_fish: float
-            - mean_collapse_rate: float
-        title: Plot title
-        save_path: Path to save figure (optional)
+    Panels:
+    * top-left  — total fines issued per generation;
+    * top-right — mean and minimum fish population per generation;
+    * bottom-left — mean ecosystem collapse rate per generation;
+    * bottom-right — best individual fitness per generation.
 
-    Returns:
-        matplotlib Figure object
+    Parameters
+    ----------
+    metrics_history : list[dict[str, Any]]
+        One dict per ES generation with optional keys: ``"generation"`` (int),
+        ``"total_fines"`` (float), ``"mean_fish"`` (float),
+        ``"min_fish"`` (float), ``"mean_collapse_rate"`` (float),
+        ``"best_fitness"`` (float).  Missing keys default to ``0.0``.
+    title : str
+        Figure super-title.  Defaults to ``"ES Metrics Over Generations"``.
+    save_path : str or None
+        If provided, the figure is saved to this path at 300 dpi and closed.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The completed figure object.
+
+    Raises
+    ------
+    ValueError
+        If ``metrics_history`` is empty.
     """
     if not metrics_history:
         raise ValueError("No metrics history provided")
@@ -541,17 +624,36 @@ def plot_parameter_evolution(
     optimize_params: Optional[list[str]] = None,
     param_scales: Optional[dict[str, float]] = None,
 ) -> plt.Figure:
-    """Plot how the best mechanism parameters evolve over iterations.
+    """Plot the evolution of the best-candidate mechanism parameters over iterations.
 
-    Args:
-        population_history: List of (iteration, (population, fitness)) tuples
-        title: Plot title
-        save_path: Path to save figure (optional)
-        optimize_params: List of parameter names being optimized
-        param_scales: Dict mapping param names to their max values (for denormalization)
+    For each iteration selects the individual with the highest fitness and
+    traces each parameter value as a line over iteration index.
 
-    Returns:
-        matplotlib Figure object
+    Parameters
+    ----------
+    population_history : list[tuple[int, tuple[np.ndarray, np.ndarray]]]
+        List of ``(iteration, (population, fitness))`` tuples where
+        ``population`` has shape ``(N, num_params)`` and ``fitness`` has shape
+        ``(N,)``.
+    title : str
+        Figure and axis title.  Defaults to ``"Parameter Evolution"``.
+    save_path : str or None
+        If provided, the figure is saved to this path at 300 dpi.
+    optimize_params : list[str] or None
+        Names of the parameters in the population vector.  Defaults to
+        :data:`DEFAULT_OPTIMIZE_PARAMS`.
+    param_scales : dict[str, float] or None
+        Denormalisation multiplier per parameter name.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Single-axis figure with one line per parameter.
+
+    Raises
+    ------
+    ValueError
+        If ``population_history`` is empty.
     """
     if not population_history:
         raise ValueError("No population history provided")
@@ -608,6 +710,18 @@ def plot_parameter_evolution(
 
 
 def _to_float(x: Any) -> Optional[float]:
+    """Safely cast a value to a Python ``float``.
+
+    Parameters
+    ----------
+    x : Any
+        Value to convert.  NumPy scalars are unwrapped via ``.item()``.
+
+    Returns
+    -------
+    float or None
+        Converted value, or ``None`` if ``x`` is ``None`` or cannot be cast.
+    """
     if x is None:
         return None
     try:
@@ -619,6 +733,19 @@ def _to_float(x: Any) -> Optional[float]:
 
 
 def _summarize_dict_of_scalars(d: Dict[str, Any]) -> Dict[str, float]:
+    """Compute summary statistics over the finite numeric values in a dict.
+
+    Parameters
+    ----------
+    d : dict[str, Any]
+        Dictionary whose values will be summarised.
+
+    Returns
+    -------
+    dict[str, float]
+        Keys ``"mean"``, ``"min"``, ``"max"``, ``"std"``, ``"n"``, or ``{}``
+        when no finite values are found.
+    """
     vals: list[float] = []
     for v in (d or {}).values():
         fv = _to_float(v)
@@ -639,6 +766,25 @@ def _summarize_dict_of_scalars(d: Dict[str, Any]) -> Dict[str, float]:
 def _aggregate_learner_stats(
     info_learner: Dict[str, Any],
 ) -> Dict[str, Dict[str, float]]:
+    """Aggregate PPO old-stack learner statistics across all policies.
+
+    Iterates over the ``results["info"]["learner"]`` block, collects scalar
+    values from each policy's ``"learner_stats"`` sub-dict, and returns
+    summary statistics keyed by statistic name.
+
+    Parameters
+    ----------
+    info_learner : dict[str, Any]
+        The ``results["info"]["learner"]`` dict from an RLlib (old-stack)
+        training result.  Keys are policy IDs; values are dicts containing a
+        ``"learner_stats"`` sub-dict.
+
+    Returns
+    -------
+    dict[str, dict[str, float]]
+        Mapping ``{stat_name: {"mean": …, "min": …, "max": …, "std": …,
+        "n": …}}`` for each stat found across all policies.
+    """
     per_stat: Dict[str, list[float]] = {}
     for _, policy_block in (info_learner or {}).items():
         if not isinstance(policy_block, dict):
@@ -677,12 +823,37 @@ def plot_training_results(
     prefix_base: str = "ppo",
     num_mechanisms: int = 16,
 ) -> None:
-    """
-    Fixed:
-      - No attrs on wandb_run (W&B forbids it)
-      - Persistent table per run (cached in module dict)
-      - Stable metric names (no outer_iter in metric key path)
-      - ONE wandb_run.log call per step
+    """Log inner-loop PPO training metrics to W&B (RLlib old-API-stack).
+
+    Extracts episode rewards, per-policy rewards, performance timers, and
+    learner statistics from an RLlib old-stack result dict and uploads them as
+    scalars plus a persistent ``wandb.Table`` that enables a multi-line reward
+    chart (one line per mechanism).
+
+    Design invariants:
+
+    * No attributes are set on ``wandb_run`` (W&B SDK forbids it).
+    * The per-run reward table is cached in the module-level
+      ``_MECH_REWARD_TABLES`` dict to ensure persistence across calls.
+    * Metric key paths are stable (``outer_iter`` is logged as a value, not
+      embedded in the key) so W&B charts accumulate correctly.
+    * Exactly one ``wandb_run.log`` call is made per step.
+
+    Parameters
+    ----------
+    wandb_run : wandb.sdk.wandb_run.Run
+        Active W&B run.  No-op if ``None``.
+    outer_iter : int
+        Current outer-loop (ES) iteration index.
+    training_episode : int
+        Current inner-loop training step / episode index (used as W&B step).
+    results : dict
+        RLlib old-stack training result dict returned by ``trainer.train()``.
+    prefix_base : str
+        Metric key prefix in W&B.  Defaults to ``"ppo"``.
+    num_mechanisms : int
+        Number of parallel mechanism policies to scan for per-policy rewards.
+        Defaults to ``16``.
     """
     if wandb_run is None:
         return

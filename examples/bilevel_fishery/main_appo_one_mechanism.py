@@ -1,3 +1,33 @@
+"""Bilevel fishery experiment — APPO inner loop, single fixed mechanism (V0).
+
+This script runs the full bilevel optimisation loop with a *single* fixed
+mechanism to validate that APPO can learn a good fishing policy before ES
+is engaged.
+
+- **Outer loop**: ES with ``outer_iters=100``; the regulator environment is
+  :class:`FisheryRegulatorEnv`.  Each ES candidate runs ``train_iters=1000``
+  APPO iterations.
+- **Inner loop**: APPO trains 3 fishing agents for up to 1000 iterations per
+  mechanism candidate.  The fishery environment is :class:`FisheryRegulatedEnv`
+  (V0 — binary fine / ban mechanism, ``horizon=1000``).
+- **Mechanism**: :class:`FisheryMechanismSpace` (V0) with
+  ``fixed_quota=0.25``, ``prop_quota=0.25``, ``min_stock=0.40``,
+  ``fine_amount=10.0``, ``ban_period=50``, ``catch_prob=1.0``.  No ES
+  optimisation; the mechanism is held fixed.
+- **W&B reporting** enabled (project ``bilevel``).
+
+Usage
+-----
+::
+
+    uv run python -m examples.bilevel_fishery.main_appo_one_mechanism
+
+Notes
+-----
+This script executes the experiment at module-import time.  It is intended to
+be run directly, not imported as a library.
+"""
+
 import numpy as np
 import ray
 from gymnasium import spaces

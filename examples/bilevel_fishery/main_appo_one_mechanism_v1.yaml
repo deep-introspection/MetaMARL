@@ -1,136 +1,233 @@
+# ============================================================
+# BilevelFishery — V1 experiment configuration (APPO + risk penalty)
+#
+# This config runs the bilevel optimisation loop with:
+#   - Outer loop: Evolution Strategies (ES) searching for regulatory mechanisms
+#   - Inner loop: APPO (asynchronous PPO) training 3 fishing agents
+#   - Mechanism: V1 continuous risk-penalty enforcement
+#
+# Key differences from config.yaml (V0):
+#   - Mechanism V1: adds target_stock, risk_penalty_scale, risk_penalty_power;
+#     removes ban_period and catch_prob
+#   - Inner loop uses APPO (asynchronous) instead of PPO (synchronous)
+#   - Uses the new RLlib API stack (enable_rl_module_and_learner: true)
+#   - W&B reporting enabled
+#   - Longer horizon (1000 steps) and larger train_iters (1000)
+#
+# Run with:
+#   ./run.sh examples/bilevel_fishery/main_appo_one_mechanism_v1.yaml
+# ============================================================
+
+# ------------------------------------------------------------
+# World
+# ------------------------------------------------------------
 world:
-  world_name: fishery_world
+  world_name: fishery_world   # Must match a registered world class in core/world/
 
+# ------------------------------------------------------------
+# W&B reporting
+# Results are logged to Weights & Biases. Set reporter: null
+# to disable W&B and run without tracking.
+# ------------------------------------------------------------
 reporting:
-  reporter: wandb
-  project_name: bilevel
+  reporter: wandb           # "wandb" to enable W&B logging, null to disable
+  project_name: bilevel     # W&B project name — runs appear under this project
   settings_dict:
-    x_disable_stats: true
-    x_disable_meta: true
-    quiet: true
-    max_end_of_run_summary_metrics: 0
-    max_end_of_run_history_metrics: 0
+    x_disable_stats: true               # Suppress W&B system stats (CPU, RAM, etc.)
+    x_disable_meta: true                # Suppress run metadata collection
+    quiet: true                         # Suppress W&B console output
+    max_end_of_run_summary_metrics: 0   # Disable end-of-run summary table
+    max_end_of_run_history_metrics: 0   # Disable end-of-run history export
 
+# ------------------------------------------------------------
+# Mechanism (V1: continuous risk-penalty enforcement)
+#
+# V1 replaces the binary fine/ban scheme of V0 with a smooth,
+# continuous penalty that scales with how close the stock is
+# to collapse. Agents always feel this penalty — there is no
+# stochastic detection.
+#
+# All 7 parameters are optimised by ES in V1.
+# ------------------------------------------------------------
 mechanism:
-  space: FisheryMechanismSpaceV1
+  space: FisheryMechanismSpaceV1   # V1 mechanism class (resolves via component registry)
   scaling:
-    max_fine: 10.0
+    max_fine: 10.0   # Upper bound for fine_amount and risk_penalty_scale normalisation
   default:
-    fixed_quota: 0.25
-    prop_quota: 0.25
-    min_stock: 0.40
-    target_stock: 0.60
-    fine_amount: 10.0
-    risk_penalty_scale: 8.0
-    risk_penalty_power: 2.0
+    fixed_quota: 0.25    # Hard harvest cap per agent per step [0, 1], as a fraction of max_fish.
+                         # 0.25 = agents may harvest at most 25% of max_fish per step
+    prop_quota: 0.25     # Proportional quota multiplier [0, 1]. Effective quota =
+                         # min(fixed_quota, prop_quota * fish_norm). Restricts harvest when stock is low
+    min_stock: 0.40      # Normalised stock floor [0, 1]. Fishing prohibited when fish / max_fish < 0.40
+    target_stock: 0.60   # Desired stock level [0, 1]. Agents are penalised when their fishing
+                         # is predicted to push the stock below this value. Higher = stricter conservation
+    fine_amount: 10.0    # Base fine for quota violations [0, max_fine]
+    risk_penalty_scale: 8.0   # Overall magnitude of the continuous risk penalty [0, max_fine].
+                               # Large values create strong deterrence against fishing near collapse.
+                               # This is the primary enforcement lever in V1
+    risk_penalty_power: 2.0   # Exponent of the stock-shortfall term [1, 5].
+                               # power=2 → quadratic penalty (grows fast near target_stock).
+                               # Higher values concentrate the deterrence near the collapse point.
+                               # power=1 → linear (weaker deterrence at low stock levels)
 
+# ------------------------------------------------------------
+# Training schedule
+# ------------------------------------------------------------
 training:
-  outer_iters: 100
+  outer_iters: 100   # Number of ES generations. Each generation evaluates the full
+                     # ES population of mechanism candidates
 
+# ------------------------------------------------------------
+# Ray cluster configuration
+# ------------------------------------------------------------
 ray:
-  device: cpu
-  num_cpus: 4
-  omp_threads: 1
-  logging_level: ERROR
+  device: cpu             # Compute device: "cpu" or "gpu"
+  num_cpus: 4             # Total CPU cores allocated to the Ray cluster
+  omp_threads: 1          # OpenMP threads per worker. Keep at 1 to avoid over-subscription
+  logging_level: ERROR    # Ray log verbosity: ERROR, WARNING, INFO, or DEBUG
 
+# ------------------------------------------------------------
+# Outer loop: Evolution Strategies (ES) — the regulator
+# ------------------------------------------------------------
 outer:
-  optimizer: ES
+  optimizer: ES   # Only "ES" is supported for the outer loop
+
   training:
-    sigma: 0.5
-    mean_lr: 0.2
-    sigma_lr: 0.05
-    min_sigma: 0.01
-    max_sigma: 0.6
+    sigma: 0.5        # Initial ES exploration radius in mechanism space.
+                      # Larger than V0 (0.3) to allow broader search in the 7-dimensional V1 space
+    mean_lr: 0.2      # Step size for updating the ES distribution mean. Slightly larger than V0
+    sigma_lr: 0.05    # Step size for adapting sigma over training
+    min_sigma: 0.01   # Floor on sigma. Larger than V0 to maintain broader exploration longer
+    max_sigma: 0.6    # Ceiling on sigma
+
   environment:
-    env: FisheryRegulatorEnv
+    env: FisheryRegulatorEnv   # Outer-loop environment (same as V0)
     env_config:
       ecology_cfg:
-        sus_weight: 1.0
-        sus_threshold: 0.1
-    horizon: 1000
-    train_iters: 1000
+        sus_weight: 1.0       # Weight on the sustainability penalty:
+                              # fitness = mean_reward - sus_weight * sustainability_penalty
+        sus_threshold: 0.1    # Normalised fish stock level defining "collapse".
+                              # Steps below this threshold penalise the fitness score
+    horizon: 1000             # Inner-loop steps used per mechanism evaluation.
+                              # Longer than V0 (200) to allow agents to learn under longer episodes
+    train_iters: 1000         # APPO training iterations per mechanism evaluation.
+                              # Much larger than V0 (50) because APPO is asynchronous and
+                              # requires more iterations to converge
 
+# ------------------------------------------------------------
+# Inner loop: APPO — the fishing agents
+#
+# APPO (Asynchronous PPO) uses V-trace off-policy correction to
+# stabilise learning when data arrives from asynchronous workers.
+# This makes it better suited than synchronous PPO for long
+# training runs with many environment steps.
+# ------------------------------------------------------------
 inner:
-  optimizer: APPO
+  optimizer: APPO   # Asynchronous PPO. Requires enable_rl_module_and_learner: true
 
   resources:
-    num_cpus_for_main_process: 1
+    num_cpus_for_main_process: 1   # CPUs reserved for the RLlib trainer process
 
   framework:
-    framework: torch
+    framework: torch   # Deep learning backend
 
   api_stack:
-    enable_rl_module_and_learner: true
-    enable_env_runner_and_connector_v2: true
+    # V1 uses the new RLlib API stack (required for APPO with separate learners)
+    enable_rl_module_and_learner: true          # Enable new Module/Learner API
+    enable_env_runner_and_connector_v2: true    # Enable new EnvRunner/Connector API
 
   environment:
-    env: FisheryRegulatedEnvV1
+    env: FisheryRegulatedEnvV1   # V1 inner-loop environment (risk-penalty enforcement)
     env_config:
       ecology_cfg:
-        algae_init: 1.0
-        fish_init: 2.5
-        max_fish: 5.0
-        max_algae: 5.0
-        alpha: 0.5
-        beta: 0.1
-        delta: 0.5
-        gamma: 0.4
-        dt: 0.1
-      seed: 0
-    horizon: 1000
-    disable_env_checking: false
+        algae_init: 1.0   # Initial algae biomass at episode start (before log-normal jitter)
+        fish_init: 2.5    # Initial fish biomass at episode start. Higher than V0 (0.5) to
+                          # start episodes in a healthier ecological state
+        max_fish: 5.0     # Fish carrying capacity (biomass ceiling)
+        max_algae: 5.0    # Algae carrying capacity
 
+        # Lotka-Volterra parameters:
+        # dX/dt = delta * X * Y  -  gamma * X  -  H(t)   [fish]
+        # dY/dt = alpha * Y  -  beta * Y * X              [algae]
+        alpha: 0.5   # Intrinsic algae growth rate
+        beta: 0.1    # Rate fish consume algae
+        delta: 0.5   # Fish growth rate from algae. Higher than V0 (0.2) — fish grow faster
+        gamma: 0.4   # Natural fish mortality rate
+        dt: 0.1      # Euler integration step size. Larger than V0 (0.01) — faster simulation
+                     # at the cost of some accuracy. With horizon=1000 and dt=0.1,
+                     # each episode simulates 100.0 time units
+      seed: 0        # RNG seed for the inner environment
+    horizon: 1000              # Episode length in steps (much longer than V0's 200)
+    disable_env_checking: false  # Run RLlib's environment sanity checks at startup
+
+  # Environment runners (data collectors)
   env_runners:
-    num_env_runners: 0
+    num_env_runners: 0            # 0 = rollouts run in the main process (no separate workers).
+                                  # Simpler setup for single-machine experiments
     num_cpus_per_env_runner: 1
     num_gpus_per_env_runner: 0
-    num_envs_per_env_runner: 1
-    rollout_fragment_length: 500
-    batch_mode: truncate_episodes
+    num_envs_per_env_runner: 1    # One environment per runner (no batched rollouts here)
+    rollout_fragment_length: 500  # Steps per fragment. Shorter than the episode horizon (1000)
+                                  # to keep the data pipeline flowing
+    batch_mode: truncate_episodes # Cut fragments at rollout_fragment_length even mid-episode.
+                                  # Required when episodes are longer than the fragment
 
+  # Learners handle gradient updates (separate from data collection in APPO)
   learners:
-    num_learners: 1
+    num_learners: 1        # 1 dedicated learner process (separate from env runners)
     num_gpus_per_learner: 0
 
+  # Callbacks are called at specific points in the training loop.
   callbacks:
-    on_episode_created: tag_episode_with_env_idx
+    on_episode_created: tag_episode_with_env_idx   # Tags each episode with the env index,
+                                                    # used to associate trajectories with
+                                                    # the mechanism that generated them
 
+  # APPO-specific training hyperparameters
   training:
-    vtrace: true
-    circular_buffer_num_batches: 4
-    circular_buffer_iterations_per_batch: 1
-    broadcast_interval: 1
-    timeout_s_sampler_manager: 300
-    timeout_s_aggregator_manager: 300
-    gamma: 0.99
-    lr: 0.001
-    train_batch_size: 4000
-    minibatch_size: 500
-    entropy_coeff: 0.001
-    grad_clip: 40.0
+    vtrace: true                          # V-trace off-policy correction. Required for stable APPO
+                                          # when data arrives asynchronously from env runners
+    circular_buffer_num_batches: 4        # Number of batches kept in the APPO circular replay buffer.
+                                          # Controls the staleness of data used for learning
+    circular_buffer_iterations_per_batch: 1  # Gradient updates per batch drawn from the buffer
+    broadcast_interval: 1                 # How often (in learner steps) the updated policy is
+                                          # broadcast to env runners
+    timeout_s_sampler_manager: 300        # Seconds before the sampler manager times out.
+                                          # Increase if rollouts are slow
+    timeout_s_aggregator_manager: 300     # Seconds before the aggregator manager times out
+    gamma: 0.99           # Discount factor for future rewards
+    lr: 0.001             # Policy network learning rate (higher than V0's 0.0003)
+    train_batch_size: 4000   # Total steps per training batch
+    minibatch_size: 500      # Steps per gradient update
+    entropy_coeff: 0.001     # Entropy bonus coefficient. Encourages exploration
+    grad_clip: 40.0          # Maximum gradient norm. Prevents catastrophic updates
 
+  # Evaluation
   evaluation:
-    evaluation_interval: null
-    evaluation_duration: 1000
+    evaluation_interval: null       # null = disable periodic evaluation
+    evaluation_duration: 1000       # Steps per evaluation run
     evaluation_duration_unit: timesteps
     evaluation_num_env_runners: 1
     evaluation_config:
-      explore: false
+      explore: false                # Greedy deterministic policy during evaluation
       seed: 42
       num_envs_per_env_runner: 1
       rollout_fragment_length: 1000
       batch_mode: complete_episodes
       minibatch_size: null
 
+  # Agent definitions
   agents:
     fisher:
-      count: 3
+      count: 3              # Number of fishing agents (all share a single policy)
       policy: fisher_policy
-      observation_base_dim: 4
+      observation_base_dim: 4   # Base observation features before mechanism vector is appended:
+                                 # [fish_norm, algae_norm, effective_quota, no_fish_zone_indicator]
+                                 # (V1 drops the ban_remaining feature that V0 has)
       action_space:
-        low: 0.0
-        high: 1.0
-        shape: [1]
+        low: 0.0    # Minimum harvest fraction
+        high: 1.0   # Maximum harvest fraction
+        shape: [1]  # Single continuous action
 
   fault_tolerance:
-    restart_failed_env_runners: false
+    restart_failed_env_runners: false   # Do not auto-restart crashed workers (fail loudly)

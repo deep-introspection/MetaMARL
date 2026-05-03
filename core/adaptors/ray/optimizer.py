@@ -36,6 +36,50 @@ if TYPE_CHECKING:
 
 # TODO perhaps we would first want an adaptor for core ray algorithm and then the PPO inherits it
 class RayOptimizer(Optimizer):
+    """Ray/RLlib-backed optimizer for bilevel fishery regulation experiments.
+
+    Owns a ``PolicyActor`` Ray remote actor that holds the RLlib
+    ``Algorithm`` object.  The ``Algorithm`` never leaves the actor; all
+    interactions go through ``ray.get()`` calls on the actor handle.  This
+    isolation prevents the main process from being blocked by RLlib's
+    internal thread pools and enables clean shutdown semantics.
+
+    Metrics are extracted from each RLlib ``ResultDict`` via the utility
+    helpers in ``core.adaptors.ray.utils`` and forwarded to the W&B reporter
+    actor after every training step.
+
+    Parameters
+    ----------
+    config : RayOptimizerConfig
+        Frozen optimizer configuration produced by
+        ``RayOptimizerConfig.build_optimizer``.
+    world : ActorHandle[World]
+        Ray remote actor handle for the simulation world, used to retrieve
+        the latest environment step contexts for per-episode plotting.
+    reporting : ActorHandle[WandbReporter]
+        Ray remote actor handle for W&B metric reporting.
+
+    Attributes
+    ----------
+    policy_actor : ActorHandle[PolicyActor]
+        Remote Ray actor that owns and runs the RLlib ``Algorithm``.
+    eval_episodes : int
+        Number of evaluation episodes, derived from
+        ``evaluation_duration / rollout_fragment_length``.
+    eval_base_seed : int or None
+        Base seed for evaluation environments.
+    _training_rewards : list[float]
+        Per-step mean episode returns accumulated within the current ES round.
+    _training_losses : list[float]
+        Per-step policy losses accumulated within the current ES round.
+    _es_round : int
+        Current outer evolution-strategy round index (incremented on
+        ``reset()``).
+    _env_reducers : list[ReductionSpec]
+        Reduction specs used to aggregate environment step contexts for
+        per-episode W&B plots.
+    """
+
     def __init__(
         self,
         # algo: Algorithm,
@@ -74,10 +118,33 @@ class RayOptimizer(Optimizer):
     @property
     @override(Optimizer)
     def batch_capacity(self) -> int:
+        """Number of parallel environments per env-runner worker.
+
+        Used by the outer bilevel loop to determine how many mechanism
+        configurations can be evaluated simultaneously in a single training
+        call.
+
+        Returns
+        -------
+        int
+            Value of ``AlgorithmConfig.num_envs_per_env_runner``.
+        """
         return self.config.rllib_cfg.num_envs_per_env_runner
 
     # TODO move to utils
     def _build_agent_policy_map(self) -> dict[AgentID, str]:
+        """Build a mapping from agent IDs to their base policy ID.
+
+        Iterates over ``config.agent_specs`` and constructs the canonical
+        agent-ID string ``"{agent_type}:{index}"`` for each agent, mapping
+        it to the spec's ``policy`` field.
+
+        Returns
+        -------
+        dict[AgentID, str]
+            Mapping from agent ID (e.g. ``"fisher:0"``) to base policy ID
+            (e.g. ``"fisher"``).
+        """
         agent_to_policy: dict[AgentID, str] = {}
 
         for agent_type, spec in self.config.agent_specs.items():
@@ -91,6 +158,22 @@ class RayOptimizer(Optimizer):
         return agent_to_policy
 
     def _get_policy_handle(self, policy_id: str):
+        """Retrieve a policy handle compatible with both old and new RLlib API stacks.
+
+        Tries the new ``RLModule`` API first (``Algorithm.get_module``); falls
+        back to the classic ``Policy`` API (``Algorithm.get_policy``) if the
+        module is not available.
+
+        Parameters
+        ----------
+        policy_id : str
+            The policy ID to look up (e.g. ``"fisher_0"``).
+
+        Returns
+        -------
+        RLModule or Policy
+            The policy or module object for the given ID.
+        """
         # RLModule API (newer)
         try:
             return self.algo.get_module(policy_id)
@@ -100,6 +183,16 @@ class RayOptimizer(Optimizer):
 
     @override(Optimizer)
     def run(self) -> None:
+        """Execute one RLlib training iteration and report metrics to W&B.
+
+        Calls ``PolicyActor.train`` on the remote actor, extracts episode
+        return, environment step counts, and policy loss from the
+        ``ResultDict``, and forwards them to the W&B reporter actor.  If
+        environment step contexts are available from the world actor, a
+        per-episode reduced summary is also plotted.
+
+        All Ray remote calls are blocking (``ray.get``).
+        """
         logger.info("[PPO] Training step started")
         result = ray.get(self.policy_actor.train.remote())
         step = int(to_float(result.get("training_iteration")) or 0)
@@ -152,6 +245,12 @@ class RayOptimizer(Optimizer):
 
     @override(Optimizer)
     def evaluate(self) -> None:
+        """Run one evaluation pass using the RLlib algorithm's built-in evaluator.
+
+        Delegates to ``PolicyActor.evaluate`` on the remote actor.  The
+        evaluation uses the evaluation configuration specified in the
+        ``AlgorithmConfig`` (environment, number of episodes, seed, etc.).
+        """
         logger.info("[PPO] Evaluation started")
         ray.get(self.policy_actor.evaluate.remote())
         logger.info("[PPO] Evaluation completed")
@@ -167,9 +266,33 @@ class RayOptimizer(Optimizer):
 
     @override(Optimizer)
     def stop(self) -> None:
+        """Shut down the RLlib algorithm and release its resources.
+
+        Calls ``PolicyActor.stop`` on the remote actor, which in turn calls
+        ``Algorithm.stop()``.  This terminates all env-runner and learner
+        worker processes associated with the algorithm.
+        """
         ray.get(self.policy_actor.stop.remote())
 
     @override(Optimizer)
     def save(self, checkpoint_dir: Optional[str] = None) -> _TrainingResult:
+        """Persist algorithm weights and state to a checkpoint directory.
+
+        Parameters
+        ----------
+        checkpoint_dir : str, optional
+            Directory path for the checkpoint.  If ``None``, a default path
+            determined by RLlib will be used.
+
+        Returns
+        -------
+        _TrainingResult
+            Ray Train checkpoint result containing the checkpoint path and
+            associated metadata.
+
+        Notes
+        -----
+        Not yet implemented.
+        """
         # TODO
         pass

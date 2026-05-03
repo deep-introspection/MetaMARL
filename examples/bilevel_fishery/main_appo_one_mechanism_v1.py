@@ -1,3 +1,38 @@
+"""Bilevel fishery experiment — APPO inner loop, single fixed mechanism (V1).
+
+This script runs the bilevel optimisation loop using the V1 mechanism and
+environment, which introduce risk-sensitive continuous penalties in place of
+the binary fine/ban scheme of V0.
+
+- **Outer loop**: ES with ``outer_iters=100``; each candidate runs
+  ``train_iters=1000`` APPO iterations.  Regulator environment:
+  :class:`FisheryRegulatorEnv`.
+- **Inner loop**: APPO trains 3 fishing agents.  Fishery environment:
+  :class:`~examples.bilevel_fishery.regulated_env_v1.FisheryRegulatedEnv`
+  (V1 — risk-penalty scheme, ``horizon=1000``).
+- **Mechanism**: :class:`~examples.bilevel_fishery.mechanism_v1.FisheryMechanismSpace`
+  (V1) with ``fixed_quota=0.25``, ``prop_quota=0.25``, ``min_stock=0.40``,
+  ``target_stock=0.6``, ``fine_amount=10.0``, ``risk_penalty_scale=8.0``,
+  ``risk_penalty_power=2.0``.  No ES optimisation applied.
+- **W&B reporting** enabled (project ``bilevel``).
+
+Usage
+-----
+::
+
+    uv run python -m examples.bilevel_fishery.main_appo_one_mechanism_v1
+
+    # Or as a callable (e.g. from a sweep script):
+    from examples.bilevel_fishery.main_appo_one_mechanism_v1 import main
+    main()
+
+Notes
+-----
+Unlike the other module-level scripts, this file exposes a :func:`main`
+function and guards execution under ``if __name__ == "__main__"``, making it
+safe to import.
+"""
+
 import numpy as np
 import ray
 from gymnasium import spaces
@@ -218,7 +253,15 @@ bilevel_opt.run()
 ray.shutdown()
 
 
-def main(cfg=None):
+def main(cfg: BilevelConfig | None = None) -> None:
+    """Run the V1 single-mechanism bilevel experiment.
+
+    Parameters
+    ----------
+    cfg : BilevelConfig or None, optional
+        A pre-built :class:`~core.optimizers.bilevel.BilevelConfig` to use.
+        If ``None`` (default), the module-level ``bilevel_opt_cfg`` is used.
+    """
     if cfg is None:
         cfg = bilevel_opt_cfg
 

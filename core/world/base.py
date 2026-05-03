@@ -34,6 +34,14 @@ class World:
 
     # TODO the reporting type annotation to add
     def __init__(self, reporting: WandbReporter = None):
+        """Initialise the World actor with empty registries.
+
+        Parameters
+        ----------
+        reporting : WandbReporter, optional
+            Optional Weights & Biases reporter actor used for live experiment
+            logging.  ``None`` disables all external reporting.
+        """
         # Maps optimizer IDs to the list of context IDs they own
         # TODO replace with registry
         self._opt_ctx_map: dict[OptimizerID, list[ContextID]] = {}
@@ -48,19 +56,48 @@ class World:
         self.reporting: WandbReporter = reporting
 
     def __deepcopy__(self, memo):
+        """Return self to prevent Ray actors from being deep-copied.
+
+        Ray remote actors must not be serialised by value.  Returning ``self``
+        ensures that any inadvertent ``copy.deepcopy`` call leaves the actor
+        handle intact.
+        """
         return self
 
     def __copy__(self):
+        """Return self to prevent Ray actors from being shallow-copied."""
         return self
 
     # Accessors
     def get_ctx_registry(self) -> dict[ContextID, Context]:
+        """Return the full context registry.
+
+        Returns
+        -------
+        dict[ContextID, Context]
+            Mapping of all context IDs to their :class:`~core.world.context.Context` objects.
+        """
         return self._contexts
 
     def get_mechanism_registry(self) -> dict[int, MechanismContext]:
+        """Return the mechanism registry.
+
+        Returns
+        -------
+        dict[int, MechanismContext]
+            Mapping of context IDs to active
+            :class:`~core.world.context.MechanismContext` objects.
+        """
         return self._mechanism_registry
 
     def get_opt_registry(self) -> KeysView[OptimizerID]:
+        """Return the set of registered optimizer IDs.
+
+        Returns
+        -------
+        KeysView[OptimizerID]
+            Live view of all optimizer IDs known to the World.
+        """
         return self._opt_ctx_map.keys()
 
     def get_context(self, ctx_id: ContextID) -> Context | None:
@@ -132,6 +169,21 @@ class World:
         return latest
 
     def get_mechanism(self) -> MechanismContext:
+        """Claim the first published mechanism (blocking).
+
+        Iterates over the mechanism registry and atomically transitions the
+        first mechanism with status ``published`` to status ``assigned``.
+
+        Returns
+        -------
+        MechanismContext
+            The claimed mechanism context.
+
+        Raises
+        ------
+        RuntimeError
+            If no mechanism with status ``published`` is currently available.
+        """
         for m_ctx in self._mechanism_registry.values():
             if m_ctx.status == MechanismStatus.published:
                 m_ctx.status = MechanismStatus.assigned
@@ -149,6 +201,24 @@ class World:
 
     # TODO fix this function. now the primary key is ctx_id
     def get_mechanism_by_index(self, index: int) -> MechanismContext:
+        """Retrieve a mechanism context by its integer index.
+
+        Parameters
+        ----------
+        index : int
+            The mechanism index as stored in the registry (currently the
+            context ID key).
+
+        Returns
+        -------
+        MechanismContext
+            The corresponding mechanism context.
+
+        Raises
+        ------
+        KeyError
+            If no mechanism with the given index exists.
+        """
         return self._mechanism_registry[index]
 
     def _validate_ctx_schema_exists(self, schema: type[ContextSchema]) -> None:
@@ -163,6 +233,33 @@ class World:
 
     # Mutators
     def append_context(self, ctx: Context, *, singleton: bool = False):
+        """Append a new context to the World, assigning it a unique ID.
+
+        Generates a UUID for the context, stores it in the context registry,
+        updates the optimizer-to-context mapping, and (if the payload is a
+        :class:`~core.world.context.MechanismContext`) also registers it in the
+        mechanism registry.
+
+        Parameters
+        ----------
+        ctx : Context
+            The context to register.  Its ``id`` field must be ``None`` or a
+            value not already present in the registry.
+        singleton : bool, optional
+            If ``True``, raises :exc:`ValueError` if a context with the same
+            payload schema type already exists.
+
+        Returns
+        -------
+        ContextID
+            The newly assigned context ID.
+
+        Raises
+        ------
+        ValueError
+            If ``ctx.id`` is already registered, or if ``singleton=True`` and
+            a context with the same schema type already exists.
+        """
         # Enforce singleton schemas if requested
         if singleton:
             self._validate_ctx_schema_exists(type(ctx.payload))
@@ -208,6 +305,20 @@ class World:
         return self._set_new_opt_id(opt_id=opt.opt_id)
 
     def _set_new_opt_id(self, opt_id: OptimizerID) -> OptimizerID:
+        """Register a new optimizer ID and initialise its context list.
+
+        If ``opt_id`` is ``None`` a UUID is generated automatically.
+
+        Parameters
+        ----------
+        opt_id : OptimizerID or None
+            Desired optimizer ID.  Pass ``None`` to auto-generate.
+
+        Returns
+        -------
+        OptimizerID
+            The registered (possibly auto-generated) optimizer ID.
+        """
         if opt_id is None:
             opt_id = generate_uuid(registry=self._opt_ctx_map.keys())
 
@@ -217,15 +328,31 @@ class World:
         return opt_id
 
     def set_new_context(self, ctx: Context, singleton: bool = False) -> ContextID:
-        """
-        Register a new context in the world.
+        """Register a new context in the World with explicit ID assignment.
 
-        Args:
-            ctx: Context object containing optimizer ID and schema payload
-            singleton: Whether this context schema must be unique globally
+        Similar to :meth:`append_context` but allows pre-assigned context IDs.
+        If ``ctx.id`` is ``None`` a UUID is generated; otherwise the provided
+        value is used as-is (and must not already be registered).
 
-        Returns:
-            The generated ContextID
+        Parameters
+        ----------
+        ctx : Context
+            Context object containing the optimizer ID and schema payload.
+        singleton : bool, optional
+            If ``True``, raises :exc:`ValueError` if a context with the same
+            payload schema type already exists.
+
+        Returns
+        -------
+        ContextID
+            The (possibly auto-generated) context ID.
+
+        Raises
+        ------
+        ValueError
+            If ``ctx.id`` is already registered, if ``singleton=True`` and a
+            duplicate schema type exists, or if a :class:`~core.world.context.MechanismContext`
+            payload is missing ``env_id``.
         """
 
         if singleton:
@@ -255,8 +382,20 @@ class World:
         return ctx.id
 
     def update_context(self, ctx: Context) -> None:
-        """
-        Update an existing context payload.
+        """Replace the payload of an existing context in-place.
+
+        Parameters
+        ----------
+        ctx : Context
+            Updated context.  ``ctx.id`` must already be registered.
+
+        Raises
+        ------
+        KeyError
+            If ``ctx.id`` is not found in the context registry.
+        ValueError
+            If the payload is a :class:`~core.world.context.MechanismContext`
+            without a populated ``env_id``.
         """
         if ctx.id not in self._contexts:
             raise KeyError(f"Context {ctx.id} not registered")
@@ -269,8 +408,16 @@ class World:
             self._mechanism_registry[ctx.id] = ctx.payload
 
     def remove_context(self, ctx: Context) -> None:
-        """
-        Remove a context from the world.
+        """Remove a context from the World and clean up optimizer mappings.
+
+        If the optimizer no longer owns any contexts after removal its entry is
+        deleted from the optimizer-to-context map.
+
+        Parameters
+        ----------
+        ctx : Context
+            The context to remove.  If ``ctx.id`` is not registered, the call
+            is a no-op.
         """
         if ctx.id in self._contexts:
             self._contexts.pop(ctx.id)
@@ -285,6 +432,15 @@ class World:
 
     # TODO fix this function. now the primary key is ctx_id
     def flush(self, job: Optional[MechanismStatus] = None) -> None:
+        """Remove mechanism contexts from the registry, optionally filtered by job type.
+
+        Parameters
+        ----------
+        job : MechanismStatus or None, optional
+            When provided, only mechanism contexts whose ``job`` field matches
+            this status are deleted.  When ``None``, all mechanism contexts are
+            removed.
+        """
         to_delete = []
 
         for ctx_id, m_ctx in self._mechanism_registry.items():
@@ -296,5 +452,15 @@ class World:
             del self._mechanism_registry[ctx_id]
 
     def flush_ctx(self, ctx_ids: list[ContextID]):
+        """Remove a specific set of context IDs from the context registry.
+
+        Missing IDs are silently ignored.  Used after evaluation to discard
+        consumed :class:`~core.world.context.EnvStepContext` entries.
+
+        Parameters
+        ----------
+        ctx_ids : list[ContextID]
+            List of context IDs to delete from the registry.
+        """
         for cid in ctx_ids:
             self._contexts.pop(cid, None)

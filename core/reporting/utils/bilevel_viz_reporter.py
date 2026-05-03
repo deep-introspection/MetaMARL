@@ -19,6 +19,19 @@ from wandb.sdk.wandb_run import Run
 
 
 def _ensure_dir(p: Optional[str]) -> Optional[Path]:
+    """Create a directory (including parents) and return its ``Path``.
+
+    Parameters
+    ----------
+    p : str or None
+        Target directory path.  If falsy, returns ``None`` without side effects.
+
+    Returns
+    -------
+    Path or None
+        Resolved ``Path`` object after the directory has been created, or
+        ``None`` when ``p`` is empty/``None``.
+    """
     if not p:
         return None
     path = Path(p)
@@ -27,6 +40,20 @@ def _ensure_dir(p: Optional[str]) -> Optional[Path]:
 
 
 def _to_float(x: Any) -> Optional[float]:
+    """Safely cast a value to a Python ``float``.
+
+    Handles NumPy scalars via ``.item()`` to avoid scalar-wrapping issues.
+
+    Parameters
+    ----------
+    x : Any
+        Value to convert.
+
+    Returns
+    -------
+    float or None
+        Converted value, or ``None`` if ``x`` is ``None`` or cannot be cast.
+    """
     if x is None:
         return None
     try:
@@ -38,6 +65,19 @@ def _to_float(x: Any) -> Optional[float]:
 
 
 def _wandb_log_fig(wandb_run: Run, key: str, fig: plt.Figure, step: int) -> None:
+    """Log a matplotlib figure to W&B and close it immediately.
+
+    Parameters
+    ----------
+    wandb_run : wandb.sdk.wandb_run.Run
+        Active W&B run.  No-op if ``None``.
+    key : str
+        Metric key under which the image is logged.
+    fig : matplotlib.figure.Figure
+        Figure to wrap in ``wandb.Image`` and log.
+    step : int
+        Global step value passed to ``wandb_run.log``.
+    """
     if wandb_run is None:
         return
     wandb_run.log({key: wandb.Image(fig)}, step=step, commit=False)
@@ -45,6 +85,22 @@ def _wandb_log_fig(wandb_run: Run, key: str, fig: plt.Figure, step: int) -> None
 
 
 def _summarize_dict_of_scalars(d: Dict[str, Any]) -> Dict[str, float]:
+    """Compute summary statistics over the finite numeric values in a dict.
+
+    Non-numeric entries and non-finite values (``NaN``, ``±Inf``) are silently
+    skipped.  Returns an empty dict when no finite values are found.
+
+    Parameters
+    ----------
+    d : dict[str, Any]
+        Dictionary whose values will be summarised.
+
+    Returns
+    -------
+    dict[str, float]
+        Keys ``"mean"``, ``"min"``, ``"max"``, ``"std"``, ``"n"`` computed
+        over all finite values, or ``{}`` if no finite values exist.
+    """
     vals: list[float] = []
     for v in (d or {}).values():
         fv = _to_float(v)
@@ -65,6 +121,26 @@ def _summarize_dict_of_scalars(d: Dict[str, Any]) -> Dict[str, float]:
 def _aggregate_learner_stats(
     info_learner: Dict[str, Any],
 ) -> Dict[str, Dict[str, float]]:
+    """Aggregate PPO learner statistics across all policies.
+
+    Iterates over the ``learner`` block of an RLlib (old-stack) result dict,
+    collects scalar values from each policy's ``learner_stats`` sub-dict, and
+    returns summary statistics (mean/min/max/std/n) keyed by statistic name.
+
+    Parameters
+    ----------
+    info_learner : dict[str, Any]
+        The ``results["info"]["learner"]`` dict from an RLlib training result.
+        Keys are policy IDs; values are dicts containing a ``"learner_stats"``
+        sub-dict.
+
+    Returns
+    -------
+    dict[str, dict[str, float]]
+        Mapping ``{stat_name: {"mean": …, "min": …, "max": …, "std": …,
+        "n": …}}`` for each stat found across all policies.  Empty if no
+        finite values are present.
+    """
     per_stat: Dict[str, list[float]] = {}
     for _, policy_block in (info_learner or {}).items():
         if not isinstance(policy_block, dict):
@@ -99,9 +175,30 @@ def _aggregate_learner_stats(
 def extract_mechanism_params_full(
     mechanism_space: Any, candidate: Any
 ) -> Optional[dict[str, float]]:
-    """
-    Returns ALL mechanism params from decoded mechanism.
-    Does NOT require any changes to Mechanism or MechanismSpace.
+    """Extract all numeric mechanism parameters from a decoded candidate.
+
+    Decodes ``candidate`` through ``mechanism_space.decode()``, then collects
+    scalar float parameters.  Prefers ``mech.param_names()`` when available
+    (explicit, ordered); falls back to inspecting ``vars(mech)`` for numeric
+    public attributes.
+
+    Does not require any changes to ``Mechanism`` or ``MechanismSpace``.
+
+    Parameters
+    ----------
+    mechanism_space : Any
+        Object with a ``decode(candidate)`` method that returns a mechanism
+        instance.  May also expose ``max_fine`` and ``max_ban`` attributes used
+        for denormalization by callers.
+    candidate : Any
+        Raw candidate vector (e.g. a normalised NumPy array) produced by the
+        Evolution Strategies outer loop.
+
+    Returns
+    -------
+    dict[str, float] or None
+        Mapping of parameter name to its finite float value, or ``None`` if
+        decoding fails or no numeric parameters are found.
     """
     if mechanism_space is None or candidate is None:
         return None
@@ -138,6 +235,22 @@ def extract_mechanism_params_full(
 
 
 def _group_by_episode(trajectories: list[dict[str, Any]]) -> dict[int, dict[str, list]]:
+    """Organise flat trajectory records into per-episode data lists.
+
+    Parameters
+    ----------
+    trajectories : list[dict[str, Any]]
+        Flat list of step-level records.  Expected keys (all optional except
+        ``episode``): ``episode`` (int), ``step`` (int),
+        ``fish_population`` (float), ``algae_population`` (float),
+        ``total_harvest`` (float), ``quota_limit`` (float), ``reward`` (float).
+
+    Returns
+    -------
+    dict[int, dict[str, list]]
+        Mapping ``{episode_id: {"steps": [...], "fish": [...], "algae": [...],
+        "harvest": [...], "quota": [...], "rewards": [...]}}``.
+    """
     episodes: dict[int, dict[str, list]] = {}
     for record in trajectories:
         ep = record.get("episode", 0)
@@ -171,6 +284,39 @@ def plot_combined_trial_analysis(
     title: str = "Trial Analysis",
     save_path: Optional[str] = None,
 ) -> plt.Figure:
+    """Create a 2×2 dashboard summarising a bilevel trial.
+
+    Panels:
+    * top-left  — fish population dynamics with collapse threshold;
+    * top-right — algae population dynamics;
+    * bottom-left — harvest vs. quota (or reward if harvest is absent);
+    * bottom-right — algae-fish phase plot coloured by time or reward.
+
+    Parameters
+    ----------
+    trajectories : list[dict[str, Any]]
+        Flat list of step-level records (see :func:`_group_by_episode` for
+        expected keys).
+    mechanism_params : dict[str, float] or None
+        Mechanism parameter values to annotate at the bottom of the figure.
+    sustainability_threshold : float
+        Fish-population fraction below which collapse is declared.  Shown as a
+        dashed horizontal line on the fish panel.  Defaults to ``0.1``.
+    title : str
+        Figure super-title.  Defaults to ``"Trial Analysis"``.
+    save_path : str or None
+        If provided, the figure is saved to this path at 300 dpi.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The completed figure object (caller is responsible for closing it).
+
+    Raises
+    ------
+    ValueError
+        If ``trajectories`` is empty.
+    """
     if not trajectories:
         raise ValueError("No trajectory data provided")
 
@@ -331,6 +477,39 @@ def plot_fitness_vs_parameters(
     optimize_params: Optional[list[str]] = None,
     param_scales: Optional[dict[str, float]] = None,
 ) -> plt.Figure:
+    """Scatter-plot fitness against each mechanism parameter, plus best-fitness curve.
+
+    Creates one sub-plot per optimised parameter (scatter of parameter value vs.
+    fitness, coloured by ES iteration) plus one additional sub-plot showing the
+    best fitness per iteration as a line chart.
+
+    Parameters
+    ----------
+    population_history : list[tuple[int, tuple[np.ndarray, np.ndarray]]]
+        List of ``(iteration, (population, fitness))`` tuples where
+        ``population`` has shape ``(N, num_params)`` and ``fitness`` has shape
+        ``(N,)``.
+    title : str
+        Figure super-title.  Defaults to ``"Fitness vs Mechanism Parameters"``.
+    save_path : str or None
+        If provided, the figure is saved to this path at 300 dpi.
+    optimize_params : list[str] or None
+        Names of the parameters in the population vector (must match order of
+        columns).  Defaults to :data:`DEFAULT_OPTIMIZE_PARAMS`.
+    param_scales : dict[str, float] or None
+        Denormalisation multiplier per parameter name.  Missing names fall back
+        to :data:`ALL_PARAM_SCALES`.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The completed figure object.
+
+    Raises
+    ------
+    ValueError
+        If ``population_history`` is empty.
+    """
     if not population_history:
         raise ValueError("No population history provided")
 
@@ -415,6 +594,38 @@ def plot_parameter_evolution(
     optimize_params: Optional[list[str]] = None,
     param_scales: Optional[dict[str, float]] = None,
 ) -> plt.Figure:
+    """Plot the evolution of the best-candidate mechanism parameters over ES iterations.
+
+    For each iteration selects the individual with the highest fitness and
+    traces each parameter value as a line over iteration index.  Useful for
+    diagnosing convergence and parameter drift.
+
+    Parameters
+    ----------
+    population_history : list[tuple[int, tuple[np.ndarray, np.ndarray]]]
+        List of ``(iteration, (population, fitness))`` tuples where
+        ``population`` has shape ``(N, num_params)`` and ``fitness`` has shape
+        ``(N,)``.
+    title : str
+        Figure and axis title.  Defaults to ``"Parameter Evolution"``.
+    save_path : str or None
+        If provided, the figure is saved to this path at 300 dpi.
+    optimize_params : list[str] or None
+        Names of the parameters in the population vector.  Defaults to
+        :data:`DEFAULT_OPTIMIZE_PARAMS`.
+    param_scales : dict[str, float] or None
+        Denormalisation multiplier per parameter name.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Single-axis figure with one line per parameter.
+
+    Raises
+    ------
+    ValueError
+        If ``population_history`` is empty.
+    """
     if not population_history:
         raise ValueError("No population history provided")
 
@@ -466,6 +677,36 @@ def plot_es_metrics(
     title: str = "ES Metrics Over Generations",
     save_path: Optional[str] = None,
 ) -> plt.Figure:
+    """Plot a 2×2 summary of ES-level sustainability metrics over generations.
+
+    Panels:
+    * top-left  — total fines issued per generation;
+    * top-right — mean and minimum fish population per generation;
+    * bottom-left — mean ecosystem collapse rate per generation;
+    * bottom-right — best individual fitness per generation.
+
+    Parameters
+    ----------
+    metrics_history : list[dict[str, Any]]
+        One dict per generation with optional keys: ``"generation"`` (int),
+        ``"total_fines"`` (float), ``"mean_fish"`` (float),
+        ``"min_fish"`` (float), ``"mean_collapse_rate"`` (float),
+        ``"best_fitness"`` (float).  Missing keys default to ``0.0``.
+    title : str
+        Figure super-title.  Defaults to ``"ES Metrics Over Generations"``.
+    save_path : str or None
+        If provided, the figure is saved to this path at 300 dpi.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The completed figure object.
+
+    Raises
+    ------
+    ValueError
+        If ``metrics_history`` is empty.
+    """
     if not metrics_history:
         raise ValueError("No metrics history provided")
 
@@ -536,6 +777,30 @@ def plot_training_results(
     prefix_base: str = "ppo",
     num_mechanisms: int = 16,
 ) -> None:
+    """Log inner-loop (PPO/APPO) training metrics to W&B for a single step.
+
+    Extracts episode rewards, per-policy rewards, performance timers, and
+    learner statistics from an RLlib (old-stack) result dict and uploads them
+    as scalars plus a persistent ``wandb.Table`` that enables a multi-line
+    reward chart (one line per mechanism).
+
+    Parameters
+    ----------
+    wandb_run : wandb.sdk.wandb_run.Run
+        Active W&B run.  No-op if ``None``.
+    outer_iter : int
+        Current outer-loop (ES) iteration index.
+    training_episode : int
+        Current inner-loop training step / episode index (used as W&B step).
+    results : dict
+        RLlib training result dict returned by ``algo.train()``.
+    prefix_base : str
+        Metric key prefix in W&B, e.g. ``"ppo"``.  Defaults to ``"ppo"``.
+    num_mechanisms : int
+        Number of parallel mechanism policies (``fisher_policy_0`` …
+        ``fisher_policy_{num_mechanisms-1}``) to scan for per-policy rewards.
+        Defaults to ``16``.
+    """
     if wandb_run is None:
         return
 
@@ -641,6 +906,33 @@ _ES_TABLES: dict[int, wandb.Table] = {}
 
 @dataclass
 class BilevelVizReporter:
+    """High-level reporter that wires outer-loop (ES) visualisations to W&B.
+
+    Owns the per-run W&B metric definitions and accumulates population history
+    and ES metrics across iterations.  Call :meth:`on_outer_iteration_end` at
+    the end of each ES generation to flush trajectory plots, parameter-evolution
+    charts, and sustainability scalars to the active W&B run.
+
+    Parameters
+    ----------
+    wandb_run : wandb.sdk.wandb_run.Run or None
+        Active W&B run.  All logging methods are no-ops when ``None``, which
+        makes it safe to instantiate without a W&B connection.
+    output_dir : str or None
+        Local directory to which figures are saved (created if absent).  Set
+        to ``None`` to skip local saving.
+    mechanism_space : Any or None
+        Mechanism search-space object used to decode candidate vectors and
+        read denormalisation constants (``max_fine``, ``max_ban``).
+    optimize_params : list[str] or None
+        Ordered list of parameter names in the ES population vector.  Used to
+        label axes in parameter-evolution and fitness-vs-parameters plots.
+        Defaults to :data:`DEFAULT_OPTIMIZE_PARAMS` when ``None``.
+    num_mechanisms : int
+        Number of parallel mechanism policies in the inner loop.  Defaults to
+        ``16``.
+    """
+
     wandb_run: Optional[Run]
     output_dir: Optional[str] = None
     mechanism_space: Any = None
@@ -663,6 +955,28 @@ class BilevelVizReporter:
     def on_outer_iteration_end(
         self, *, outer_iter: int, outer: Any, outer_metrics: dict
     ) -> None:
+        """Flush visualisations and scalars for a completed ES generation.
+
+        Generates and logs:
+        * trajectory plot for the best candidate (if available);
+        * decoded mechanism parameter scalars (``mech/<param>``);
+        * fitness-vs-parameters scatter plot;
+        * parameter-evolution line chart;
+        * ES metrics summary figure and appended ``wandb.Table`` row.
+
+        Parameters
+        ----------
+        outer_iter : int
+            Index of the completed ES generation (used as W&B step).
+        outer : Any
+            Outer-loop optimiser object.  Expected attributes (optional):
+            ``best_candidate``, ``env.last_metrics``.
+        outer_metrics : dict
+            Metrics dict produced by the outer loop.  Expected keys (optional):
+            ``"best_trajectory"`` (list of step dicts),
+            ``"best_fitness"`` (float),
+            ``"population_history"`` (list of ``(population, fitness)``).
+        """
         if self.wandb_run is None:
             return
 
@@ -754,11 +1068,24 @@ class BilevelVizReporter:
         self.wandb_run.log(payload, step=outer_iter, commit=True)
 
     def finish(self) -> None:
+        """Finalise the reporter.
+
+        Placeholder for any cleanup (e.g. flushing deferred uploads) required
+        at the end of an experiment.  Currently a no-op.
+        """
         return
 
     # ----- internal helpers -----
 
     def _param_scales(self) -> Optional[dict[str, float]]:
+        """Build a denormalisation scale dict from ``mechanism_space`` attributes.
+
+        Returns
+        -------
+        dict[str, float] or None
+            ``{"fine_amount": max_fine, "ban_period": max_ban}``, or ``None``
+            if ``self.mechanism_space`` is not set.
+        """
         if self.mechanism_space is None:
             return None
         return {
@@ -767,12 +1094,43 @@ class BilevelVizReporter:
         }
 
     def _extract_mechanism_params_full(self, outer: Any) -> Optional[dict[str, float]]:
+        """Decode and return mechanism parameters for the best current candidate.
+
+        Parameters
+        ----------
+        outer : Any
+            Outer-loop optimiser; must expose a ``best_candidate`` attribute.
+
+        Returns
+        -------
+        dict[str, float] or None
+            Decoded parameter dict, or ``None`` if decoding fails or
+            ``mechanism_space`` is unset.
+        """
         best_candidate = getattr(outer, "best_candidate", None)
         return extract_mechanism_params_full(self.mechanism_space, best_candidate)
 
     def _collect_es_metrics(
         self, *, outer_iter: int, fitness: float, outer: Any
     ) -> None:
+        """Collect and append ES sustainability metrics for the current generation.
+
+        Reads ``outer.env.last_metrics`` (if available) to populate fish
+        population and collapse-rate statistics, then appends a record to
+        ``self.es_metrics_history``.
+
+        Parameters
+        ----------
+        outer_iter : int
+            Current ES generation index.
+        fitness : float
+            Best fitness value achieved in this generation.
+        outer : Any
+            Outer-loop optimiser.  Expected optional chain:
+            ``outer.env.last_metrics`` — list of per-episode metric dicts with
+            keys ``"total_fines"``, ``"mean_fish"``, ``"min_fish"``,
+            ``"collapse_rate"``.
+        """
         metrics = {
             "generation": int(outer_iter),
             "best_fitness": float(fitness),
@@ -802,6 +1160,16 @@ class BilevelVizReporter:
         self.es_metrics_history.append(metrics)
 
     def _log_es_metrics_table(self, *, step: int) -> None:
+        """Append the latest ES metrics row to the persistent W&B table and log line charts.
+
+        Uses a module-level ``_ES_TABLES`` cache so the table accumulates rows
+        across calls without being recreated on every iteration.
+
+        Parameters
+        ----------
+        step : int
+            W&B step value passed to ``wandb_run.log``.
+        """
         if self.wandb_run is None:
             return
 

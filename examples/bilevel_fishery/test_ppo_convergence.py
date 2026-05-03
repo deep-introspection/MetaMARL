@@ -1,4 +1,33 @@
-"""Test if PPO learns meaningful fishing behavior with current settings."""
+"""Standalone PPO convergence test for the fishery environment.
+
+This script provides a self-contained sanity check: it trains a single-agent
+PPO on a simplified version of the fishery environment (:class:`SimpleFisheryEnv`)
+and plots four learning-progress curves (reward, policy loss, VF loss, entropy).
+
+Motivation
+----------
+Before running the full bilevel loop (which is expensive), this script lets
+you verify that PPO can learn a meaningful fishing policy for a given mechanism
+configuration.  It mirrors the multi-agent environment logic precisely so that
+any convergence issues found here will also appear in the real inner loop.
+
+Usage
+-----
+::
+
+    # Default settings
+    uv run python -m examples.bilevel_fishery.test_ppo_convergence
+
+    # With a specific config file
+    uv run python -m examples.bilevel_fishery.test_ppo_convergence \\
+        --config configs/fishery_appo_v1.yaml \\
+        --iters 100 --lr 0.001 --horizon 500
+
+Output
+------
+A 2×2 plot saved to ``results/ppo_convergence.png`` and a summary printed to
+stdout indicating whether PPO learned meaningful behavior.
+"""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,9 +46,33 @@ EPS = 1e-8
 
 
 class SimpleFisheryEnv(gym.Env):
-    """Standalone fishery env matching FisheryRegulatedEnv for testing PPO convergence.
+    """Single-agent fishery environment for PPO convergence testing.
 
-    This is a single-agent version that mirrors the multi-agent environment logic.
+    Mirrors the logic of :class:`~regulated_env.FisheryRegulatedEnv` exactly
+    (same Lotka-Volterra dynamics, same intrinsic utility, same violation
+    signal, same observation vector) but as a standard single-agent
+    Gymnasium environment.  This makes it compatible with the synchronous
+    ``PPOConfig`` API without requiring Ray's multi-agent machinery.
+
+    Parameters
+    ----------
+    config : dict
+        Configuration dictionary passed by RLlib's ``register_env``.
+        Expected keys:
+
+        - ``"mechanism"`` (:class:`~mechanism.FisheryMechanism`): regulatory
+          parameters to use.
+        - ``"horizon"`` (int, optional): episode length.  Default ``200``.
+        - ``"ecology_cfg"`` (dict, optional): Lotka-Volterra parameters (same
+          keys as in the multi-agent environment).  Defaults are provided for
+          all fields.
+
+    Attributes
+    ----------
+    observation_space : spaces.Box
+        Shape ``(5 + mechanism_dim,)``, unbounded floats.
+    action_space : spaces.Box
+        Shape ``(1,)``, values in [0, 1].
     """
 
     def __init__(self, config: dict):
@@ -51,7 +104,23 @@ class SimpleFisheryEnv(gym.Env):
         self.ban_remaining = 0
         self._rng = np.random.default_rng()
 
-    def reset(self, *, seed=None, options=None):
+    def reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[np.ndarray, dict]:
+        """Reset the environment and return the initial observation.
+
+        Parameters
+        ----------
+        seed : int or None, optional
+            If provided, re-seeds the internal RNG.
+        options : dict or None, optional
+            Ignored.
+
+        Returns
+        -------
+        obs : np.ndarray
+            Initial observation of shape ``(5 + mechanism_dim,)``.
+        info : dict
+            Empty dictionary.
+        """
         super().reset(seed=seed)
         if seed is not None:
             self._rng = np.random.default_rng(seed)
@@ -109,7 +178,32 @@ class SimpleFisheryEnv(gym.Env):
         ban = float(fish_norm < m.min_stock) * u
         return float(quota + ban)
 
-    def step(self, action: np.ndarray):
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
+        """Advance the environment by one step.
+
+        Replicates the logic of
+        :meth:`~regulated_env.FisheryRegulatedEnv._step` for a single agent:
+        ban check → intrinsic utility → violation signal → stochastic
+        enforcement → Lotka-Volterra transition.
+
+        Parameters
+        ----------
+        action : np.ndarray
+            Shape ``(1,)``, harvest fraction in [0, 1].
+
+        Returns
+        -------
+        obs : np.ndarray
+            Next observation.
+        reward : float
+            Harvest utility minus any applied fine.
+        terminated : bool
+            Always ``False`` (no natural termination).
+        truncated : bool
+            ``True`` when ``self._t >= self.horizon``.
+        info : dict
+            Empty dictionary.
+        """
         self._t += 1
         action_val = float(np.clip(action[0], 0, 1))
         m = self.mechanism
@@ -162,7 +256,20 @@ class SimpleFisheryEnv(gym.Env):
         return self._obs(), reward, terminated, truncated, {}
 
 
-def env_creator(config):
+def env_creator(config: dict) -> SimpleFisheryEnv:
+    """Factory function registered with Ray Tune for environment creation.
+
+    Parameters
+    ----------
+    config : dict
+        Environment configuration dictionary (forwarded verbatim to
+        :class:`SimpleFisheryEnv`).
+
+    Returns
+    -------
+    SimpleFisheryEnv
+        A freshly constructed environment instance.
+    """
     return SimpleFisheryEnv(config)
 
 
@@ -174,8 +281,37 @@ def test_ppo_convergence(
     horizon: int = 1000,
     mechanism_kwargs: dict | None = None,
     ecology_cfg: dict | None = None,
-):
-    """Train PPO and track learning progress."""
+) -> list[float]:
+    """Train PPO on the single-agent fishery and return the reward curve.
+
+    Trains synchronous PPO using the old RLlib API stack
+    (``enable_rl_module_and_learner=False``) for compatibility with simple
+    single-policy training.  Progress is printed every 10 iterations and a
+    2×2 convergence plot is saved to ``results/ppo_convergence.png``.
+
+    Parameters
+    ----------
+    train_iters : int, optional
+        Number of PPO training iterations.  Default is ``50``.
+    gamma : float, optional
+        Discount factor.  Default is ``0.95``.
+    lr : float, optional
+        Adam learning rate.  Default is ``0.001``.
+    num_envs : int, optional
+        Number of parallel environment copies per env runner.  Default ``16``.
+    horizon : int, optional
+        Episode length (steps per rollout).  Default is ``1000``.
+    mechanism_kwargs : dict or None, optional
+        Override specific :class:`~mechanism.FisheryMechanism` constructor
+        arguments.  If ``None``, a set of reasonable defaults is used.
+    ecology_cfg : dict or None, optional
+        Override ecology parameters.  If ``None``, standard defaults are used.
+
+    Returns
+    -------
+    list of float
+        Mean episode reward recorded at each training iteration.
+    """
 
     ray.init(local_mode=True, ignore_reinit_error=True)
     register_env("fishery_test", env_creator)

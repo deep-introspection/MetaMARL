@@ -16,20 +16,44 @@ def plot_ecosystem_dynamics(
     save_path: Optional[str] = None,
     sustainability_threshold: float = 0.1,
 ) -> plt.Figure:
-    """Plot fish and algae populations over time.
+    """Plot fish and algae population dynamics over time.
 
-    Args:
-        trajectories: List of trajectory records with keys:
-            - episode: int
-            - step: int
-            - fish_population: float
-            - algae_population: float
-        title: Plot title
-        save_path: Path to save figure (optional)
-        sustainability_threshold: Fish population collapse threshold
+    Produces a 2-panel figure (stacked vertically, shared x-axis):
 
-    Returns:
-        matplotlib Figure object
+    * **Top panel** — fish population over time with a horizontal dashed line
+      marking the sustainability collapse threshold.
+    * **Bottom panel** — algae population over time.
+
+    Each episode is drawn in a distinct colour.
+
+    Parameters
+    ----------
+    trajectories : list[dict[str, Any]]
+        List of trajectory records.  Each record must contain:
+
+        * ``episode`` (int): Episode index.
+        * ``step`` (int): Timestep within the episode.
+        * ``fish_population`` (float): Fish stock at this timestep.
+        * ``algae_population`` (float): Algae stock at this timestep.
+    title : str, optional
+        Base title string prepended to each subplot title.
+        Default ``"Ecosystem Dynamics"``.
+    save_path : str or None, optional
+        File path where the figure is saved (300 dpi, tight layout).
+        When ``None`` the figure is not saved to disk.
+    sustainability_threshold : float, optional
+        Fish-population collapse threshold shown as a red dashed line.
+        Default ``0.1``.
+
+    Returns
+    -------
+    plt.Figure
+        Matplotlib figure object containing the two panels.
+
+    Raises
+    ------
+    ValueError
+        If ``trajectories`` is empty.
     """
     if not trajectories:
         raise ValueError("No trajectory data provided")
@@ -92,23 +116,50 @@ def plot_combined_trial_analysis(
     title: str = "Trial Analysis",
     save_path: Optional[str] = None,
 ) -> plt.Figure:
-    """Create comprehensive visualization combining ecosystem and action analysis.
+    """Create a comprehensive 2x2 figure combining ecosystem and action analysis.
 
-    Args:
-        trajectories: List of trajectory records with keys:
-            - episode: int
-            - step: int
-            - fish_population: float
-            - algae_population: float
-            - total_harvest: float (optional)
-            - quota_limit: float (optional)
-        mechanism_params: Mechanism parameters for context
-        sustainability_threshold: Fish population collapse threshold
-        title: Plot title
-        save_path: Path to save figure (optional)
+    Panel layout:
 
-    Returns:
-        matplotlib Figure object
+    * **Top-left** — Fish population dynamics with collapse threshold.
+    * **Top-right** — Algae population dynamics.
+    * **Bottom-left** — Harvest vs. quota (if ``total_harvest``/``quota_limit``
+      fields are present); falls back to reward over time; shows placeholder
+      text if neither is available.
+    * **Bottom-right** — Phase plot of algae vs. fish coloured by timestep or
+      per-step reward.
+
+    Mechanism parameters (if provided) are printed as an italic caption below
+    the figure.
+
+    Parameters
+    ----------
+    trajectories : list[dict[str, Any]]
+        List of trajectory records.  Required keys: ``episode``, ``step``,
+        ``fish_population``, ``algae_population``.  Optional keys:
+        ``total_harvest``, ``quota_limit``, ``reward``.
+    mechanism_params : dict[str, float] or None, optional
+        Mechanism parameter values displayed as an annotation at the bottom
+        of the figure.  Expected keys: ``fixed_quota``, ``prop_quota``,
+        ``fine_amount``, ``min_stock``, ``ban_period``.  When ``None`` no
+        annotation is added.
+    sustainability_threshold : float, optional
+        Collapse threshold shown as a dashed red line in the fish-population
+        panel.  Default ``0.1``.
+    title : str, optional
+        Super-title of the figure.  Default ``"Trial Analysis"``.
+    save_path : str or None, optional
+        File path where the figure is saved (300 dpi, tight layout).
+        When ``None`` the figure is not saved to disk.
+
+    Returns
+    -------
+    plt.Figure
+        Matplotlib figure object with the 2x2 panel layout.
+
+    Raises
+    ------
+    ValueError
+        If ``trajectories`` is empty.
     """
     if not trajectories:
         raise ValueError("No trajectory data provided")
@@ -277,7 +328,21 @@ def plot_combined_trial_analysis(
 
 
 def _group_by_episode(trajectories: list[dict[str, Any]]) -> dict[int, dict[str, list]]:
-    """Group trajectory records by episode."""
+    """Group flat trajectory records into per-episode lists.
+
+    Parameters
+    ----------
+    trajectories : list[dict[str, Any]]
+        Flat list of step-level records (see :func:`plot_ecosystem_dynamics`).
+
+    Returns
+    -------
+    dict[int, dict[str, list]]
+        Mapping from episode index to a dictionary of time-series lists:
+        ``steps``, ``fish``, ``algae``, ``harvest``, ``quota``, ``rewards``.
+        Lists that have no corresponding key in the source records remain
+        empty.
+    """
     episodes: dict[int, dict[str, list]] = {}
 
     for record in trajectories:
@@ -316,16 +381,41 @@ def plot_fitness_vs_parameters(
     save_path: Optional[str] = None,
     param_scales: Optional[list[float]] = None,
 ) -> plt.Figure:
-    """Plot fitness as a function of each mechanism parameter.
+    """Plot ES fitness as a function of each mechanism parameter across iterations.
 
-    Args:
-        population_history: List of (iteration, (population, fitness)) tuples
-            where population is (N, 5) and fitness is (N,)
-        title: Plot title
-        save_path: Path to save figure (optional)
+    Produces a 2x3 figure:
 
-    Returns:
-        matplotlib Figure object
+    * **Panels 1–5** — Scatter plots of each mechanism parameter value vs.
+      fitness, coloured by iteration number (viridis colormap).
+    * **Panel 6** — Line plot of the best fitness value recorded at each
+      iteration.
+
+    Parameters
+    ----------
+    population_history : list[tuple[int, tuple[np.ndarray, np.ndarray]]]
+        List of ``(iteration, (population, fitness))`` tuples where
+        ``population`` has shape ``(N, 5)`` and ``fitness`` has shape
+        ``(N,)``.
+    title : str, optional
+        Super-title of the figure.
+        Default ``"Fitness vs Mechanism Parameters"``.
+    save_path : str or None, optional
+        File path where the figure is saved (300 dpi, tight layout).
+        When ``None`` the figure is not saved to disk.
+    param_scales : list[float] or None, optional
+        Denormalization scale factors applied to each of the 5 parameters
+        before plotting (e.g., ``max_ban`` for ban period).  When ``None``
+        the module-level :data:`DEFAULT_PARAM_SCALES` are used.
+
+    Returns
+    -------
+    plt.Figure
+        Matplotlib figure object with the 2x3 panel layout.
+
+    Raises
+    ------
+    ValueError
+        If ``population_history`` is empty.
     """
     if not population_history:
         raise ValueError("No population history provided")
@@ -407,15 +497,37 @@ def plot_parameter_evolution(
     save_path: Optional[str] = None,
     param_scales: Optional[list[float]] = None,
 ) -> plt.Figure:
-    """Plot how the best mechanism parameters evolve over iterations.
+    """Plot the evolution of the best mechanism parameters over ES iterations.
 
-    Args:
-        population_history: List of (iteration, (population, fitness)) tuples
-        title: Plot title
-        save_path: Path to save figure (optional)
+    At each iteration the candidate with the highest fitness is selected and
+    its five parameter values are tracked.  The result is a single-panel
+    line plot with one coloured line per parameter, showing how the ES
+    search converges (or drifts) over time.
 
-    Returns:
-        matplotlib Figure object
+    Parameters
+    ----------
+    population_history : list[tuple[int, tuple[np.ndarray, np.ndarray]]]
+        List of ``(iteration, (population, fitness))`` tuples where
+        ``population`` has shape ``(N, 5)`` and ``fitness`` has shape
+        ``(N,)``.
+    title : str, optional
+        Plot title.  Default ``"Parameter Evolution"``.
+    save_path : str or None, optional
+        File path where the figure is saved (300 dpi, tight layout).
+        When ``None`` the figure is not saved to disk.
+    param_scales : list[float] or None, optional
+        Denormalization scale factors for each of the 5 parameters.
+        When ``None`` the module-level :data:`DEFAULT_PARAM_SCALES` are used.
+
+    Returns
+    -------
+    plt.Figure
+        Matplotlib figure object containing the parameter-trajectory panel.
+
+    Raises
+    ------
+    ValueError
+        If ``population_history`` is empty.
     """
     if not population_history:
         raise ValueError("No population history provided")

@@ -1,3 +1,19 @@
+"""Outer-loop regulator environment for the bilevel fishery experiment.
+
+The :class:`FisheryRegulatorEnv` is the Gymnasium environment seen by the ES
+optimizer (outer loop).  Its single ``step`` call triggers a full inner-loop
+APPO training run, collects per-mechanism performance metrics from the step
+contexts published by the fishing agents, computes a scalar ES fitness for each
+evaluated mechanism candidate, and returns it to the ES optimizer.
+
+The fitness function is:
+
+    fitness = mean_reward - sustainability_weight * sustainability_penalty
+
+where ``sustainability_penalty = mean(max(0, threshold - fish) / threshold)``
+and all fish values are normalised in [0, 1].
+"""
+
 import logging
 from collections import defaultdict
 from typing import Any
@@ -19,14 +35,40 @@ logger = logging.getLogger(__name__)
 
 
 class FisheryRegulatorEnv(RegulatorEnv):
-    """
-    Outer-loop environment for fishery mechanism optimization.
+    """Outer-loop environment for fishery mechanism optimisation via ES.
 
-    Responsibilities:
-      - Publish candidate mechanisms
-      - Run inner PPO optimizer
-      - Collect performance metrics
-      - Convert to scalar ES reward
+    Wraps the inner APPO training loop as a single Gymnasium environment.
+    The ES optimizer calls ``step(mechanism_vector)`` once per generation;
+    internally this triggers ``train_iters`` APPO training iterations and
+    aggregates the resulting step-level contexts into a per-mechanism
+    fitness signal.
+
+    Parameters
+    ----------
+    ecology_cfg : dict of str → Any
+        Sustainability configuration with the following optional keys:
+
+        - ``sus_weight`` (float): weight on the sustainability penalty in
+          the fitness objective.  Default ``5.0``.
+        - ``sus_threshold`` (float): normalised fish stock below which a
+          step is counted as a "collapse".  Default ``0.1``.
+        - ``max_fish`` (float): carrying capacity (used for de-normalising
+          trajectory values for visualisation).  Default ``2.0``.
+        - ``max_algae`` (float): carrying capacity for algae.  Default ``2.0``.
+    **kwargs
+        Forwarded to :class:`~core.envs.regulator.RegulatorEnv`.
+
+    Attributes
+    ----------
+    sustainability_weight : float
+        Penalty weight used in the fitness computation.
+    sustainability_threshold : float
+        Normalised collapse threshold.
+    trajectories : dict of int → list of dict
+        Per-mechanism trajectory data (populated after each call to
+        :meth:`aggregate_rewards`), keyed by mechanism index.
+    last_metrics : list of dict
+        Summary statistics for the most recent set of evaluated mechanisms.
     """
 
     def __init__(
@@ -49,19 +91,59 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
     @override(RegulatorEnv)
     def observation(self, obs: ObsType) -> ObsType:
+        """Return a dummy scalar observation (ES does not use observations).
+
+        The ES optimizer maintains its own internal state and does not consume
+        environment observations.  This method satisfies the
+        :class:`~core.envs.regulator.RegulatorEnv` interface.
+
+        Parameters
+        ----------
+        obs : ObsType
+            Ignored.
+
+        Returns
+        -------
+        float
+            Always ``0.0``.
+        """
         return 0.0
 
     @override(RegulatorEnv)
     def aggregate_rewards(self, ctxs: list[Context]) -> list[float]:
-        """
-        Compute per-mechanism fitness from step-level EnvStepContexts.
+        """Aggregate inner-loop step contexts into per-mechanism ES fitness values.
 
-        Semantics:
-        - Group contexts by mechanism
-        - Segment into episodes of length = horizon
-        - Drop incomplete episodes
-        - Compute episode-level metrics
-        - Aggregate exactly like legacy evaluator
+        Called once per ES generation after all inner-loop steps for the
+        current mechanism population have been collected.
+
+        Algorithm
+        ---------
+        1. Filter contexts to only :class:`~core.world.context.EnvStepContext`
+           payloads.
+        2. Group by mechanism index (``ctx.payload.mechanism``).
+        3. Elastic truncation: trim all groups to the length of the shortest
+           group so all mechanisms are evaluated over the same number of steps.
+        4. For each mechanism, compute:
+           - ``mean_reward``, ``reward_std``
+           - ``collapse_rate`` = fraction of steps with ``fish < threshold``
+           - ``sustainability_penalty`` = mean normalised stock shortfall
+           - ``mean_fish``, ``min_fish``, ``total_fines``
+        5. Build a :class:`~examples.bilevel_fishery.contexts.FitnessContext`
+           and publish a :class:`~core.world.context.MechanismContext` for
+           downstream consumers.
+        6. Return a fitness array indexed by mechanism index (``-inf`` for
+           missing indices).
+
+        Parameters
+        ----------
+        ctxs : list of Context
+            All step-level contexts published during the inner-loop run.
+
+        Returns
+        -------
+        list of float
+            Per-mechanism fitness values (length = ``max_mechanism_index + 1``).
+            Mechanisms that received no steps get ``-inf``.
         """
 
         per_mech_metrics: list[dict[str, float]] = []

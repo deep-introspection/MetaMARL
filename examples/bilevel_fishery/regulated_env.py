@@ -1,3 +1,31 @@
+"""V0 multi-agent regulated fishery environment.
+
+Implements the inner-loop environment used by the APPO optimizer.  N fishing
+agents interact with a shared Lotka-Volterra ecosystem and are subject to a
+binary fine/ban regulatory mechanism (V0).
+
+Ecology model (Euler integration with step size dt)
+---------------------------------------------------
+Fish dynamics:
+
+    X_{t+1} = X_t + dt * (delta * Y_t * X_t - gamma * X_t - H_t)
+
+Algae dynamics:
+
+    Y_{t+1} = Y_t + dt * (alpha * Y_t - beta * Y_t * X_t)
+
+where H_t is the total realised harvest at step t.
+
+Mechanism enforcement (V0)
+--------------------------
+- A violation occurs when an agent's desired harvest exceeds the effective
+  quota ``min(fixed_quota, prop_quota * fish_norm)`` or when the current
+  stock is below ``min_stock``.
+- With probability ``catch_prob`` a detected violation triggers a fine
+  (``fine_amount * violation_magnitude``) and a temporary fishing ban of
+  ``ban_period`` steps.
+"""
+
 import logging
 from typing import SupportsFloat, Tuple
 
@@ -24,8 +52,40 @@ EPS = 1e-8
 # TODO ban proportional to violation severity
 
 
-# TODO number of agents spawned dynamically as a byproduct of config stating number of agents
 class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
+    """V0 multi-agent fishery environment with binary fine / ban enforcement.
+
+    Each agent chooses a harvest fraction in [0, 1].  The desired harvest is
+    ``action * fish_norm`` (where ``fish_norm = fish / max_fish``).  Realised
+    harvests are scaled down proportionally when the total desired harvest
+    exceeds the available stock.
+
+    Regulatory enforcement (V0 mechanism):
+    - Quota violation: ``max(0, u_i - min(fixed_quota, prop_quota * fish_norm))``.
+    - No-fish-zone violation: ``u_i`` if ``fish_norm < min_stock``, else 0.
+    - Stochastic detection: each violation is detected with probability
+      ``catch_prob``.
+    - On detection: a fine of ``fine_amount * violation`` is deducted from
+      reward, and the agent is banned for ``ban_period`` steps.
+
+    Parameters
+    ----------
+    ecology_cfg : dict
+        Dictionary with the following keys:
+
+        - ``algae_init`` (float): initial algae biomass.
+        - ``fish_init`` (float): initial fish biomass.
+        - ``max_fish`` (float): carrying capacity for fish (normalisation).
+        - ``max_algae`` (float): carrying capacity for algae (normalisation).
+        - ``alpha`` (float): algae intrinsic growth rate.
+        - ``beta`` (float): algae depletion rate by fish.
+        - ``delta`` (float): fish growth rate facilitated by algae.
+        - ``gamma`` (float): fish natural mortality rate.
+        - ``dt`` (float): Euler integration step size.
+    **kwargs
+        Forwarded to :class:`~core.envs.marl_regulated.MultiAgentRegulatedEnv`.
+    """
+
     def __init__(
         self,
         *,
@@ -65,7 +125,18 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             "catch_prob",
         ]
 
-    def _reset(self):
+    def _reset(self) -> dict[str, np.ndarray]:
+        """Reset the environment state for a new episode.
+
+        Initialises fish and algae stocks with log-normal noise (sigma=0.05)
+        around their nominal initial values, resets all ban counters to zero,
+        and returns initial observations for all agents.
+
+        Returns
+        -------
+        dict of str → np.ndarray
+            Initial observation for each agent (shape: ``(5 + mechanism_dim,)``).
+        """
         # Reset ban counters for all agents
         self._agent_bans = {agent_id: 0 for agent_id in self.agents}
 
@@ -89,6 +160,36 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     ) -> Tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
+        """Advance the environment by one step.
+
+        For each agent (in order):
+        1. If the agent is currently banned, zero out its action and apply a
+           mild penalty of ``-0.01``; decrement its ban counter.
+        2. Otherwise, compute intrinsic utility ``u``, violation signal ``v``,
+           and apply stochastic enforcement (fine + ban if detected).
+        3. Compute the ecological transition via :meth:`transition_kernel`.
+        4. Broadcast the mean reward across all agents via
+           :meth:`aggregate_rewards`.
+
+        Parameters
+        ----------
+        action_dict : dict of AgentID → ActType
+            Harvest fraction actions (shape ``(1,)``) for each agent.
+
+        Returns
+        -------
+        obs : dict of AgentID → np.ndarray
+            Observations after the transition.
+        rewards : dict of AgentID → float
+            Per-agent rewards (post-aggregation).
+        terminated : dict of AgentID → bool
+            All ``False`` (no natural termination in this env).
+        truncated : dict of AgentID → bool
+            ``True`` for all agents when the horizon is reached.
+        infos : dict of AgentID → dict
+            Per-agent diagnostics: ``harvest``, ``intrinsic_utility``,
+            ``violation_signal``, ``fine``, ``harvest_scale``, ``H_total``.
+        """
         rewards = {}
         fines = {}
         utilities = {}
@@ -177,11 +278,42 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
 
     def _is_truncated(self) -> bool:
+        """Return ``True`` when the episode horizon has been reached.
+
+        Returns
+        -------
+        bool
+            ``True`` iff ``self._t >= self.horizon``.
+        """
         return self._t >= self.horizon
 
     def intrinsic_utility(
         self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
+        """Compute the agent's intrinsic (pre-penalty) harvest utility.
+
+        .. math::
+
+            u_i = a_i \\cdot \\frac{X_t}{X_{\\max}}
+
+        where :math:`a_i \\in [0, 1]` is the agent's harvest fraction and
+        :math:`X_t / X_{\\max}` is the normalised current fish stock.
+
+        Parameters
+        ----------
+        agent_id : AgentID
+            Identifier of the acting agent (unused; included for API
+            consistency).
+        action : ActType
+            Scalar harvest fraction in [0, 1], shape ``(1,)``.
+        S_t : dict of str → float
+            Current state dictionary with keys ``"fish"`` and ``"algae"``.
+
+        Returns
+        -------
+        SupportsFloat
+            Non-negative utility value.
+        """
         # return action * S_t["fish"]
         action = float(np.asarray(action).item())  # cast to scalar
         fish_norm = S_t["fish"] / self.max_fish
@@ -195,11 +327,42 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         # )
         return u
 
-    # TODO this returns a float
-    # TODO observation must be a param here not self
     def violation_signal(
         self, agent_id: AgentID, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
+        """Compute the total regulatory violation magnitude for one agent.
+
+        Two violation components are combined:
+
+        .. math::
+
+            v_{\\text{quota}} = \\max\\!\\left(0,\\; u_i -
+                \\min(q_{\\text{fixed}},\\; q_{\\text{prop}} \\cdot
+                \\tfrac{X_t}{X_{\\max}})\\right)
+
+        .. math::
+
+            v_{\\text{ban}} = u_i \\cdot \\mathbb{1}\\!\\left[
+                \\tfrac{X_t}{X_{\\max}} < \\theta_{\\text{min}}\\right]
+
+        .. math::
+
+            v = v_{\\text{quota}} + v_{\\text{ban}}
+
+        Parameters
+        ----------
+        agent_id : AgentID
+            Identifier of the agent (unused; for API consistency).
+        u_i : SupportsFloat
+            Intrinsic utility computed by :meth:`intrinsic_utility`.
+        S_t : dict of str → float
+            Current state with keys ``"fish"`` and ``"algae"``.
+
+        Returns
+        -------
+        SupportsFloat
+            Non-negative total violation magnitude.
+        """
         quota = max(
             0.0,
             u_i
@@ -219,11 +382,47 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         return v
 
     def penalty(self) -> SupportsFloat:
+        """Return the fine multiplier for the current mechanism.
+
+        Returns
+        -------
+        SupportsFloat
+            ``self.m.fine_amount``.
+        """
         return self.m.fine_amount
 
     def transition_kernel(
         self, A_t: MultiAgentEnv, S_t: dict[str, float]
     ) -> dict[str, float]:
+        """Advance the ecological state by one Euler step (Lotka-Volterra).
+
+        .. math::
+
+            X_{t+1} = X_t + \\Delta t \\left(
+                \\delta \\, Y_t \\, X_t - \\gamma \\, X_t - H_t
+            \\right)
+
+        .. math::
+
+            Y_{t+1} = Y_t + \\Delta t \\left(
+                \\alpha \\, Y_t - \\beta \\, Y_t \\, X_t
+            \\right)
+
+        Both quantities are clipped to ``[0, max_fish]`` / ``[0, max_algae]``
+        to prevent negative populations.
+
+        Parameters
+        ----------
+        A_t : dict of AgentID → ActType
+            Agent actions for the current step (harvest fractions).
+        S_t : dict of str → float
+            Current ecological state with keys ``"fish"`` and ``"algae"``.
+
+        Returns
+        -------
+        dict of str → float
+            Next ecological state with keys ``"fish"`` and ``"algae"``.
+        """
         fish = self.S_t["fish"]
         algae = self.S_t["algae"]
 
@@ -263,9 +462,40 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         mean_reward = float(np.mean(list(rewards.values())))
         return {agent_id: mean_reward for agent_id in self.agents}
 
-    # TODO canonical observation in base multiagent env
-    def _observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]):
-        """We assume complete transparency. Observations normalized to [0, 1]."""
+    def _observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]) -> np.ndarray:
+        """Build the observation vector for one agent.
+
+        Assumes complete transparency: all agents see the same ecological state
+        and mechanism parameters.
+
+        The base observation (5 features) is:
+
+        ======  ==============================================
+        Index   Feature
+        ======  ==============================================
+        0       ``fish / max_fish``  (normalised fish stock)
+        1       ``algae / max_algae``  (normalised algae)
+        2       Ban remaining (``agent_bans / ban_period``)
+        3       Effective quota ``min(fixed_quota, prop_quota * fish_norm)``
+        4       No-fish-zone indicator (``fish_norm < min_stock``)
+        ======  ==============================================
+
+        The mechanism vector from :meth:`~FisheryMechanism.to_vector` is then
+        appended, yielding a total length of ``5 + mechanism_dim``.
+
+        Parameters
+        ----------
+        agent_id : AgentID
+            Agent identifier (used to look up ban counter).
+        S_t : dict of str → float
+            Current ecological state.
+
+        Returns
+        -------
+        np.ndarray
+            Shape ``(5,)``, dtype ``float32``.  The mechanism suffix is
+            appended by the parent class.
+        """
         fish_norm = S_t["fish"] / self.max_fish
         algae_norm = S_t["algae"] / self.max_algae
 
@@ -307,6 +537,40 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def _compute_harvest_metrics(
         self, A_t: dict[AgentID, ActType], S_t: dict[str, float]
     ) -> tuple[dict[AgentID, float], float, float]:
+        """Compute realised per-agent harvests with a proportional scarcity cap.
+
+        Each agent's *desired* harvest is their intrinsic utility scaled to
+        physical units: ``desired_i = action_i * fish_norm``.  When the total
+        desired harvest exceeds the available normalised stock, all desired
+        harvests are scaled down by the same factor:
+
+        .. math::
+
+            \\text{scale} = \\min\\!\\left(1,\\;
+                \\frac{X_t / X_{\\max}}{\\sum_i \\text{desired}_i}\\right)
+
+        Realised harvest per agent:
+
+        .. math::
+
+            H_i = X_{\\max} \\cdot \\text{desired}_i \\cdot \\text{scale}
+
+        Parameters
+        ----------
+        A_t : dict of AgentID → ActType
+            Harvest fraction actions for all agents.
+        S_t : dict of str → float
+            Current ecological state.
+
+        Returns
+        -------
+        realized_harvest : dict of AgentID → float
+            Per-agent realised harvest in physical units.
+        H_total : float
+            Sum of all realised harvests.
+        scale : float
+            Scarcity scaling factor in ``(0, 1]``.
+        """
         fish = S_t["fish"]
         fish_norm = fish / self.max_fish
 

@@ -11,6 +11,55 @@ DeviceType = Literal["cpu", "cuda", "mps"]
 
 @dataclass
 class RayRuntimeConfig:
+    """Configuration for the Ray runtime environment.
+
+    Centralises all Ray initialisation parameters and device-specific
+    environment-variable settings.  Call ``initialize()`` (or
+    ``RayRuntime.ensure_initialized()``) exactly once at the start of a
+    training run.
+
+    Environment variables are set *before* ``ray.init()`` is called so that
+    they propagate to driver-side PyTorch and to workers that inherit the
+    driver environment.
+
+    .. note::
+       ``uv run`` is intentionally avoided in this codebase to prevent Ray
+       worker processes from picking up conflicting ``VIRTUAL_ENV`` /
+       ``PATH`` overrides injected by ``uv``.  Launch scripts should invoke
+       Python directly.
+
+    Parameters
+    ----------
+    device : {"cpu", "cuda", "mps"}
+        Target compute device.  Controls which CUDA/MPS environment variables
+        are set and which PyTorch default device is configured.
+    num_cpus : int, optional
+        Number of CPUs to allocate to the Ray cluster.  ``None`` lets Ray
+        auto-detect.
+    num_gpus : int, optional
+        Number of GPUs to allocate.  ``None`` lets Ray auto-detect.
+    omp_threads : int
+        Value for ``OMP_NUM_THREADS``; keep at 1 to avoid contention when
+        many Ray workers share a machine.
+    disable_mps : bool
+        When ``True`` and ``device="cpu"``, sets ``RAY_USE_MPS=0`` to
+        prevent accidental MPS usage in workers.
+    disable_cuda : bool
+        When ``True`` and ``device="cuda"``, hides CUDA devices via
+        ``CUDA_VISIBLE_DEVICES=""`` (useful for CPU-only debugging).
+    logging_level : str
+        Logging level string passed to ``ray.init`` (e.g. ``"ERROR"``).
+    runtime_env : dict, optional
+        Ray ``runtime_env`` dictionary forwarded verbatim to ``ray.init``.
+        Can specify pip packages, conda envs, or environment variables that
+        all Ray workers should inherit.
+    init_kwargs : dict
+        Additional keyword arguments forwarded verbatim to ``ray.init``.
+    ray_debug : bool
+        When ``True``, sets ``RAY_DEBUG=1`` for verbose Ray-internal debug
+        output.
+    """
+
     device: DeviceType = "cpu"
 
     num_cpus: Optional[int] = None
@@ -27,6 +76,24 @@ class RayRuntimeConfig:
     ray_debug: bool = True
 
     def _apply_env_vars(self):
+        """Set process-level environment variables for the selected device.
+
+        Must be called before ``ray.init()`` so that driver-side PyTorch
+        picks up the correct device settings.  Workers that inherit the
+        driver's environment will also receive these variables.
+
+        The mapping from ``device`` to env vars is:
+
+        * ``"cpu"`` — hides CUDA devices, disables MPS fallback, optionally
+          disables MPS entirely.
+        * ``"mps"`` — hides CUDA, enables ``PYTORCH_ENABLE_MPS_FALLBACK``
+          for ops not yet supported natively.
+        * ``"cuda"`` — enables MPS fallback to CPU, optionally hides devices
+          if ``disable_cuda`` is set (useful for profiling on a CPU node).
+
+        Additionally sets ``OMP_NUM_THREADS``, ``RAY_DEBUG``, and silences
+        Ray's noisy backend log channels.
+        """
         if self.device == "cpu":
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
             os.environ["RLLIB_NUM_GPUS"] = "0"
@@ -60,6 +127,17 @@ class RayRuntimeConfig:
         torch.set_default_device(self.device)
 
     def initialize(self):
+        """Apply environment variables and start the Ray runtime.
+
+        Calls ``_apply_env_vars()`` first, then silences the most verbose
+        Ray/RLlib/Tune loggers before calling ``ray.init()``.  Uses
+        ``ignore_reinit_error=True`` so that repeated calls in interactive
+        sessions do not raise.
+
+        ``local_mode=True`` is set for deterministic single-process
+        execution.  To run with true distributed workers, override this via
+        ``init_kwargs``.
+        """
         self._apply_env_vars()
 
         # Silence noisy loggers globally
@@ -86,10 +164,32 @@ class RayRuntimeConfig:
 
 
 class RayRuntime:
+    """Singleton-like guard that ensures Ray is initialised at most once.
+
+    Wraps ``RayRuntimeConfig.initialize()`` with a ``ray.is_initialized()``
+    guard so that multiple call sites can safely call
+    ``RayRuntime.ensure_initialized(cfg)`` without raising a
+    ``RaySystemError`` on re-initialisation.
+
+    Attributes
+    ----------
+    _initialized : bool
+        Class-level flag set to ``True`` after the first successful
+        ``ray.init()`` call through this class.
+    """
+
     _initialized = False
 
     @classmethod
     def ensure_initialized(cls, cfg: RayRuntimeConfig):
+        """Initialise Ray using the provided config if not already running.
+
+        Parameters
+        ----------
+        cfg : RayRuntimeConfig
+            Runtime configuration specifying device, resource limits, and
+            Ray init parameters.
+        """
         if not ray.is_initialized():
             cfg.initialize()
             cls._initialized = True

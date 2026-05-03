@@ -21,6 +21,40 @@ from core.world.context import (
 
 
 class RegulatorEnv(BaseEnv):
+    """Outer-loop environment wrapping the inner-loop MARL optimizer.
+
+    Acts as the single outer-loop "step" from the perspective of the Evolution
+    Strategy (ES).  When :meth:`_step` is called with a list of candidate
+    mechanisms:
+
+    1. Each mechanism is published to the shared ``World`` actor.
+    2. The inner-loop optimizer (``self.inner``) is trained for
+       ``train_iters`` iterations under those mechanisms.
+    3. The inner-loop optimizer then *evaluates* the trained policy.
+    4. New :class:`~core.world.context.EnvStepContext` objects produced during
+       evaluation are collected and forwarded to :meth:`aggregate_rewards` to
+       produce a scalar fitness signal for the ES.
+
+    If ``optimizer`` is ``None`` the class operates in *analytic* mode: both
+    :meth:`action` and :meth:`_step` pass raw values through unchanged,
+    allowing subclasses to compute rewards analytically without a nested RL loop.
+
+    Parameters
+    ----------
+    world : World
+        Ray remote actor serving as the shared runtime state container.
+    opt_id : OptimizerID or None, optional
+        Identifier of the outer-loop (ES) optimizer.
+    optimizer : Optimizer or None, optional
+        Inner-loop optimizer instance (e.g. RLlib PPO/APPO runner).  When
+        ``None`` the analytic override path is used.
+    train_iters : int, optional
+        Number of inner-loop training iterations per outer-loop step.  Must be
+        ``>= 1`` when an optimizer is provided.  Default is ``5``.
+    **kwargs
+        Forwarded to :class:`~core.envs.base.BaseEnv`.
+    """
+
     def __init__(
         self,
         *,
@@ -37,6 +71,13 @@ class RegulatorEnv(BaseEnv):
         self._validate()
 
     def _validate(self):
+        """Validate constructor arguments.
+
+        Raises
+        ------
+        ValueError
+            If ``train_iters <= 0`` when an optimizer is provided.
+        """
         if self.inner is None:
             return  # analytic override mode allowed
 
@@ -45,6 +86,18 @@ class RegulatorEnv(BaseEnv):
 
     @override(BaseEnv)
     def _reset(self):
+        """Reset the regulator environment to its initial (zero) state.
+
+        The regulator has no meaningful episode state to reinitialise — its
+        "state" is the fitness landscape explored by the ES.  Returns a zero
+        vector matching the observation space shape, or a scalar ``0.0`` if no
+        observation space is defined.
+
+        Returns
+        -------
+        np.ndarray or float
+            Zero-filled initial observation.
+        """
         if self.observation_space is None:
             return 0.0
         return np.zeros(self.observation_space.shape, dtype=np.float32)
@@ -53,6 +106,44 @@ class RegulatorEnv(BaseEnv):
     def _step(
         self, mechanisms: list[Mechanism]
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
+        """Run one outer-loop step: publish mechanisms, train inner loop, evaluate.
+
+        For each candidate mechanism in ``mechanisms``:
+
+        1. Publish a :class:`~core.world.context.MechanismContext` with status
+           ``published`` to the World.
+        2. Run the inner-loop optimizer for ``train_iters`` iterations.
+        3. Publish evaluation-phase mechanism contexts and run
+           :pymeth:`~core.optimizers.base.Optimizer.evaluate`.
+        4. Collect new :class:`~core.world.context.EnvStepContext` objects,
+           compute the aggregate fitness via :meth:`aggregate_rewards`, and
+           flush consumed contexts from the World.
+
+        Parameters
+        ----------
+        mechanisms : list[Mechanism]
+            Candidate mechanism objects decoded from the ES action vector.
+
+        Returns
+        -------
+        obs : None
+            The regulator does not produce a meaningful next observation.
+        reward : SupportsFloat
+            Scalar fitness signal aggregated from inner-loop evaluation episodes.
+        terminated : bool
+            Always ``False`` (the outer loop manages termination).
+        truncated : bool
+            Always ``False``.
+        info : dict
+            Empty auxiliary info dict.
+
+        Raises
+        ------
+        NotImplementedError
+            If no inner optimizer is set and :meth:`_step` has not been overridden.
+        TypeError
+            If ``mechanisms`` is not a ``list[Mechanism]``.
+        """
         if self.inner is None:
             raise NotImplementedError(
                 f"{self.__class__.__name__} has no inner optimizer. "
@@ -141,11 +232,63 @@ class RegulatorEnv(BaseEnv):
 
     @abstractmethod
     def aggregate_rewards(self, ctx: list[Context]) -> SupportsFloat:
+        """Aggregate inner-loop evaluation contexts into an outer-loop fitness score.
+
+        Called after each evaluation run.  Concrete implementations should
+        extract per-episode metrics from the provided contexts (e.g. mean reward,
+        sustainability rate, economic welfare) and return a single scalar that
+        the ES uses to rank mechanism candidates.
+
+        Parameters
+        ----------
+        ctx : list[Context]
+            Evaluation-phase context objects collected from the World since the
+            last flush.  Each context's payload is an
+            :class:`~core.world.context.EnvStepContext`.
+
+        Returns
+        -------
+        SupportsFloat
+            Scalar fitness value (higher is better for maximisation problems).
+        """
         return NotImplementedError
 
     # @abstractmethod
     @override(BaseEnv)
     def action(self, action: ActType) -> list[Mechanism]:
+        """Decode a raw ES action into a list of typed Mechanism objects.
+
+        Handles multiple input formats:
+
+        - ``np.ndarray`` of shape ``(d,)`` (single mechanism) — reshaped to
+          ``(1, d)`` and decoded via :attr:`m_space`.
+        - ``np.ndarray`` of shape ``(k, d)`` (population batch) — each row is
+          decoded independently.
+        - ``torch.Tensor`` — converted to NumPy and re-dispatched.
+        - ``list`` / ``tuple`` — cast to ``np.ndarray`` and re-dispatched.
+        - Already-built :class:`~core.mechanism.base.Mechanism` instance — wrapped
+          in a single-element list (analytic test path).
+        - If no :attr:`m_space` is defined, raw vectors are wrapped in
+          :class:`~core.mechanism.base.VectorMechanism` objects.
+        - If ``self.inner is None`` (analytic mode) the action is returned
+          unchanged.
+
+        Parameters
+        ----------
+        action : ActType
+            Raw action from the ES optimizer.  Typically an ``np.ndarray`` with
+            one row per mechanism candidate.
+
+        Returns
+        -------
+        list[Mechanism]
+            Decoded mechanism objects ready to be published to the World.
+
+        Raises
+        ------
+        TypeError
+            If the action type is not supported.
+        """
         # analytic path
         if self.inner is None:
             return action

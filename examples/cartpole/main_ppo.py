@@ -1,3 +1,20 @@
+"""CartPole bilevel experiment using PPO as the inner RL optimizer.
+
+Runs the bilevel optimization loop with:
+  - Outer loop: Evolution Strategies (ES) searching over a dummy 1-D mechanism space.
+  - Inner loop: Proximal Policy Optimization (PPO) training a single CartPole-v1 agent.
+
+Compared to ``main_appo.py``, this variant uses synchronous PPO, which is simpler to
+tune and debug.  The dummy mechanism has no effect on the CartPole environment; the
+script exercises the bilevel framework on a well-understood toy problem.
+
+Invoke
+------
+From the project root::
+
+    uv run python -m examples.cartpole.main_ppo
+"""
+
 import numpy as np
 import ray
 from gymnasium import spaces

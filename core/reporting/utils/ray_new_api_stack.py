@@ -13,6 +13,21 @@ logger = logging.getLogger(__name__)
 
 
 def _cap_table(table: wandb.Table, max_rows: int) -> wandb.Table:
+    """Return a ``wandb.Table`` capped to at most ``max_rows`` tail rows.
+
+    Parameters
+    ----------
+    table : wandb.Table
+        Source table.  Returned as-is when ``None``.
+    max_rows : int
+        Maximum number of rows to retain (most-recent rows kept).
+
+    Returns
+    -------
+    wandb.Table
+        Original table if already within the cap, otherwise a new table
+        containing only the last ``max_rows`` rows.
+    """
     if table is None:
         return table
     data = table.data
@@ -26,6 +41,20 @@ def _cap_table(table: wandb.Table, max_rows: int) -> wandb.Table:
 
 
 def _summarize_dict_of_scalars(d: Dict[str, Any]) -> Dict[str, float]:
+    """Compute summary statistics over the finite numeric values in a dict.
+
+    Parameters
+    ----------
+    d : dict[str, Any]
+        Dictionary whose values will be summarised.  Non-finite and
+        non-numeric values are silently dropped.
+
+    Returns
+    -------
+    dict[str, float]
+        Keys ``"mean"``, ``"min"``, ``"max"``, ``"std"``, ``"n"``, or ``{}``
+        if no finite values are present.
+    """
     vals: list[float] = []
     for v in (d or {}).values():
         fv = finite(v)
@@ -44,6 +73,23 @@ def _summarize_dict_of_scalars(d: Dict[str, Any]) -> Dict[str, float]:
 
 
 def _global_step(outer_iter: int, train_step: int) -> int:
+    """Compute a monotonically increasing global step index.
+
+    Encodes both the outer (ES) iteration and the inner (RL) training step so
+    that W&B charts from different outer iterations never overlap on the x-axis.
+
+    Parameters
+    ----------
+    outer_iter : int
+        Current ES generation index.
+    train_step : int
+        Current inner-loop training step.
+
+    Returns
+    -------
+    int
+        ``outer_iter * 1_000_000 + train_step``.
+    """
     # monotonic across outer iters
     return int(outer_iter) * 1_000_000 + int(train_step)
 
@@ -51,6 +97,26 @@ def _global_step(outer_iter: int, train_step: int) -> int:
 def extract_episode_metrics_newstack(
     results: Dict[str, Any],
 ) -> Dict[str, Optional[float]]:
+    """Extract episode-level metrics from an RLlib new-stack result dict.
+
+    Checks new-stack key names first (``episode_return_*``) and falls back
+    to old-stack names (``episode_reward_*``) when the new-stack keys are
+    absent.
+
+    Parameters
+    ----------
+    results : dict[str, Any]
+        RLlib training result dict returned by ``algo.train()``.
+
+    Returns
+    -------
+    dict[str, Optional[float]]
+        Keys: ``"episode_return_mean"``, ``"episode_return_min"``,
+        ``"episode_return_max"``, ``"episode_len_mean"``,
+        ``"episode_len_min"``, ``"episode_len_max"``,
+        ``"num_episodes"``, ``"num_episodes_lifetime"``.
+        Values are ``None`` when the corresponding key is absent.
+    """
     env = results.get("env_runners", {}) or {}
 
     # new-stack first, fallback to old-stack names if present
@@ -71,10 +137,21 @@ def extract_episode_metrics_newstack(
 
 
 def extract_series_returns_newstack(results: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Prefer module-level returns (RLModule ids), else fall back to agent ids.
-    - env_runners["module_episode_returns_mean"] e.g. {"fisher_policy_0": ...}
-    - env_runners["agent_episode_returns_mean"]  e.g. {"fisher:0": ...}
+    """Extract per-policy/per-agent mean episode returns from a new-stack result.
+
+    Prefers module-level returns (RLModule IDs, e.g. ``"fisher_policy_0"``)
+    over agent-level returns (e.g. ``"fisher:0"``).
+
+    Parameters
+    ----------
+    results : dict[str, Any]
+        RLlib training result dict.
+
+    Returns
+    -------
+    dict[str, Any]
+        Mapping from series ID (policy or agent) to mean episode return.
+        Returns an empty dict when neither key is present.
     """
     env = results.get("env_runners", {}) or {}
 
@@ -90,6 +167,25 @@ def extract_series_returns_newstack(results: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def extract_perf_newstack(results: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    """Extract performance and throughput metrics from a new-stack result dict.
+
+    Handles the new-stack's dict-valued throughput fields and aggregated
+    agent-step counts.
+
+    Parameters
+    ----------
+    results : dict[str, Any]
+        RLlib training result dict.
+
+    Returns
+    -------
+    dict[str, Optional[float]]
+        Keys: ``"env_steps_this_iter"``, ``"env_steps_lifetime"``,
+        ``"agent_steps_this_iter_sum"``, ``"agent_steps_lifetime_sum"``,
+        ``"env_steps_throughput"``, ``"training_iteration_s"``,
+        ``"training_step_s"``, ``"sample_s"``, ``"learner_update_s"``,
+        ``"weights_seq_no"``.  Values are ``None`` when unavailable.
+    """
     env = results.get("env_runners", {}) or {}
     timers = results.get("timers", {}) or {}
 
@@ -131,10 +227,27 @@ def extract_perf_newstack(results: Dict[str, Any]) -> Dict[str, Optional[float]]
 def extract_learner_metrics_newstack(
     results: Dict[str, Any],
 ) -> Dict[str, Dict[str, Optional[float]]]:
-    """
-    Returns:
-      { learner_id: {metric_name: float_or_none, ...}, ... }
-    where learner_id is something like 'fisher_policy_0', '__all_modules__', etc.
+    """Extract per-policy learner statistics from a new-stack result dict.
+
+    In addition to verbatim scalar fields from each learner block, computes
+    derived metrics:
+
+    * ``policy_relative_entropy`` — entropy divided by entropy coefficient;
+    * ``entropy_pressure`` — entropy multiplied by entropy coefficient;
+    * ``sample_staleness`` — composite staleness proxy aggregating gradient
+      update lag, outstanding async requests, and learner queue wait time.
+
+    Parameters
+    ----------
+    results : dict[str, Any]
+        RLlib training result dict.
+
+    Returns
+    -------
+    dict[str, dict[str, Optional[float]]]
+        Mapping ``{learner_id: {metric_name: value_or_none}}`` where
+        ``learner_id`` is e.g. ``"fisher_policy_0"`` or
+        ``"__all_modules__"``.
     """
     learners = results.get("learners", {}) or {}
     out: Dict[str, Dict[str, Optional[float]]] = {}
@@ -257,6 +370,19 @@ _DEFAULT_LEARNER_PLOT_WHITELIST = {
 
 
 def _should_plot_metric(metric_key: str, whitelist: set[str]) -> bool:
+    """Return ``True`` if ``metric_key`` (lowercased) is in the whitelist.
+
+    Parameters
+    ----------
+    metric_key : str
+        Raw metric key to test.
+    whitelist : set[str]
+        Set of allowed lowercase metric keys.
+
+    Returns
+    -------
+    bool
+    """
     return str(metric_key).lower() in whitelist
 
 
@@ -267,10 +393,36 @@ def _table_to_line_series_arrays(
     y_col: str,
     series_col: str,
 ) -> Tuple[List[List[float]], List[List[float]], List[str]]:
-    """
-    Convert a wandb.Table into (xs, ys, keys) for wandb.plot.line_series(xs=..., ys=..., keys=...).
+    """Pivot a ``wandb.Table`` into ``(xs, ys, keys)`` for ``wandb.plot.line_series``.
 
-    The table can contain extra columns; we only use x_col/y_col/series_col.
+    Extra table columns are ignored.  Rows with non-convertible x or y values
+    are silently skipped.  Points within each series are sorted by x.
+
+    Parameters
+    ----------
+    table : wandb.Table
+        Source table.  Returns empty lists if ``None`` or has no data.
+    x_col : str
+        Column name to use as x-axis.
+    y_col : str
+        Column name to use as y-axis.
+    series_col : str
+        Column whose distinct values define separate chart lines.
+
+    Returns
+    -------
+    xs : list[list[float]]
+        x-values per series, sorted ascending.
+    ys : list[list[float]]
+        Corresponding y-values per series.
+    keys : list[str]
+        Series labels in sorted order.
+
+    Raises
+    ------
+    ValueError
+        If any of ``x_col``, ``y_col``, or ``series_col`` is absent from the
+        table columns.
     """
     if table is None or table.data is None:
         return [], [], []
@@ -319,6 +471,31 @@ def _log_multiline_table_as_plot(
     max_rows: int,
     title: str,
 ) -> None:
+    """Log a multi-line chart to W&B built from a persistent (capped) table.
+
+    Parameters
+    ----------
+    wandb_run : wandb.sdk.wandb_run.Run
+        Active W&B run.
+    prefix : str
+        Metric namespace prefix (e.g. ``"rllib"``).
+    plot_name : str
+        Chart name appended to ``prefix/plots/``.
+    table : wandb.Table
+        Persistent table accumulating rows over training.
+    x_col : str
+        Column to use as x-axis.
+    y_col : str
+        Column to use as y-axis.
+    series_col : str
+        Column whose distinct values define chart series/lines.
+    step : int
+        Global step value for ``wandb_run.log``.
+    max_rows : int
+        Maximum number of table rows included in the chart.
+    title : str
+        Chart title shown in the W&B UI.
+    """
     table = _cap_table(table, max_rows)
 
     xs, ys, keys = _table_to_line_series_arrays(
@@ -366,14 +543,54 @@ def plot_training_results_new_stack(
     log_per_policy_learner_scalars: bool = False,
     learner_scalar_whitelist: Optional[set[str]] = None,
 ) -> None:
-    """
-    Logs:
-      - scalar summaries (episode/perf)
-      - per-series return scalars (optional)
-      - OPTIONAL per-policy learner scalars (off by default to reduce UI noise)
-      - Multi-line plots:
-          * returns: one plot with lines=policies/agents
-          * learner metrics: ONE plot per metric with lines=policies (WHITELISTED)
+    """Log RLlib new-API-stack training metrics to W&B for a single step.
+
+    Produces three layers of W&B artefacts:
+
+    1. **Scalar summaries** — episode stats (return mean/min/max, episode
+       length, count), performance counters (env/agent steps, throughputs,
+       timer durations), and optional per-series return scalars.
+    2. **Multi-line returns chart** — one ``wandb.plot.line_series`` with a
+       line per policy/agent (capped to ``max_lines_returns`` series).
+    3. **Per-metric learner charts** — one ``wandb.plot.line_series`` per
+       whitelisted learner metric (e.g. loss, entropy, KL) with a line per
+       policy.  Controlled by ``learner_plot_whitelist`` to avoid W&B UI spam.
+
+    Parameters
+    ----------
+    wandb_run : wandb.sdk.wandb_run.Run
+        Active W&B run.  No-op if ``None`` or if ``results`` is ``None``.
+    outer_iter : int
+        Current ES generation index (logged as a scalar; used in the global
+        step encoding).
+    training_episode : int
+        Current inner-loop training step (used as part of the global step).
+    results : dict[str, Any]
+        RLlib new-stack training result dict returned by ``algo.train()``.
+    prefix : str
+        Metric namespace prefix.  Defaults to ``"rllib"``.
+    max_lines_returns : int
+        Maximum number of per-series lines in the returns chart.  Defaults to
+        ``64``.
+    max_rows_returns : int
+        Maximum number of rows in the returns table.  Defaults to ``50_000``.
+    max_rows_per_learner_metric : int
+        Maximum rows per learner-metric table.  Defaults to ``50_000``.
+    include_all_modules_in_learner_plots : bool
+        If ``True``, includes the ``"__all_modules__"`` aggregated entry in
+        per-metric learner plots.  Defaults to ``False``.
+    skip_learner_plot_keys : set[str] or None
+        Additional learner metric keys to exclude from plots (merged with
+        :data:`_DEFAULT_SKIP_PLOT_KEYS`).
+    learner_plot_whitelist : set[str] or None
+        Set of learner metric keys (lowercase) for which to create multi-line
+        charts.  Defaults to :data:`_DEFAULT_LEARNER_PLOT_WHITELIST`.
+    log_per_policy_learner_scalars : bool
+        If ``True``, also logs individual per-policy learner scalars (verbose;
+        off by default to reduce W&B UI noise).
+    learner_scalar_whitelist : set[str] or None
+        When ``log_per_policy_learner_scalars`` is ``True``, only these keys
+        are logged.  Defaults to :data:`_DEFAULT_LEARNER_PLOT_WHITELIST`.
     """
     if wandb_run is None or results is None:
         return

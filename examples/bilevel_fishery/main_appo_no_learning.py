@@ -1,3 +1,30 @@
+"""Bilevel fishery experiment — APPO with frozen (non-learning) policy.
+
+This script is used to verify the *environmental dynamics* independently of
+policy learning.  It runs APPO with a :class:`FreezePolicyCallback` that
+saves the initial policy weights and restores them after every training
+iteration, effectively preventing any learning.
+
+- **Outer loop**: ES with ``outer_iters=100``.  Only one inner training
+  iteration per ES candidate (``train_iters=1``).
+- **Inner loop**: APPO with learning rate ``lr=0.00`` and a
+  :class:`FreezePolicyCallback` that snapshots and restores weights so the
+  policy stays at its random initialisation.
+- **Mechanism**: V0 :class:`FisheryMechanismSpace`, all parameters fixed at
+  default values (high quotas, no bans).
+- **No W&B reporting**.
+
+Usage
+-----
+::
+
+    uv run python -m examples.bilevel_fishery.main_appo_no_learning
+
+Notes
+-----
+This script executes the experiment at module-import time.
+"""
+
 import numpy as np
 import ray
 from gymnasium import spaces
@@ -33,12 +60,48 @@ ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
 
 
 class FreezePolicyCallback(DefaultCallbacks):
-    """Snapshots weights once, then restores them after every train iteration."""
+    """RLlib callback that prevents any policy learning during training.
 
-    def on_algorithm_init(self, *, algorithm, **kwargs):
+    On the first call to :meth:`on_algorithm_init` the full algorithm state
+    (weights + optimiser state) is snapshotted.  After every subsequent train
+    iteration :meth:`on_train_result` restores that snapshot, so the policy
+    parameters remain at their random initialisation throughout the run.
+
+    This is useful for auditing the environment dynamics in isolation: you can
+    confirm that reward and fish-stock trajectories behave correctly *before*
+    policy learning complicates the signal.
+    """
+
+    def on_algorithm_init(self, *, algorithm, **kwargs) -> None:
+        """Snapshot the initial algorithm state immediately after construction.
+
+        Parameters
+        ----------
+        algorithm : ray.rllib.algorithms.algorithm.Algorithm
+            The freshly initialised RLlib algorithm instance.
+        **kwargs
+            Additional keyword arguments forwarded by RLlib (ignored).
+        """
         self._frozen_state = algorithm.get_state()
 
-    def on_train_result(self, *, algorithm, result: dict, **kwargs):
+    def on_train_result(self, *, algorithm, result: dict, **kwargs) -> None:
+        """Restore the frozen state after every training step.
+
+        Overwrites the current algorithm state with the snapshotted weights,
+        effectively undoing any gradient updates performed during the iteration.
+        Also sets ``result["info"]["learning_frozen"] = True`` so the flag is
+        visible in the training logs.
+
+        Parameters
+        ----------
+        algorithm : ray.rllib.algorithms.algorithm.Algorithm
+            The RLlib algorithm instance.
+        result : dict
+            The training result dictionary (mutated in place to add the
+            ``learning_frozen`` flag).
+        **kwargs
+            Additional keyword arguments forwarded by RLlib (ignored).
+        """
         algorithm.set_state(self._frozen_state)
         result.setdefault("info", {})["learning_frozen"] = True
 

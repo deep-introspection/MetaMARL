@@ -8,12 +8,43 @@ from core.world.context import Context, EnvStepContext
 
 
 def _extract_reward_series(reward: Any) -> dict[str, float]:
+    """Flatten a reward payload into an ``{agent_id: float}`` mapping.
+
+    Parameters
+    ----------
+    reward : Any
+        Either a dict mapping agent IDs to scalar rewards (multi-agent), or a
+        single scalar reward (single-agent / global).
+
+    Returns
+    -------
+    dict[str, float]
+        Mapping from agent-ID string (or ``"global"``) to reward value.
+    """
     if isinstance(reward, dict):
         return {str(agent_id): float(value) for agent_id, value in reward.items()}
     return {"global": float(reward)}
 
 
 def _extract_action_series(action: Any) -> dict[str, float]:
+    """Flatten action(s) into a flat ``{key: float}`` mapping.
+
+    Multi-dimensional actions are expanded with ``dim_i`` suffixes.  Handles
+    both multi-agent (dict) and single-agent (scalar/array) actions.
+
+    Parameters
+    ----------
+    action : Any
+        Either a dict mapping agent IDs to (possibly array-valued) actions, or
+        a single scalar/array action.
+
+    Returns
+    -------
+    dict[str, float]
+        Keys are ``"<agent_id>"`` for 1-D actions, ``"<agent_id>/dim_<i>"``
+        for multi-dimensional actions, or ``"global"`` / ``"global/dim_<i>"``
+        for non-dict inputs.
+    """
     out: dict[str, float] = {}
 
     if isinstance(action, dict):
@@ -41,6 +72,33 @@ def _extract_observation_series(
     *,
     observation_map: Optional[list[str]] = None,
 ) -> dict[str, dict[str, float]]:
+    """Flatten multi-agent observations into ``{obs_key: {agent_id: float}}``.
+
+    Supports dict-valued per-agent observations (named keys) and vector
+    observations (flattened with optional name mapping via ``observation_map``).
+
+    Parameters
+    ----------
+    observation : Any
+        Dict mapping agent IDs to their observations.  Each agent observation
+        may be a dict of named fields or a numeric array/scalar.
+    observation_map : list[str] or None
+        Optional ordered list of names for the observation vector dimensions.
+        Applied when the per-agent observation is a flat array rather than a
+        named dict.  If shorter than the observation vector, remaining dims
+        fall back to ``"obs_<i>"``.
+
+    Returns
+    -------
+    dict[str, dict[str, float]]
+        ``{obs_key: {agent_id: value}}`` — one outer key per observation
+        dimension, one inner key per agent.
+
+    Raises
+    ------
+    TypeError
+        If ``observation`` is not a dict.
+    """
     out: dict[str, dict[str, float]] = {}
 
     if not isinstance(observation, dict):
@@ -88,6 +146,26 @@ def _extract_observation_series(
     return out
 
 def _extract_info_series(info: Any) -> dict[str, dict[str, float]]:
+    """Flatten multi-agent info dicts into ``{info_key: {agent_id: float}}``.
+
+    Multi-dimensional info values are expanded with ``"<key>_<i>"`` suffixes.
+
+    Parameters
+    ----------
+    info : Any
+        Dict mapping agent IDs to their per-step info dicts.
+
+    Returns
+    -------
+    dict[str, dict[str, float]]
+        ``{info_key: {agent_id: value}}`` — one outer key per info field
+        (or field dimension), one inner key per agent.
+
+    Raises
+    ------
+    TypeError
+        If ``info`` is not a dict, or if the per-agent info block is not a dict.
+    """
     out: dict[str, dict[str, float]] = {}
 
     if not isinstance(info, dict):
@@ -120,6 +198,28 @@ def _table_to_line_series_arrays(
     y_col: str,
     series_col: str,
 ) -> tuple[list[list[float]], list[list[float]], list[str]]:
+    """Pivot a ``wandb.Table`` into ``(xs, ys, keys)`` for ``wandb.plot.line_series``.
+
+    Parameters
+    ----------
+    table : wandb.Table
+        Source table.  Returns empty lists if ``None`` or has no data.
+    x_col : str
+        Column name to use as x-axis.
+    y_col : str
+        Column name to use as y-axis.
+    series_col : str
+        Column whose distinct values define separate chart lines.
+
+    Returns
+    -------
+    xs : list[list[float]]
+        x-values per series, sorted ascending.
+    ys : list[list[float]]
+        Corresponding y-values per series.
+    keys : list[str]
+        Series labels in sorted order.
+    """
     if table is None or table.data is None:
         return [], [], []
 
@@ -159,6 +259,29 @@ def _log_multiline_table_as_plot(
     step: int,
     title: str,
 ) -> None:
+    """Log a multi-line chart to W&B from a persistent table.
+
+    No-op when the table contains no plottable data.
+
+    Parameters
+    ----------
+    wandb_run : wandb.sdk.wandb_run.Run
+        Active W&B run.
+    plot_key : str
+        Full metric key under which the chart is logged (no prefix appended).
+    table : wandb.Table
+        Persistent table used to build the line-series chart.
+    x_col : str
+        Column to use as x-axis.
+    y_col : str
+        Column to use as y-axis.
+    series_col : str
+        Column whose distinct values define chart series/lines.
+    step : int
+        Global step value for ``wandb_run.log``.
+    title : str
+        Chart title shown in the W&B UI.
+    """
     xs, ys, keys = _table_to_line_series_arrays(
         table,
         x_col=x_col,
@@ -209,6 +332,33 @@ def plot_env_step_context(
     obs_keys_skip: Optional[set[str]] = None,
     infos_keys_skip: Optional[set[str]] = None,
 ) -> None:
+    """Log a single environment step's observations, actions, rewards, and infos to W&B.
+
+    Extracts all data from ``ctx.payload`` (an :class:`~core.world.context.EnvStepContext`)
+    and produces:
+
+    * one multi-line reward chart (lines = agent IDs);
+    * one multi-line action chart (lines = agent IDs);
+    * one multi-line observation chart per observation key (lines = agent IDs);
+    * one multi-line info chart per info key (lines = agent IDs).
+
+    Each chart accumulates data in a persistent per-run ``wandb.Table``.
+
+    Parameters
+    ----------
+    wandb_run : wandb.sdk.wandb_run.Run
+        Active W&B run.  No-op if ``None``.
+    ctx : Context
+        Context object whose ``payload`` must be an
+        :class:`~core.world.context.EnvStepContext`; returns silently otherwise.
+    prefix : str
+        Metric namespace prefix.  Defaults to ``"env"``.
+    obs_keys_skip : set[str] or None
+        Observation keys to exclude from logging (e.g. redundant or high-
+        dimensional entries).
+    infos_keys_skip : set[str] or None
+        Info keys to exclude from logging.
+    """
     if wandb_run is None:
         return
     if ctx is None or not isinstance(ctx.payload, EnvStepContext):

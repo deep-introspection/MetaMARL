@@ -1,3 +1,27 @@
+"""YAML-driven loader for the bilevel fishery experiment configuration.
+
+This module provides :class:`BilevelConfigLoader`, which reads a YAML config
+file and assembles a fully-specified :class:`~core.optimizers.bilevel.BilevelConfig`
+that wires together:
+
+- The outer ES loop (regulator optimising mechanism parameters).
+- The inner APPO loop (fishing agents learning to harvest fish under the
+  current mechanism).
+- Ray cluster settings, optional W&B reporting, and agent observation /
+  action spaces.
+
+Typical usage
+-------------
+Invoke via the CLI entry-point ``main.py``::
+
+    uv run python -m examples.bilevel_fishery.main --config configs/my_run.yaml
+
+or programmatically::
+
+    cfg = BilevelConfigLoader.from_yaml("configs/my_run.yaml", output_dir="results")
+    cfg.build_optimizer().run()
+"""
+
 import yaml
 import numpy as np
 from gymnasium import spaces
@@ -23,9 +47,57 @@ CALLBACKS = {
 
 
 class BilevelConfigLoader:
+    """Factory that builds a :class:`~core.optimizers.bilevel.BilevelConfig` from a YAML file.
+
+    All experiment hyperparameters — ecology, mechanism defaults, ES and APPO
+    training settings, Ray resource allocation, and optional W&B reporting —
+    are specified declaratively in the YAML file.  This class reads that file
+    and calls the fluent builder API on :class:`BilevelConfig` to produce a
+    ready-to-run optimizer configuration.
+
+    Examples
+    --------
+    >>> cfg = BilevelConfigLoader.from_yaml("configs/run.yaml", output_dir="results")
+    >>> optimizer = cfg.build_optimizer()
+    >>> optimizer.run()
+    """
 
     @staticmethod
     def from_yaml(path: str, output_dir: str | None = None) -> BilevelConfig:
+        """Build a :class:`~core.optimizers.bilevel.BilevelConfig` from a YAML config file.
+
+        Reads the YAML file at *path* and constructs the full bilevel
+        optimization configuration, including:
+
+        - The mechanism space (resolved via the component registry).
+        - The outer ES optimizer (regulator) configuration.
+        - The inner APPO optimizer (fishermen) configuration, including
+          dynamically computed observation-space dimensionality.
+        - Ray cluster and optional W&B reporting settings.
+
+        Parameters
+        ----------
+        path : str
+            Path to the YAML configuration file.  May be absolute or relative
+            to the project root.
+        output_dir : str or None, optional
+            Directory where output artefacts (plots, checkpoints) will be
+            written.  If ``None``, output generation is disabled.
+
+        Returns
+        -------
+        BilevelConfig
+            Fully configured bilevel optimizer, ready to be compiled with
+            :meth:`~core.optimizers.bilevel.BilevelConfig.build_optimizer`.
+
+        Raises
+        ------
+        ValueError
+            If the ``inner.optimizer`` key in the YAML specifies anything other
+            than ``"APPO"``.
+        FileNotFoundError
+            If the YAML file does not exist at *path*.
+        """
         with open(path, "r") as f:
             cfg = yaml.safe_load(f)
 

@@ -1,3 +1,32 @@
+"""Bilevel fishery experiment — APPO inner loop, multi-environment outer loop.
+
+This script runs the full bilevel optimisation loop using:
+
+- **Outer loop**: Evolution Strategies (ES) with ``outer_iters=1`` (smoke-test
+  / single-pass mode).  The regulator environment is :class:`FisheryRegulatorEnv`.
+- **Inner loop**: APPO (Asynchronous Proximal Policy Optimisation via Ray RLlib)
+  trains 3 fishing agents for ``train_iters=50`` iterations per ES candidate.
+  The fishery environment is :class:`FisheryRegulatedEnv` (V0 — binary fine /
+  ban mechanism).
+- **Mechanism**: :class:`FisheryMechanismSpace` with *no* optimised parameters
+  (``optimize_params=[]``); all mechanism parameters are fixed at the
+  specified defaults.  This is used to verify that APPO converges before
+  enabling ES.
+- **No W&B reporting** — metrics go only to the Ray log.
+
+Usage
+-----
+::
+
+    uv run python -m examples.bilevel_fishery.main_appo
+
+Notes
+-----
+This script executes the experiment at module-import time (the
+``bilevel_opt.run()`` call is at module level).  It is intended to be run
+directly, not imported as a library.
+"""
+
 import numpy as np
 import ray
 from gymnasium import spaces
