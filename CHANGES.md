@@ -77,5 +77,3 @@ Both `config.yaml` and `main_appo_one_mechanism_v1.yaml` now have inline comment
 | 61 Python files across `core/` and `examples/` | NumPy docstrings added to all public functions and classes |
 
 No code logic was modified anywhere — only docstrings and packaging configuration.
-
-Rémy
