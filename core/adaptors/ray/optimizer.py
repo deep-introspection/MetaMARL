@@ -76,7 +76,10 @@ class RayOptimizer(Optimizer):
     @property
     @override(Optimizer)
     def batch_capacity(self) -> int:
-        return self.config.rllib_cfg.num_envs_per_env_runner
+        num_envs = self.config.rllib_cfg.num_envs_per_env_runner
+        num_seeds = len(self.config.seeds)
+        num_mechanisms = num_envs // num_seeds
+        return num_mechanisms
 
     # TODO move to utils
     def _build_agent_policy_map(self) -> dict[AgentID, str]:
