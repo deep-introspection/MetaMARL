@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import copy
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional, Self, Type, Union
 
+import numpy as np
 import ray
 from gymnasium import Space
 from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
@@ -43,8 +44,9 @@ class OptimizerConfig(_Config, ABC):
         self.env_config: dict = {}
         self.horizon: int = None  # TODO default value
 
-        # --- training ---
-        self.seed: int = None
+        # --- debugging ---
+        self.base_seed: Optional[int] = None
+        self.seeds: list[int] = []
 
         # --- eval ---
         self.evaluation_config: Optional["OptimizerConfig"] = None
@@ -236,15 +238,23 @@ class OptimizerConfig(_Config, ABC):
             self.disable_env_checking = disable_env_checking
 
         return self
-
-    def training(self, *, seed: Optional[float] = None) -> Self:
-        """
-
-        Args:
-            seed:
-        """
+    
+    @abstractmethod
+    def training(self):
+        raise NotImplementedError
+    
+    def debugging(
+        self,
+        *,
+        seed: Optional[int] = None, #base seed
+        num_seeds: int = 3,
+    ) -> Self:
         if seed is not None:
-            self.seed = seed
+            self.base_seed = seed
+            ss = np.random.SeedSequence(seed)
+            self.seeds = ss.generate_state(num_seeds).tolist()
+        else:
+            self.seeds = []
         return self
 
     # TODO Docstring explanation

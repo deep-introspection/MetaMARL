@@ -84,8 +84,9 @@ class World:
         Return all optimizer IDs known to the world.
         """
         return set(self._opt_ctx_map.keys())
-    
+
         # ADDED: helpers for reduced env plotting
+
     def get_env_step_contexts(
         self,
         opt_id: Optional[OptimizerID] = None,
@@ -102,7 +103,8 @@ class World:
             ctxs = [self._contexts[cid] for cid in ctx_ids if cid in self._contexts]
 
         return [
-            ctx for ctx in ctxs
+            ctx
+            for ctx in ctxs
             if ctx is not None and isinstance(ctx.payload, EnvStepContext)
         ]
 
@@ -139,6 +141,18 @@ class World:
 
         raise RuntimeError("no available mechanisms to train")
 
+    # Use the contextID as mechanismID
+    def get_mechanism_by_id(self, mechanism_id: int, seed: int) -> MechanismContext:
+        for m_ctx in self._mechanism_registry.values():
+            if (
+                mechanism_id == m_ctx.index and 
+                seed == m_ctx.seed and 
+                m_ctx.status == MechanismStatus.published
+            ):
+                m_ctx.status = MechanismStatus.assigned
+                return m_ctx
+        return None
+    
     def try_get_mechanism(self) -> MechanismContext | None:
         """Try to get a published mechanism, return None if none available."""
         for m_ctx in self._mechanism_registry.values():

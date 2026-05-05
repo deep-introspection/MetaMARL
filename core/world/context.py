@@ -31,6 +31,7 @@ class ContextSchema(BaseModel):
 class MechanismContext(ContextSchema):
     index: int
     env_id: Optional[str]
+    seed: Optional[int]
     status: MechanismStatus
     job: Optional[MechanismStatus]
     mechanism: SkipValidation[Mechanism]
@@ -39,6 +40,8 @@ class MechanismContext(ContextSchema):
 
 # TODO strict type annotations rm Any
 class EnvStepContext(ContextSchema):
+    env_id: Optional[int]
+    seed: Optional[int]
     mechanism: Optional[int]
     observation: ObsType | MultiAgentDict
     observation_map: Optional[list[str]]

@@ -3,12 +3,13 @@ from typing import Optional, TypeAlias
 
 from loggers.schemas import LoggerSchema
 
-PolicyID: TypeAlias = str 
+PolicyID: TypeAlias = str
 EnvID: TypeAlias = str
 StepID: TypeAlias = int
 
+
 # TODO add recducer identity
-class EnvStepSchema(LoggerSchema): #attention this is aggregate by env not by env step
+class EnvStepSchema(LoggerSchema):  # attention this is aggregate by env not by env step
     # TODO models such as PILCO, Dyna, Qyna-Q
     # statistics collected at env-step level
     action: float
@@ -24,7 +25,8 @@ class EnvStepSchema(LoggerSchema): #attention this is aggregate by env not by en
     advantage: Optional[float] = None
     td_error: Optional[float] = None
     q_pred: Optional[float] = None
-    
+
+
 class PolicyLearnerSchema(LoggerSchema):
     batch_size: int
     # Value, Q, advantage debugging
@@ -61,7 +63,7 @@ class PolicyLearnerSchema(LoggerSchema):
     gradient_noise: float
 
 
-class EpisodeRolloutSchema(LoggerSchema): # Episode rollout = aggregate over env steps
+class EpisodeRolloutSchema(LoggerSchema):  # Episode rollout = aggregate over env steps
     # Reward (R) statistics
     reward_total: Optional[float] = None
     reward_mean: Optional[float]
@@ -79,23 +81,29 @@ class EpisodeRolloutSchema(LoggerSchema): # Episode rollout = aggregate over env
     episode_len_max: float
     episode_len_min: float
 
+
 class EnvRolloutSchema(LoggerSchema):
     aggregate: EpisodeRolloutSchema
     by_step: dict[StepID, EnvStepSchema]
+
 
 class RolloutSchema(LoggerSchema):
     aggregate: EpisodeRolloutSchema
     by_env: dict[EnvID, EnvRolloutSchema] = Field(default_factory=dict)
 
+
 class LearnerSchema(LoggerSchema):
     by_policy: dict[PolicyID, PolicyLearnerSchema] = Field(default_factory=dict)
+
 
 class TrainSchema(LoggerSchema):
     rollout: RolloutSchema
     learner: LearnerSchema
 
+
 class EvalSchema(LoggerSchema):
     rollout: RolloutSchema
+
 
 class PPOStats(LoggerSchema):
     train: TrainSchema

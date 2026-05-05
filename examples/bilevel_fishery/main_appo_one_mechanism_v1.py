@@ -50,7 +50,7 @@ bilevel_opt_cfg: BilevelConfig = (
             default_fixed_quota=0.25,
             default_prop_quota=0.25,
             default_min_stock=0.40,
-            default_target_stock = 0.6,
+            default_target_stock=0.6,
             default_fine_amount=10.0,
             default_risk_penalty_scale=8.0,
             default_risk_penalty_power=2.0,
@@ -204,6 +204,10 @@ bilevel_opt_cfg: BilevelConfig = (
             }
         )
         .fault_tolerance(restart_failed_env_runners=False)
+        .debugging(
+            seed = 42, # this is base seed same as training
+            num_seeds = 4, #TODO enforce even-ness
+        )
     )
 )
 
@@ -216,17 +220,3 @@ bilevel_opt.run()
 
 # TODO add this after run done
 ray.shutdown()
-
-
-def main(cfg=None):
-    if cfg is None:
-        cfg = bilevel_opt_cfg
-
-    bilevel_opt = cfg.build_optimizer()
-    bilevel_opt.run()
-
-    ray.shutdown()
-
-
-if __name__ == "__main__":
-    main()

@@ -130,7 +130,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
                 "fine": fines.get(agent_id, 0.0),
                 "harvest_scale": harvest_scale,
                 "H_total": H_total,
-                "below_target_zone": float(S_t["fish"] / self.max_fish < self.m.target_stock),
+                "below_target_zone": float(
+                    S_t["fish"] / self.max_fish < self.m.target_stock
+                ),
                 "target_shortfall": float(
                     max(0.0, self.m.target_stock - (S_t["fish"] / self.max_fish))
                 ),
@@ -141,7 +143,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
     def _is_truncated(self) -> bool:
         return self._t >= self.horizon
-    
+
     def desired_harvest_signal(
         self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
@@ -207,8 +209,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             - H
         )
         algae_next = algae + self.dt * (
-            self.alpha * algae * (1 - algae / self.max_algae)
-            - self.beta * algae * fish
+            self.alpha * algae * (1 - algae / self.max_algae) - self.beta * algae * fish
         )
 
         fish_next = np.clip(fish_next, 0.0, self.max_fish)

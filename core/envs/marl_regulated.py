@@ -36,12 +36,10 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
     def __init__(
         self,
         *,
-        world: World,
-        opt_id: OptimizerID,
         agents: list[AgentID],
         **kwargs,
     ):
-        super().__init__(world=world, opt_id=opt_id, **kwargs)
+        super().__init__(**kwargs)
         self.agents = agents
         self.possible_agents = list(self.agents)
         self.action_spaces = kwargs.get("action_spaces", {})
@@ -69,7 +67,13 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
     def reset(
         self, *, seed=None, options=None
     ) -> Tuple[MultiAgentDict, MultiAgentDict]:
-        self._base_reset(seed=seed)
+        if seed is not None and self.seed is not None and seed != self.seed:
+            pass # do not mutate seed after construction
+
+        effective_seed = self.seed if self.seed is not None else seed
+        
+        self._pre_reset(seed=effective_seed)
+        self.rng = np.random.default_rng(effective_seed)
         obs = self._reset()
         infos = {agent_id: {} for agent_id in self.agents}
         return obs, infos
@@ -85,7 +89,9 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
         self._publish(
             EnvStepContext(
-                mechanism=self.m_ctx.index if self.m_ctx else None,
+                env_id=self.env_id,
+                seed=self.seed,
+                mechanism=self.mechanism_id,
                 observation=obs,
                 observation_map=self.obs_map,
                 reward=rewards,

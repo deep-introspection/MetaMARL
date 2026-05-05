@@ -72,12 +72,10 @@ class BilevelConfig(OptimizerConfig):
         return self
 
     def training(
-        self, *, outer_iters: int, seed=None, output_dir: str | None = None, **kwargs
+        self, *, outer_iters: int, output_dir: str | None = None, **kwargs
     ) -> Self:
         if outer_iters is not None:
             self.outer_iters = outer_iters
-        if seed is not None:
-            self.seed = seed
         self.output_dir = output_dir
         return self
 
@@ -146,21 +144,28 @@ class BilevelConfig(OptimizerConfig):
 
         inner_cfg = self.inner_cfg.copy()
         outer_cfg = self.outer_cfg.copy()
-
+        
         if self.mechanism_space is not None:
             outer_cfg.dimension = self.mechanism_space.dimension
-
             inner_cfg = inner_cfg._merge_env_config(
                 {
                     "mechanism_space": self.mechanism_space,
-                    "default_mechanism": self.default_mechanism,
                 }
             )
+
+        # Assign see to outer cfg for looping
+        if inner_cfg.seeds is not None:
+            outer_cfg._merge_env_config(
+                {
+                    "seeds": inner_cfg.seeds,
+                }
+            )
+            # inner_cfg.seed = None
 
         outer_cfg = outer_cfg._merge_env_config(
             {
                 "mechanism_space": self.mechanism_space,
-                "default_mechanism": self.default_mechanism,
+                "default_mechanism": self.default_mechanism, #TODO remove deprecated
             }
         )
 

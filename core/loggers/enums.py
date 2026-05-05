@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class ReduceProtocol(str, Enum):
     MEAN = "mean"
     SUM = "sum"

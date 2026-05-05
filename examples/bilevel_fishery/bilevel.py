@@ -23,7 +23,6 @@ CALLBACKS = {
 
 
 class BilevelConfigLoader:
-
     @staticmethod
     def from_yaml(path: str, output_dir: str | None = None) -> BilevelConfig:
         with open(path, "r") as f:
@@ -104,9 +103,7 @@ class BilevelConfigLoader:
 
         # Resolve callbacks
         callbacks_cfg = cfg["inner"].get("callbacks", {})
-        resolved_callbacks = {
-            k: CALLBACKS[v] for k, v in callbacks_cfg.items()
-        }
+        resolved_callbacks = {k: CALLBACKS[v] for k, v in callbacks_cfg.items()}
 
         bilevel = bilevel.inner(
             APPOptimizerConfig()

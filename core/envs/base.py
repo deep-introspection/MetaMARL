@@ -8,11 +8,10 @@ from gymnasium import Env
 from gymnasium.core import ActType, ObsType, WrapperActType, WrapperObsType
 
 from core.annotations import override
-from core.mechanism.base import Mechanism
 from core.mechanism.space import MechanismSpace
 from core.types import OptimizerID
 from core.world.base import World
-from core.world.context import Context, ContextSchema, EnvStepContext, MechanismContext
+from core.world.context import Context, ContextSchema, EnvStepContext
 
 
 class BaseEnv(Env):
@@ -22,27 +21,28 @@ class BaseEnv(Env):
         self,
         *,
         world: World,
-        opt_id: OptimizerID | None = None,
+        opt_id: Optional[OptimizerID] = None,
         horizon: Optional[int] = None,
         mechanism_space: MechanismSpace = None,
-        **kwargs,
+        seed: Optional[int] = None,
+        **kwargs
     ) -> None:
         super().__init__()
         self.world = world
         self._opt_id = opt_id
         self.horizon = horizon
+        self.seed = seed
         self._t = 0
-        # mechanism_space can be a class or an instance
+        self.env_id = None
+
+        # Mechanism space
         if isinstance(mechanism_space, type):
             self.m_space: MechanismSpace = mechanism_space()
         else:
             self.m_space: MechanismSpace = mechanism_space
-        self.m_ctx: MechanismContext = None
-        self.m: Mechanism = None
-        self.env_id = uuid.uuid4().hex[:8]
 
         # observation map
-        self.obs_map: dict[int, str] = None
+        self.obs_map: Optional[dict[int, str]] = None
 
     # Setter
     def set_opt_id(self, opt_id: OptimizerID) -> None:
@@ -66,13 +66,8 @@ class BaseEnv(Env):
         """Run one timestep of the environment's dynamics using the agent actions."""
         raise NotImplementedError
 
-    def _base_reset(self, *, seed=None):
-        self.rng = np.random.default_rng(seed)
-        self._t = 0
-        self._pre_reset()
-
     @abstractmethod
-    def _pre_reset(self) -> None:
+    def _pre_reset(self, seed: Optional[int] = None) -> None:
         pass
 
     @abstractmethod
@@ -90,12 +85,12 @@ class BaseEnv(Env):
         obs = self.observation(raw_obs)
         reward = self.reward(raw_reward)
 
-        m_idx = self.m_ctx.index if self.m_ctx is not None else None
-
         # Publish env context to World
         self._publish(
             EnvStepContext(
-                mechanism=m_idx,  # TODO link with mechanismID rather than mechanism
+                env_id=self.env_id,
+                seed=self.seed,
+                mechanism=getattr(self, "mechanism_id", None),
                 observation=obs,
                 observation_map=self.obs_map,
                 reward=reward,
@@ -107,12 +102,23 @@ class BaseEnv(Env):
         return obs, reward, terminated, truncated, info
 
     @override(Env)
-    def reset(self, *, seed=None, options=None):
-        self._base_reset(seed=seed)
+    def reset(self, *, seed: Optional[int] = None, options=None):
+        # Option to pass seed directly to env --> sequential
+        # TODO what are the options used for ?
+        
+        if seed is not None and self.seed is not None and seed != self.seed:
+            pass # do not mutate seed after construction
+
+        effective_seed = self.seed if self.seed is not None else seed
+        
+        self._pre_reset(seed=effective_seed)
+        self.rng = np.random.default_rng(effective_seed)
         obs = self._reset()
         self._publish(
             EnvStepContext(
-                mechanism=self.m_ctx.index,
+                env_id=self.env_id,
+                seed=self.seed,
+                mechanism=getattr(self, "mechanism_id", None),
                 observation=obs,
                 observation_map=self.obs_map,
                 reward=0.0,
@@ -120,7 +126,7 @@ class BaseEnv(Env):
                 info={},
             )
         )
-        return obs
+        return obs, {}
 
     def observation(self, observation: ObsType) -> WrapperObsType:
         """Returns a modified observation.

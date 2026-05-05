@@ -24,15 +24,15 @@ class RegulatorEnv(BaseEnv):
     def __init__(
         self,
         *,
-        world: World,
-        opt_id: OptimizerID | None = None,
         optimizer: Optional[Optimizer] = None,
         train_iters: int = 5,
+        seeds: Optional[list[int]] = None,
         **kwargs,
     ):
-        super().__init__(world=world, opt_id=opt_id, **kwargs)
+        super().__init__(**kwargs)
         self.inner: Optimizer = optimizer
         self.train_iters: int = train_iters
+        self.seeds: list[int] = seeds or []
 
         self._validate()
 
@@ -75,16 +75,18 @@ class RegulatorEnv(BaseEnv):
         # for theta in thetas:
         #     self._publish(MechanismContext(theta=theta))
         for idx, m in enumerate(mechanisms):
-            self._publish(
-                MechanismContext(
-                    index=idx,
-                    status=MechanismStatus.published,
-                    job=MechanismStatus.train,
-                    env_id=None,
-                    mechanism=m,
-                    metrics=None,
+            for seed in self.seeds:
+                self._publish(
+                    MechanismContext(
+                        index=idx,
+                        seed=seed,
+                        status=MechanismStatus.published,
+                        job=MechanismStatus.train,
+                        env_id=None,
+                        mechanism=m,
+                        metrics=None,
+                    )
                 )
-            )
 
         # Train policy for train_iters iterations
         for _ in range(self.train_iters):
@@ -94,16 +96,18 @@ class RegulatorEnv(BaseEnv):
         # reset mechanism contexts
         for _ in range(self.inner.eval_episodes):
             for idx, m in enumerate(mechanisms):
-                self._publish(
-                    MechanismContext(
-                        index=idx,
-                        status=MechanismStatus.published,
-                        job=MechanismStatus.eval,
-                        env_id=None,
-                        mechanism=m,
-                        metrics=None,
+                for seed in self.seeds:
+                    self._publish(
+                        MechanismContext(
+                            index=idx,
+                            seed=seed,
+                            status=MechanismStatus.published,
+                            job=MechanismStatus.eval,
+                            env_id=None,
+                            mechanism=m,
+                            metrics=None,
+                        )
                     )
-                )
 
         ctx_registry_before = set(ray.get(self.world.get_ctx_registry.remote()).keys())
 
