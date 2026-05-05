@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import logging
+import re  # MODIFIED: needed to extract mechanism ids like m0/m1 from policy names
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import wandb
 from wandb.sdk.wandb_run import Run
+
+# MODIFIED: Plotly is used because wandb.plot.line_series does not support shaded error regions.
+# W&B can log Plotly figures directly.
+import plotly.graph_objects as go
 
 from core.utils import safe_ratio, to_float, finite, sanitize_key
 
@@ -46,6 +51,252 @@ def _summarize_dict_of_scalars(d: Dict[str, Any]) -> Dict[str, float]:
 def _global_step(outer_iter: int, train_step: int) -> int:
     # monotonic across outer iters
     return int(outer_iter) * 1_000_000 + int(train_step)
+
+
+# MODIFIED: helper to extract mechanism identity from seeded policy ids.
+# Example:
+#   fisher_policy_m0_s2669555309 -> m0
+#   fisher_policy_m1_s3444837047 -> m1
+_MECHANISM_RE = re.compile(r"(?:^|_)m(?P<mechanism>\d+)(?:_|$)")
+
+
+# MODIFIED: new helper.
+def _extract_mechanism_id(series_name: str) -> str:
+    """
+    Extracts mechanism identity from a policy/series name.
+
+    Expected seeded policy format:
+      fisher_policy_m0_s2669555309
+      fisher_policy_m1_s3444837047
+
+    Returns:
+      m0, m1, ...
+
+    Fallback:
+      If no mechanism id is found, returns the original series name so behavior
+      remains safe and non-breaking.
+    """
+    s = str(series_name)
+    match = _MECHANISM_RE.search(s)
+    if match is None:
+        return s
+    return f"m{match.group('mechanism')}"
+
+
+# MODIFIED: new helper.
+def _table_to_mechanism_mean_std_arrays(
+    table: wandb.Table,
+    *,
+    x_col: str,
+    y_col: str,
+    series_col: str,
+) -> Dict[str, Dict[str, List[float]]]:
+    """
+    Converts a table with per-seed/per-policy lines into mechanism-level
+    mean/std curves.
+
+    Input table columns contain:
+      x_col      -> step
+      y_col      -> value
+      series_col -> seeded policy/series id, e.g. fisher_policy_m0_s2669555309
+
+    Output:
+      {
+        "m0": {
+            "x": [...],
+            "mean": [...],
+            "upper": [...],
+            "lower": [...],
+            "std": [...],
+            "n": [...]
+        },
+        "m1": ...
+      }
+    """
+    if table is None or table.data is None:
+        return {}
+
+    cols = list(table.columns)
+    try:
+        ix = cols.index(x_col)
+        iy = cols.index(y_col)
+        iser = cols.index(series_col)
+    except ValueError as e:
+        raise ValueError(
+            f"Table missing required columns. Have={cols}, need={[x_col, series_col, y_col]}"
+        ) from e
+
+    # mechanism -> step -> values across seeded policies
+    grouped: dict[str, dict[float, list[float]]] = {}
+
+    for row in table.data:
+        x = to_float(row[ix])
+        y = to_float(row[iy])
+        series_name = row[iser]
+
+        if x is None or y is None:
+            continue
+
+        mechanism_id = _extract_mechanism_id(str(series_name))
+
+        grouped.setdefault(mechanism_id, {}).setdefault(float(x), []).append(float(y))
+
+    out: Dict[str, Dict[str, List[float]]] = {}
+
+    for mechanism_id in sorted(grouped.keys()):
+        step_to_values = grouped[mechanism_id]
+        xs = sorted(step_to_values.keys())
+
+        means: list[float] = []
+        stds: list[float] = []
+        uppers: list[float] = []
+        lowers: list[float] = []
+        ns: list[float] = []
+
+        for x in xs:
+            vals = np.asarray(step_to_values[x], dtype=np.float64)
+            mean = float(vals.mean())
+            std = float(vals.std())  # population std; stable even when n=1
+
+            means.append(mean)
+            stds.append(std)
+            uppers.append(mean + std)
+            lowers.append(mean - std)
+            ns.append(float(len(vals)))
+
+        out[mechanism_id] = {
+            "x": [float(x) for x in xs],
+            "mean": means,
+            "std": stds,
+            "upper": uppers,
+            "lower": lowers,
+            "n": ns,
+        }
+
+    return out
+
+
+# MODIFIED: new helper.
+def _log_mechanism_shaded_error_plot(
+    *,
+    wandb_run: Run,
+    prefix: str,
+    plot_name: str,
+    table: wandb.Table,
+    x_col: str,
+    y_col: str,
+    series_col: str,
+    step: int,
+    max_rows: int,
+    title: str,
+) -> None:
+    """
+    Logs a Plotly figure to W&B where each mechanism has:
+      - one mean line
+      - one shaded ±1 std region
+
+    This leaves the existing wandb.plot.line_series plots untouched.
+    """
+    table = _cap_table(table, max_rows)
+
+    mechanism_curves = _table_to_mechanism_mean_std_arrays(
+        table,
+        x_col=x_col,
+        y_col=y_col,
+        series_col=series_col,
+    )
+
+    if not mechanism_curves:
+        return
+
+    fig = go.Figure()
+
+    # MODIFIED: explicit color palette because W&B's Plotly renderer can make
+    # default fill colors almost invisible.
+    colors = [
+        "rgba(31, 119, 180, 1.0)",
+        "rgba(255, 127, 14, 1.0)",
+        "rgba(44, 160, 44, 1.0)",
+        "rgba(214, 39, 40, 1.0)",
+        "rgba(148, 103, 189, 1.0)",
+        "rgba(140, 86, 75, 1.0)",
+    ]
+
+    fill_colors = [
+        "rgba(31, 119, 180, 0.35)",
+        "rgba(255, 127, 14, 0.35)",
+        "rgba(44, 160, 44, 0.35)",
+        "rgba(214, 39, 40, 0.35)",
+        "rgba(148, 103, 189, 0.35)",
+        "rgba(140, 86, 75, 0.35)",
+    ]
+
+    for i, (mechanism_id, curve) in enumerate(mechanism_curves.items()):
+        xs = curve["x"]
+        means = curve["mean"]
+        upper = curve["upper"]
+        lower = curve["lower"]
+
+        if not xs:
+            continue
+
+        color = colors[i % len(colors)]
+        fill_color = fill_colors[i % len(fill_colors)]
+
+        # MODIFIED:
+        # Instead of using fill="tonexty", create a closed polygon:
+        #
+        #   upper line left -> right
+        #   lower line right -> left
+        #
+        # This is much more robust in W&B than relying on Plotly's previous-trace
+        # fill behavior.
+        band_x = xs + xs[::-1]
+        band_y = upper + lower[::-1]
+
+        fig.add_trace(
+            go.Scatter(
+                x=band_x,
+                y=band_y,
+                mode="lines",
+                fill="toself",
+                fillcolor=fill_color,
+                line=dict(color=fill_color, width=0),
+                name=f"{mechanism_id} ±1 std",
+                showlegend=True,
+                hoverinfo="skip",
+            )
+        )
+
+        # MODIFIED:
+        # Draw the mean after the shaded region so the mean line stays on top.
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=means,
+                mode="lines+markers",
+                line=dict(width=3, color=color),
+                marker=dict(size=5, color=color),
+                name=f"{mechanism_id} mean",
+            )
+        )
+
+    fig.update_layout(
+        title=title,
+        xaxis_title=x_col,
+        yaxis_title=y_col,
+        hovermode="x unified",
+        template="plotly_white",
+    )
+
+    # MODIFIED: remove range slider from W&B panel.
+    fig.update_xaxes(rangeslider_visible=False)
+
+    wandb_run.log(
+        {f"{prefix}/plots/{plot_name}": fig},
+        step=step,
+        commit=False,
+    )
 
 
 def extract_episode_metrics_newstack(
@@ -193,11 +444,6 @@ def extract_learner_metrics_newstack(
             m["entropy_pressure"] = float(entropy) * float(entropy_coeff)
 
         # sample staleness proxy
-        # best available ingredients from your dump:
-        # - diff_num_grad_updates_vs_sampler_policy
-        # - mean_num_training_step_calls_since_last_synch_worker_weights
-        # - learner_group.actor_manager_num_outstanding_async_reqs
-        # - learner_thread_in_queue_wait_timer (__all_modules__)
         lag1 = m.get("diff_num_grad_updates_vs_sampler_policy")
         lag2 = mean_training_calls_since_sync
         lag3 = outstanding_async_reqs
@@ -365,6 +611,11 @@ def plot_training_results_new_stack(
     # UI spam controls
     log_per_policy_learner_scalars: bool = False,
     learner_scalar_whitelist: Optional[set[str]] = None,
+    # MODIFIED: disable noisy W&B plots/scalars by default
+    log_per_series_return_scalars: bool = False,
+    log_return_multiline_plot: bool = False,
+    log_learner_multiline_plots: bool = False,
+    log_mechanism_shaded_plots: bool = False,
 ) -> None:
     """
     Logs:
@@ -374,6 +625,16 @@ def plot_training_results_new_stack(
       - Multi-line plots:
           * returns: one plot with lines=policies/agents
           * learner metrics: ONE plot per metric with lines=policies (WHITELISTED)
+
+    MODIFIED:
+      Also logs mechanism-level shaded error plots:
+          * returns/by_mechanism_mean_std
+          * learner/<metric_name>_by_mechanism_mean_std
+
+      These aggregate seeded policies by mechanism id:
+          fisher_policy_m0_s2669555309 -> m0
+          fisher_policy_m0_s3444837047 -> m0
+          fisher_policy_m1_s2669555309 -> m1
     """
     if wandb_run is None or results is None:
         return
@@ -408,15 +669,17 @@ def plot_training_results_new_stack(
         f"{prefix}/perf/weights_seq_no": perf["weights_seq_no"],
     }
 
-    # per-series scalar metrics + summary (useful; not too spammy if capped)
+    # MODIFIED: keep the aggregate summary, but stop logging one scalar chart per seeded policy
     if isinstance(series_means, dict) and series_means:
         series_ids = list(series_means.keys())[:max_lines_returns]
-        for sid in series_ids:
-            fv = finite(series_means.get(sid))
-            if fv is None:
-                continue
-            sid_clean = sanitize_key(sid)
-            metrics[f"{prefix}/series/return_mean/{sid_clean}"] = fv
+
+        if log_per_series_return_scalars:
+            for sid in series_ids:
+                fv = finite(series_means.get(sid))
+                if fv is None:
+                    continue
+                sid_clean = sanitize_key(sid)
+                metrics[f"{prefix}/series/return_mean/{sid_clean}"] = fv
 
         summary = _summarize_dict_of_scalars(
             {sid: series_means.get(sid) for sid in series_ids}
@@ -462,18 +725,35 @@ def plot_training_results_new_stack(
                 int(gs), int(outer_iter), int(training_episode), str(sid), float(fv)
             )
 
-        _log_multiline_table_as_plot(
-            wandb_run=wandb_run,
-            prefix=prefix,
-            plot_name="returns/all_series_return_mean",
-            table=t,
-            x_col="step",
-            y_col="value",
-            series_col="series",
-            step=gs,
-            max_rows=max_rows_returns,
-            title="Return mean (all policies/series)",
-        )
+        # MODIFIED: disabled by default to avoid W&B UI spam
+        if log_return_multiline_plot:
+            _log_multiline_table_as_plot(
+                wandb_run=wandb_run,
+                prefix=prefix,
+                plot_name="returns/all_series_return_mean",
+                table=t,
+                x_col="step",
+                y_col="value",
+                series_col="series",
+                step=gs,
+                max_rows=max_rows_returns,
+                title="Return mean (all policies/series)",
+            )
+
+        # MODIFIED: disabled by default
+        if log_mechanism_shaded_plots:
+            _log_mechanism_shaded_error_plot(
+                wandb_run=wandb_run,
+                prefix=prefix,
+                plot_name="returns/by_mechanism_mean_std",
+                table=t,
+                x_col="step",
+                y_col="value",
+                series_col="series",
+                step=gs,
+                max_rows=max_rows_returns,
+                title="Return mean by mechanism ±1 std across seeds",
+            )
 
     # --------------------------
     # 3) MULTI-LINE PLOTS: learner metrics (ONE plot per metric; lines=policies)
@@ -521,18 +801,36 @@ def plot_training_results_new_stack(
 
         for metric_name in touched:
             t = per_metric[metric_name]
-            _log_multiline_table_as_plot(
-                wandb_run=wandb_run,
-                prefix=prefix,
-                plot_name=f"learner/{metric_name}",
-                table=t,
-                x_col="step",
-                y_col="value",
-                series_col="policy",
-                step=gs,
-                max_rows=max_rows_per_learner_metric,
-                title=f"{metric_name} (all policies)",
-            )
+
+            # MODIFIED: disabled by default to avoid W&B UI spam
+            if log_learner_multiline_plots:
+                _log_multiline_table_as_plot(
+                    wandb_run=wandb_run,
+                    prefix=prefix,
+                    plot_name=f"learner/{metric_name}",
+                    table=t,
+                    x_col="step",
+                    y_col="value",
+                    series_col="policy",
+                    step=gs,
+                    max_rows=max_rows_per_learner_metric,
+                    title=f"{metric_name} (all policies)",
+                )
+
+            # MODIFIED: disabled by default
+            if log_mechanism_shaded_plots:
+                _log_mechanism_shaded_error_plot(
+                    wandb_run=wandb_run,
+                    prefix=prefix,
+                    plot_name=f"learner/{metric_name}_by_mechanism_mean_std",
+                    table=t,
+                    x_col="step",
+                    y_col="value",
+                    series_col="policy",
+                    step=gs,
+                    max_rows=max_rows_per_learner_metric,
+                    title=f"{metric_name} by mechanism ±1 std across seeds",
+                )
 
     # finalize
     wandb_run.log({}, step=gs, commit=False)

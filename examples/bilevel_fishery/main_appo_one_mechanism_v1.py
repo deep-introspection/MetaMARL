@@ -131,7 +131,7 @@ bilevel_opt_cfg: BilevelConfig = (
             num_env_runners=0,
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
-            num_envs_per_env_runner=2,  # batch evaluated mechanism or population size for ES 16
+            num_envs_per_env_runner=1,  # batch evaluated mechanism or population size for ES 16
             rollout_fragment_length=500,  # must be same as env horizon 200
             batch_mode="truncate_episodes",
         )
