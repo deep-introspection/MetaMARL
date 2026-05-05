@@ -40,6 +40,8 @@ class MechanismContext(ContextSchema):
 
 # TODO strict type annotations rm Any
 class EnvStepContext(ContextSchema):
+    env_id: Optional[int]
+    seed: Optional[int]
     mechanism: Optional[int]
     observation: ObsType | MultiAgentDict
     observation_map: Optional[list[str]]
