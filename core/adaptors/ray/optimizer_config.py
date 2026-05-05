@@ -11,6 +11,7 @@ from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
+from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.rllib.core.rl_module.default_model_config import DefaultModelConfig
 from ray.rllib.utils.typing import AgentID
 from ray.tune.registry import register_env
@@ -203,6 +204,26 @@ class RayOptimizerConfig(OptimizerConfig):
             This updated AlgorithmConfig object.
         """
         return cfg.experimental(**kwargs)
+    
+    def _parse_episode_identity(self, episode_id: str) -> dict[str, str]:
+        parts = episode_id.split("|")
+
+        identity = {}
+        for part in parts:
+            if "=" not in part:
+                continue
+
+            key, value = part.split("=", 1)
+            identity[key] = value
+
+        required = {"env", "m", "s"}
+        missing = required - identity.keys()
+        if missing:
+            raise RuntimeError(
+                f"Episode id is missing identity keys {missing}: {episode_id}"
+            )
+
+        return identity
 
     def _seeded_xavier_uniform(self, seed: Optional[int]):
         if seed is None:
@@ -227,7 +248,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
         # Get number of envs and seeds
         num_envs = self.rllib_cfg.num_envs_per_env_runner or 1
-        num_seeds = len(self.seed) if self.seed is not None else 1
+        num_seeds = len(self.seeds) if self.seeds is not None else 1
 
         if num_envs % num_seeds != 0:
             raise ValueError(
@@ -253,11 +274,10 @@ class RayOptimizerConfig(OptimizerConfig):
                 # run mechanism 0, seed 202
                 # run mechanism 1, seed 202
                 # run mechanism 2, seed 202
-            for seed_idx in range(num_seeds):
-                seed_value = self.seed[seed_idx] if self.seed is not None else None
-            
+            for seed in self.seeds:
+                # TODO verify case when null seed            
                 for m_idx in range(num_mechanisms):
-                    policy_id = f"{base_policy}_m{m_idx}_s{seed_idx}"
+                    policy_id = f"{base_policy}_m{m_idx}_s{seed}"
                     policies[policy_id] = (
                         None,
                         spec.get("observation_space"),
@@ -270,9 +290,9 @@ class RayOptimizerConfig(OptimizerConfig):
                         action_space=act_space,
                         model_config=DefaultModelConfig(
                             vf_share_layers=False,
-                            fcnet_kernel_initializer=self._seeded_xavier_uniform(seed_value),
+                            fcnet_kernel_initializer=self._seeded_xavier_uniform(seed),
                             fcnet_bias_initializer="zeros_",
-                            head_fcnet_kernel_initializer=self._seeded_xavier_uniform(seed_value),
+                            head_fcnet_kernel_initializer=self._seeded_xavier_uniform(seed),
                             head_fcnet_bias_initializer="zeros_",
                         ),
                     )
@@ -293,25 +313,24 @@ class RayOptimizerConfig(OptimizerConfig):
         self.env_config.update({"observation_spaces": observation_spaces})
         self.env_config.update({"action_spaces": action_spaces})
 
-        def policy_mapping_fn(agent_id, episode, *_, **__):
+        def policy_mapping_fn(agent_id, episode: MultiAgentEpisode, *_, **__):
             base_policy = agent_type_map[agent_id]
 
             # Old Api Stack Route to policy based on environment index
-            env_idx = getattr(episode, "env_id", None)
+            # TODO this is depregated !
+            # env_idx = getattr(episode, "env_id", None)
 
-            # New Api fallback
-            if env_idx is None:
-                env_idx = int(episode.id_.split("|")[0])
+            # New API
+            identity = self._parse_episode_identity(episode.id_)
+            mechanism_id = identity["m"]
+            seed = identity["s"]
 
-            if env_idx is None:
+            if mechanism_id is None or seed is None:
                 raise RuntimeError(
-                    "No environment index found on episode. "
-                    "Expected episode.env_id (old stack) or "
-                    "episode.custom_data['env_idx'] (new stack)."
+                    "Episode has no mechanism_id/seed. "
+                    "Expected callback to tag episode.custom_data before policy mapping."
                 )
-            mechanism_idx = int(env_idx) % num_mechanisms
-            seed_idx = int(env_idx) // num_mechanisms
-            return f"{base_policy}_m{mechanism_idx}_s{seed_idx}"
+            return f"{base_policy}_m{mechanism_id}_s{seed}"
 
         all_policies = list(policies.keys())
         self.rllib_cfg = self.rllib_cfg.multi_agent(
@@ -370,9 +389,32 @@ class RayOptimizerConfig(OptimizerConfig):
         if self.agent_specs:
             agents = self._apply_agents_to_rllib()
 
+        env_counter = {"idx": 0}
+
         def env_creator(env_ctx):
+            # Get number of envs and seeds
+            num_envs = self.rllib_cfg.num_envs_per_env_runner or 1
+            num_seeds = len(self.seeds) if self.seeds is not None else 1
+            num_mechanisms = num_envs // num_seeds
+
+            raw_env_idx = env_counter["idx"]
+            env_counter["idx"] += 1
+
+            # Important: wrap around in case RLlib recreates envs later.
+            env_idx = raw_env_idx % num_envs
+
+            mechanism_idx = env_idx % num_mechanisms
+            seed_idx = env_idx // num_mechanisms
+
+            # Overrite the env_ctx seed assigned by ray
+            env_ctx["seed"] = self.seeds[seed_idx] if self.seeds is not None else None
+
             return self._env_creator(
-                world=world, opt_id=opt_id, agents=agents, **dict(env_ctx)
+                world=world,
+                opt_id=opt_id,
+                agents=agents,
+                mechanism_id=mechanism_idx,
+                **dict(env_ctx),
             )
 
         register_env(env_name, env_creator)
@@ -415,7 +457,7 @@ class RayOptimizerConfig(OptimizerConfig):
     def debugging(
         self,
         *,
-        seed: Optional[int] = None,
+        seed: Optional[int] = None, #base seed
         num_seeds: int = 3,
         **kwargs,
     ) -> Self:
