@@ -7,6 +7,8 @@ import ray
 
 from core.annotations import override
 from core.envs.base import BaseEnv
+from core.mechanism.base import Mechanism
+from core.mechanism.space import MechanismSpace
 from core.types import OptimizerID
 from core.world.base import World
 from core.world.context import MechanismContext, MechanismStatus
@@ -18,44 +20,45 @@ class RegulatedEnv(BaseEnv):
     def __init__(
         self,
         *,
-        world: World,
-        opt_id: OptimizerID | None = None,
+        mechanism_id: str,
         **kwargs,
     ) -> None:
-        super().__init__(world=world, opt_id=opt_id, **kwargs)
+        super().__init__(**kwargs)
+        
+        # mechanism_space can be a class or an instance
+        self.mechanism_id = mechanism_id
+        self.m_ctx: MechanismContext = None
+        self.m: Mechanism = None
 
     @override(BaseEnv)
     def _pre_reset(self, seed: Optional[int] = None):
         # Try to fetch a new mechanism if one is available (published)
         # Otherwise keep the current mechanism for subsequent episodes
-        try:
-            new_ctx = ray.get(self.world.try_get_mechanism.remote())
-        except Exception:
-            new_ctx = None
+        
+        if self.mechanism_id is None:
+            raise RuntimeError(
+                "RegulatedEnv has no mechanism_id. "
+                "mechanism_id must be injected at env creation."
+            )
 
-        if new_ctx is not None:
-            self.m_ctx = new_ctx
-            self.m = self.m_ctx.mechanism
-        # Fallback: if no mechanism yet, we must get one
-
-        # TODO better fallback mechanism since this leads to silent bugs!
-        if self.m_ctx is None or self.m is None:
+        if self.m_ctx is None: 
             try:
-                self.m_ctx = ray.get(self.world.get_mechanism.remote())
-                self.m = self.m_ctx.mechanism
-            except RuntimeError:
-                # fallback baseline mechanism (must exist locally)
-                self.m_ctx = MechanismContext(
-                    index=-1,
-                    env_id=None,
-                    mechanism=self.m_space.default(),
-                    status=MechanismStatus.init,
-                    job=None,
-                    metrics=None,
+                # TODO issue : in the begginging there are no published mechanisms yet !
+                new_ctx = ray.get(
+                    self.world.get_mechanism_by_id.remote(
+                        mechanism_id = self.mechanism_id, 
+                        seed=self.seed
+                    )
                 )
-                self.m = self.m_ctx.mechanism
+            except Exception:
+                new_ctx = None
+                raise RuntimeError(
+                    f"Could not fetch mechanism_id={self.mechanism_id} from World."
+                )
 
-        self.seed = seed if seed is not None else self.m_ctx.seed
+            if new_ctx is not None:
+                self.m_ctx = new_ctx
+                self.m = self.m_ctx.mechanism
 
     @abstractmethod
     def violation_signal(self, reward: Optional[SupportsFloat] = None) -> float:

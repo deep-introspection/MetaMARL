@@ -43,7 +43,7 @@ class ESOptimizer(Optimizer):
         self.sigma = float(config.sigma)
 
         # Random number generator
-        self.rng = np.random.default_rng(config.seed)
+        self.rng = np.random.default_rng(config.base_seed)
 
         # History tracking
         self.generation = 0

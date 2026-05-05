@@ -24,15 +24,15 @@ class RegulatorEnv(BaseEnv):
     def __init__(
         self,
         *,
-        world: World,
-        opt_id: OptimizerID | None = None,
         optimizer: Optional[Optimizer] = None,
         train_iters: int = 5,
+        seeds: Optional[list[int]] = None,
         **kwargs,
     ):
-        super().__init__(world=world, opt_id=opt_id, **kwargs)
+        super().__init__(**kwargs)
         self.inner: Optimizer = optimizer
         self.train_iters: int = train_iters
+        self.seeds: list[int] = seeds or []
 
         self._validate()
 
@@ -70,15 +70,12 @@ class RegulatorEnv(BaseEnv):
         if hasattr(self.inner, "reset"):
             self.inner.reset()
 
-        if self.seed is None:
-            self.seed = []
-
         # TODO PARALLELIZE Vectorize environment across θ candidates and train one ppo policy over mehcanism candidates
         # TODO other techiniques can also speed this up
         # for theta in thetas:
         #     self._publish(MechanismContext(theta=theta))
         for idx, m in enumerate(mechanisms):
-            for seed in self.seed:
+            for seed in self.seeds:
                 self._publish(
                     MechanismContext(
                         index=idx,
@@ -99,7 +96,7 @@ class RegulatorEnv(BaseEnv):
         # reset mechanism contexts
         for _ in range(self.inner.eval_episodes):
             for idx, m in enumerate(mechanisms):
-                for seed in self.seed:
+                for seed in self.seeds:
                     self._publish(
                         MechanismContext(
                             index=idx,

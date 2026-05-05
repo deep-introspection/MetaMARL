@@ -44,8 +44,9 @@ class OptimizerConfig(_Config, ABC):
         self.env_config: dict = {}
         self.horizon: int = None  # TODO default value
 
-        # --- training ---
-        self.seed: Optional[int | list[int]] = None
+        # --- debugging ---
+        self.base_seed: Optional[int] = None
+        self.seeds: list[int] = []
 
         # --- eval ---
         self.evaluation_config: Optional["OptimizerConfig"] = None
@@ -245,14 +246,15 @@ class OptimizerConfig(_Config, ABC):
     def debugging(
         self,
         *,
-        seed: Optional[int] = None,
+        seed: Optional[int] = None, #base seed
         num_seeds: int = 3,
     ) -> Self:
         if seed is not None:
+            self.base_seed = seed
             ss = np.random.SeedSequence(seed)
-            self.seed = ss.generate_state(num_seeds).tolist()
+            self.seeds = ss.generate_state(num_seeds).tolist()
         else:
-            self.seed = None
+            self.seeds = []
         return self
 
     # TODO Docstring explanation
