@@ -33,7 +33,6 @@ class MechanismContext(ContextSchema):
     env_id: Optional[str]
     seed: Optional[int]
     status: MechanismStatus
-    job: Optional[MechanismStatus]
     mechanism: SkipValidation[Mechanism]
     metrics: Optional[ContextSchema]
 

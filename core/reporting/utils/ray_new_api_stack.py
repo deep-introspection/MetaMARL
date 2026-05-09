@@ -462,11 +462,11 @@ def extract_learner_metrics_newstack(
 # --------------------------
 
 # Returns plot table: one per run
-_RETURNS_TABLES: dict[int, wandb.Table] = {}
+_RETURNS_TABLES: dict[tuple[int, str], wandb.Table] = {}
 
 # Learner metric plot tables: per run -> per metric -> table
 # table columns: ["step", "outer_iter", "train_step", "policy", "value"]
-_LEARNER_METRIC_TABLES: dict[int, dict[str, wandb.Table]] = {}
+_LEARNER_METRIC_TABLES: dict[tuple[int, str], dict[str, wandb.Table]] = {}
 
 # Keys we never want to plot (even if whitelisted by substring)
 _DEFAULT_SKIP_PLOT_KEYS = {
@@ -708,7 +708,7 @@ def plot_training_results_new_stack(
     # 2) MULTI-LINE PLOT: returns (ONE plot, lines=series)
     # --------------------------
     if isinstance(series_means, dict) and series_means:
-        run_key = id(wandb_run)
+        run_key = (id(wandb_run), prefix)
         t = _RETURNS_TABLES.get(run_key)
         if t is None:
             t = wandb.Table(
@@ -763,7 +763,7 @@ def plot_training_results_new_stack(
     plot_wl = set(learner_plot_whitelist or _DEFAULT_LEARNER_PLOT_WHITELIST)
 
     if isinstance(learner_by_policy, dict) and learner_by_policy:
-        run_key = id(wandb_run)
+        run_key = (id(wandb_run), prefix)
         per_metric = _LEARNER_METRIC_TABLES.setdefault(run_key, {})
         touched: set[str] = set()
 
