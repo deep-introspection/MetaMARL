@@ -11,7 +11,7 @@ from core.annotations import override
 from core.mechanism.space import MechanismSpace
 from core.types import OptimizerID
 from core.world.base import World
-from core.world.context import Context, ContextSchema, EnvStepContext
+from core.world.context import Context, ContextSchema, EnvStepContext, MechanismStatus
 
 
 class BaseEnv(Env):
@@ -25,6 +25,7 @@ class BaseEnv(Env):
         horizon: Optional[int] = None,
         mechanism_space: MechanismSpace = None,
         seed: Optional[int] = None,
+        mode: Optional[str] = "train",
         **kwargs
     ) -> None:
         super().__init__()
@@ -34,6 +35,7 @@ class BaseEnv(Env):
         self.seed = seed
         self._t = 0
         self.env_id = None
+        self.mode = MechanismStatus(mode)
 
         # Mechanism space
         if isinstance(mechanism_space, type):

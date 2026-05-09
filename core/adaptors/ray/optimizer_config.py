@@ -157,8 +157,14 @@ class RayOptimizerConfig(OptimizerConfig):
     #     return self
 
     @rllib_config_mutator
-    def evaluation(cfg, **kwargs) -> None:
+    def _evaluation_rllib(cfg, **kwargs) -> None:
         return cfg.evaluation(**kwargs)
+
+    def evaluation(self, **kwargs) -> None:
+        eval_config : dict = kwargs.setdefault("evaluation_config", {})
+        eval_env_config : dict = eval_config.setdefault("env_config", {})
+        eval_env_config["mode"] = "eval"
+        return self._evaluation_rllib(**kwargs)
 
     @rllib_config_mutator
     def offline_data(cfg, **kwargs) -> None:
