@@ -148,7 +148,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         """o_i = O_i(S_t, theta)"""
         # TODO may wanna normalize base_obs later
         base_obs = self._observation(agent_id=agent_id, S_t=S_t)
-        theta = self.m.to_vector()
+        theta = self.mechanism.to_vector()
         return np.concatenate([base_obs, theta], axis=0)
 
     @abstractmethod

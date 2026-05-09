@@ -29,7 +29,20 @@ class RegulatedEnv(BaseEnv):
         self.mechanism_id = mechanism_id
         self.m_ctx: MechanismContext = None
         self.m: Mechanism = None
+        
+        self._using_default_mechanism = True
 
+    @property
+    def mechanism(self) -> Mechanism:
+        if self.m is not None:
+            return self.m
+        return self.m_space.default()
+    
+    @property
+    def published_mechanism_assigned(self) -> bool:
+        return self.m is not None and not self._using_default_mechanism
+    
+    
     @override(BaseEnv)
     def _pre_reset(self, seed: Optional[int] = None):
         # Try to fetch a new mechanism if one is available (published)
@@ -41,24 +54,23 @@ class RegulatedEnv(BaseEnv):
                 "mechanism_id must be injected at env creation."
             )
 
-        if self.m_ctx is None: 
+        if not self.published_mechanism_assigned: 
             try:
-                # TODO issue : in the begginging there are no published mechanisms yet !
                 new_ctx = ray.get(
                     self.world.get_mechanism_by_id.remote(
                         mechanism_id = self.mechanism_id, 
                         seed=self.seed
                     )
                 )
-            except Exception:
-                new_ctx = None
+            except Exception as e:
                 raise RuntimeError(
                     f"Could not fetch mechanism_id={self.mechanism_id} from World."
-                )
+                ) from e
 
             if new_ctx is not None:
                 self.m_ctx = new_ctx
                 self.m = self.m_ctx.mechanism
+                self._using_default_mechanism = False
 
     @abstractmethod
     def violation_signal(self, reward: Optional[SupportsFloat] = None) -> float:
