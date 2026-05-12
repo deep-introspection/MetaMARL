@@ -41,6 +41,7 @@ class MechanismContext(ContextSchema):
 class EnvStepContext(ContextSchema):
     env_id: Optional[int]
     seed: Optional[int]
+    status: MechanismStatus
     mechanism: Optional[int]
     observation: ObsType | MultiAgentDict
     observation_map: Optional[list[str]]

@@ -96,11 +96,12 @@ class WandbReporter:
         learner_scalar_whitelist: Optional[set[str]] = None,
         # MODIFIED: glue flags forwarded into plot_training_results_new_stack
         log_per_series_return_scalars: bool = False,
-        log_return_multiline_plot: bool = True,
-        log_learner_multiline_plots: bool = True,
+        log_return_multiline_plot: bool = False,
+        log_learner_multiline_plots: bool = False,
         log_mechanism_shaded_plots: bool = True,
     ) -> None:
         self._ensure_prefix_metrics(prefix)
+        is_eval = prefix.endswith("/eval")
         plot_training_results_new_stack(
             wandb_run=self._run,
             outer_iter=outer_iter,
@@ -118,7 +119,7 @@ class WandbReporter:
             # MODIFIED: forwarded
             log_per_series_return_scalars=log_per_series_return_scalars,
             log_return_multiline_plot=log_return_multiline_plot,
-            log_learner_multiline_plots=log_learner_multiline_plots,
+            log_learner_multiline_plots=log_learner_multiline_plots and not is_eval,
             log_mechanism_shaded_plots=log_mechanism_shaded_plots,
         )
 

@@ -143,7 +143,8 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         return obs, rewards, terminated, truncated, infos
 
     def _is_truncated(self) -> bool:
-        return self._t >= self.horizon
+        # TODO move this to parent class
+        return self.horizon is not None and (self._t + 1) >= self.horizon
 
     def desired_harvest_signal(
         self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]

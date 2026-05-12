@@ -152,7 +152,7 @@ bilevel_opt_cfg: BilevelConfig = (
             timeout_s_aggregator_manager=300,
             gamma=0.99,
             lr=0.001,
-            train_batch_size=4000,  # 3200
+            train_batch_size=2000,  # determines learner updates per horizon = N envs X horizon / train batch size
             minibatch_size=500,  # 512
             entropy_coeff=0.001,
             # entropy_coeff_schedule=[

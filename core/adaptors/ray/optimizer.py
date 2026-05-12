@@ -134,7 +134,7 @@ class RayOptimizer(Optimizer):
         # TODO reduced env episode plotting
         if self._env_reducers:
             latest_env_ctxs = ray.get(
-                self.world.get_latest_env_step_contexts.remote(opt_id=self.opt_id)
+                self.world.get_new_env_step_contexts.remote(opt_id=self.opt_id)
             )
 
             if latest_env_ctxs:

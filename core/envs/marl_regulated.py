@@ -13,7 +13,7 @@ from core.envs.base import BaseEnv
 from core.envs.regulated import RegulatedEnv
 from core.types import OptimizerID
 from core.world.base import World
-from core.world.context import EnvStepContext
+from core.world.context import EnvStepContext, MechanismStatus
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,6 +70,8 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         if seed is not None and self.seed is not None and seed != self.seed:
             pass # do not mutate seed after construction
 
+        self._t = 0
+
         effective_seed = self.seed if self.seed is not None else seed
         
         self._pre_reset(seed=effective_seed)
@@ -91,6 +93,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
             EnvStepContext(
                 env_id=self.env_id,
                 seed=self.seed,
+                status=MechanismStatus(self.mode),
                 mechanism=self.mechanism_id,
                 observation=obs,
                 observation_map=self.obs_map,

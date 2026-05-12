@@ -92,6 +92,7 @@ class BaseEnv(Env):
             EnvStepContext(
                 env_id=self.env_id,
                 seed=self.seed,
+                status=MechanismStatus(self.mode),
                 mechanism=getattr(self, "mechanism_id", None),
                 observation=obs,
                 observation_map=self.obs_map,
@@ -120,6 +121,7 @@ class BaseEnv(Env):
             EnvStepContext(
                 env_id=self.env_id,
                 seed=self.seed,
+                status=MechanismStatus(self.mode),
                 mechanism=getattr(self, "mechanism_id", None),
                 observation=obs,
                 observation_map=self.obs_map,
