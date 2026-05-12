@@ -187,7 +187,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     index=idx,
                     env_id=self.env_id,
                     status=MechanismStatus.done,
-                    job=None,
                     mechanism=None,
                     metrics=fitness_ctx,
                 )

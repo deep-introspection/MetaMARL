@@ -47,6 +47,8 @@ class World:
         # TODO wrap this into generic logger class - for now use W&B
         self.reporting: WandbReporter = reporting
 
+        self._env_step_ctx_cursor: dict[OptimizerID | None, int] = {}
+
     def __deepcopy__(self, memo):
         return self
 
@@ -132,6 +134,35 @@ class World:
 
         latest.reverse()
         return latest
+    
+    def get_new_env_step_contexts(
+        self,
+        opt_id: Optional[OptimizerID] = None,
+    ) -> list[Context]:
+        """
+        Return all EnvStepContext objects appended since the last call
+        for this optimizer, then advance the cursor.
+
+        This is used for reduced env plotting so we capture both train
+        and eval contexts produced during one optimizer run().
+        """
+        ctx_ids = (
+            self._opt_ctx_map.get(opt_id, [])
+            if opt_id is not None
+            else list(self._contexts.keys())
+        )
+
+        cursor = self._env_step_ctx_cursor.get(opt_id, 0)
+        new_ctx_ids = ctx_ids[cursor:]
+
+        self._env_step_ctx_cursor[opt_id] = len(ctx_ids)
+
+        return [
+            self._contexts[cid]
+            for cid in new_ctx_ids
+            if cid in self._contexts
+            and isinstance(self._contexts[cid].payload, EnvStepContext)
+        ]
 
     def get_mechanism(self) -> MechanismContext:
         for m_ctx in self._mechanism_registry.values():
@@ -142,14 +173,20 @@ class World:
         raise RuntimeError("no available mechanisms to train")
 
     # Use the contextID as mechanismID
-    def get_mechanism_by_id(self, mechanism_id: int, seed: int) -> MechanismContext:
+    def get_mechanism_by_id(self, mechanism_id: int, seed: int, mode: MechanismStatus) -> MechanismContext:
+        required_status = {
+            MechanismStatus.train : MechanismStatus.published,
+            MechanismStatus.eval : MechanismStatus.train
+        }
+        target_prev_status = required_status.get(mode)
+        
         for m_ctx in self._mechanism_registry.values():
             if (
                 mechanism_id == m_ctx.index and 
                 seed == m_ctx.seed and 
-                m_ctx.status == MechanismStatus.published
+                m_ctx.status == target_prev_status
             ):
-                m_ctx.status = MechanismStatus.assigned
+                m_ctx.status = mode
                 return m_ctx
         return None
     

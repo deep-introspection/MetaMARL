@@ -29,6 +29,7 @@ class WandbReporter:
         config: Optional[dict[str, Any]] = None,
         settings: Optional[dict[str, Any]] = None,
     ) -> None:
+        self._defined_prefixes: set[str] = set()
         self._run = wandb.init(
             project=project,
             name=name,
@@ -36,15 +37,16 @@ class WandbReporter:
             reinit=True,
             settings=wandb.Settings(**(settings or {})),
         )
-        self._run.define_metric("appo/train_step")
-        self._run.define_metric("appo/*", step_metric="appo/train_step")
 
-        self._run.define_metric("env_reduced/train_step")
-        self._run.define_metric("env_reduced/*", step_metric="env_reduced/train_step")
+    def _ensure_prefix_metrics(self, prefix: str) -> None:
+        if prefix in self._defined_prefixes:
+            return
 
-        self._run.define_metric(
-            "env_reduced_scalar/*", step_metric="env_reduced/train_step"
-        )
+        step_key = f"{prefix}/train_step"
+        self._run.define_metric(step_key)
+        self._run.define_metric(f"{prefix}/*", step_metric=step_key)
+
+        self._defined_prefixes.add(prefix)
 
     def define_metric(
         self,
@@ -94,10 +96,12 @@ class WandbReporter:
         learner_scalar_whitelist: Optional[set[str]] = None,
         # MODIFIED: glue flags forwarded into plot_training_results_new_stack
         log_per_series_return_scalars: bool = False,
-        log_return_multiline_plot: bool = True,
-        log_learner_multiline_plots: bool = True,
+        log_return_multiline_plot: bool = False,
+        log_learner_multiline_plots: bool = False,
         log_mechanism_shaded_plots: bool = True,
     ) -> None:
+        self._ensure_prefix_metrics(prefix)
+        is_eval = prefix.endswith("/eval")
         plot_training_results_new_stack(
             wandb_run=self._run,
             outer_iter=outer_iter,
@@ -115,7 +119,7 @@ class WandbReporter:
             # MODIFIED: forwarded
             log_per_series_return_scalars=log_per_series_return_scalars,
             log_return_multiline_plot=log_return_multiline_plot,
-            log_learner_multiline_plots=log_learner_multiline_plots,
+            log_learner_multiline_plots=log_learner_multiline_plots and not is_eval,
             log_mechanism_shaded_plots=log_mechanism_shaded_plots,
         )
 
@@ -126,6 +130,7 @@ class WandbReporter:
         prefix: str = "env",
         obs_keys_skip: Optional[set[str]] = None,
     ) -> None:
+        self._ensure_prefix_metrics(prefix)
         plot_env_step_context(
             wandb_run=self._run, ctx=ctx, prefix=prefix, obs_keys_skip=obs_keys_skip
         )
@@ -140,6 +145,7 @@ class WandbReporter:
         reducers: list[ReductionSpec],
         prefix: str = "env_reduced",
     ) -> None:
+        self._ensure_prefix_metrics(prefix)
         plot_env_reduced(
             wandb_run=self._run,
             ctxs=ctxs,

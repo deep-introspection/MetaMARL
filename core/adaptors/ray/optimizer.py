@@ -116,14 +116,25 @@ class RayOptimizer(Optimizer):
                 outer_iter=self._es_round,
                 training_episode=step,
                 results=result,
-                prefix="appo",
+                prefix="appo/train",
             )
         )
+
+        eval_result = result.get("evaluation")
+        if eval_result:
+            ray.get(
+                self.reporting.plot_ray_result.remote(
+                outer_iter=self._es_round,
+                training_episode=step,
+                results=eval_result,
+                prefix="appo/eval",
+            )
+            )
 
         # TODO reduced env episode plotting
         if self._env_reducers:
             latest_env_ctxs = ray.get(
-                self.world.get_latest_env_step_contexts.remote(opt_id=self.opt_id)
+                self.world.get_new_env_step_contexts.remote(opt_id=self.opt_id)
             )
 
             if latest_env_ctxs:

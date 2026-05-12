@@ -298,6 +298,115 @@ def _log_mechanism_shaded_error_plot(
         commit=False,
     )
 
+def _log_train_eval_return_by_mechanism_plot(
+    *,
+    wandb_run: Run,
+    base_prefix: str,
+    table: wandb.Table,
+    x_col: str,
+    y_col: str,
+    series_col: str,
+    phase_col: str,
+    step: int,
+    max_rows: int,
+) -> None:
+    table = _cap_table(table, max_rows)
+
+    cols = list(table.columns)
+    ix = cols.index(x_col)
+    iy = cols.index(y_col)
+    iser = cols.index(series_col)
+    iphase = cols.index(phase_col)
+
+    grouped: dict[str, dict[float, list[float]]] = {}
+
+    for row in table.data:
+        x = to_float(row[ix])
+        y = to_float(row[iy])
+        series = row[iser]
+        phase = str(row[iphase])
+
+        if x is None or y is None:
+            continue
+
+        mechanism_id = _extract_mechanism_id(str(series))
+        key = f"{phase}/{mechanism_id}"
+
+        grouped.setdefault(key, {}).setdefault(float(x), []).append(float(y))
+
+    if not grouped:
+        return
+
+    fig = go.Figure()
+
+    colors = {
+        "train": "rgba(31, 119, 180, 1.0)",
+        "eval": "rgba(255, 127, 14, 1.0)",
+    }
+    fill_colors = {
+        "train": "rgba(31, 119, 180, 0.25)",
+        "eval": "rgba(255, 127, 14, 0.25)",
+    }
+
+    for key, step_to_values in sorted(grouped.items()):
+        phase, mechanism_id = key.split("/", 1)
+
+        xs = sorted(step_to_values.keys())
+        means, uppers, lowers = [], [], []
+
+        for x in xs:
+            vals = np.asarray(step_to_values[x], dtype=np.float64)
+            mean = float(vals.mean())
+            std = float(vals.std())
+
+            means.append(mean)
+            uppers.append(mean + std)
+            lowers.append(mean - std)
+
+        band_x = xs + xs[::-1]
+        band_y = uppers + lowers[::-1]
+
+        color = colors.get(phase, "rgba(0, 0, 0, 1.0)")
+        fill_color = fill_colors.get(phase, "rgba(0, 0, 0, 0.20)")
+
+        fig.add_trace(
+            go.Scatter(
+                x=band_x,
+                y=band_y,
+                mode="lines",
+                fill="toself",
+                fillcolor=fill_color,
+                line=dict(color=fill_color, width=0),
+                name=f"{phase} {mechanism_id} ±1 std",
+                hoverinfo="skip",
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=means,
+                mode="lines+markers",
+                line=dict(width=3, color=color),
+                marker=dict(size=5, color=color),
+                name=f"{phase} {mechanism_id} mean",
+            )
+        )
+
+    fig.update_layout(
+        title="Train vs eval return mean by mechanism ±1 std across seeds",
+        xaxis_title=x_col,
+        yaxis_title=y_col,
+        hovermode="x unified",
+        template="plotly_white",
+    )
+    fig.update_xaxes(rangeslider_visible=False)
+
+    wandb_run.log(
+        {f"{base_prefix}/plots/returns/train_vs_eval_by_mechanism_mean_std": fig},
+        step=step,
+        commit=False,
+    )
 
 def extract_episode_metrics_newstack(
     results: Dict[str, Any],
@@ -462,11 +571,13 @@ def extract_learner_metrics_newstack(
 # --------------------------
 
 # Returns plot table: one per run
-_RETURNS_TABLES: dict[int, wandb.Table] = {}
+_RETURNS_TABLES: dict[tuple[int, str], wandb.Table] = {}
+
+_TRAIN_EVAL_RETURN_TABLES: dict[tuple[int, str], wandb.Table] = {}
 
 # Learner metric plot tables: per run -> per metric -> table
 # table columns: ["step", "outer_iter", "train_step", "policy", "value"]
-_LEARNER_METRIC_TABLES: dict[int, dict[str, wandb.Table]] = {}
+_LEARNER_METRIC_TABLES: dict[tuple[int, str], dict[str, wandb.Table]] = {}
 
 # Keys we never want to plot (even if whitelisted by substring)
 _DEFAULT_SKIP_PLOT_KEYS = {
@@ -489,12 +600,12 @@ _DEFAULT_LEARNER_PLOT_WHITELIST = {
     "vf_loss",
     "entropy",
     # "curr_entropy_coeff",
-    "policy_relative_entropy",
-    "entropy_pressure",
-    "kl",
+    # "policy_relative_entropy",
+    # "entropy_pressure",
+    # "kl",
     # "curr_kl_coeff",
-    "vf_explained_var",
-    "grad_gnorm",
+    # "vf_explained_var",
+    # "grad_gnorm",
     "sample_staleness",
     # "lr",
     # "learning_rate",
@@ -708,7 +819,7 @@ def plot_training_results_new_stack(
     # 2) MULTI-LINE PLOT: returns (ONE plot, lines=series)
     # --------------------------
     if isinstance(series_means, dict) and series_means:
-        run_key = id(wandb_run)
+        run_key = (id(wandb_run), prefix)
         t = _RETURNS_TABLES.get(run_key)
         if t is None:
             t = wandb.Table(
@@ -724,6 +835,53 @@ def plot_training_results_new_stack(
             t.add_data(
                 int(gs), int(outer_iter), int(training_episode), str(sid), float(fv)
             )
+
+        if prefix.endswith("/train") or prefix.endswith("/eval"):
+            base_prefix = prefix.rsplit("/", 1)[0]
+            phase = "eval" if prefix.endswith("/eval") else "train"
+
+            combo_key = (id(wandb_run), base_prefix)
+            combo_t = _TRAIN_EVAL_RETURN_TABLES.get(combo_key)
+
+            if combo_t is None:
+                combo_t = wandb.Table(
+                    columns=[
+                        "step",
+                        "outer_iter",
+                        "train_step",
+                        "phase",
+                        "series",
+                        "value",
+                    ]
+                )
+                _TRAIN_EVAL_RETURN_TABLES[combo_key] = combo_t
+
+            for sid in series_ids:
+                fv = finite(series_means.get(sid))
+                if fv is None:
+                    continue
+
+                combo_t.add_data(
+                    int(gs),
+                    int(outer_iter),
+                    int(training_episode),
+                    phase,
+                    str(sid),
+                    float(fv),
+                )
+
+            if phase == "eval":
+                _log_train_eval_return_by_mechanism_plot(
+                    wandb_run=wandb_run,
+                    base_prefix=base_prefix,
+                    table=combo_t,
+                    x_col="step",
+                    y_col="value",
+                    series_col="series",
+                    phase_col="phase",
+                    step=gs,
+                    max_rows=max_rows_returns,
+                )
 
         # MODIFIED: disabled by default to avoid W&B UI spam
         if log_return_multiline_plot:
@@ -741,7 +899,9 @@ def plot_training_results_new_stack(
             )
 
         # MODIFIED: disabled by default
-        if log_mechanism_shaded_plots:
+        if log_mechanism_shaded_plots and not (
+            prefix.endswith("/train") or prefix.endswith("/eval")
+        ):
             _log_mechanism_shaded_error_plot(
                 wandb_run=wandb_run,
                 prefix=prefix,
@@ -763,7 +923,7 @@ def plot_training_results_new_stack(
     plot_wl = set(learner_plot_whitelist or _DEFAULT_LEARNER_PLOT_WHITELIST)
 
     if isinstance(learner_by_policy, dict) and learner_by_policy:
-        run_key = id(wandb_run)
+        run_key = (id(wandb_run), prefix)
         per_metric = _LEARNER_METRIC_TABLES.setdefault(run_key, {})
         touched: set[str] = set()
 

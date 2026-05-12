@@ -8,6 +8,7 @@ from ray.rllib.utils.typing import AgentID, MultiAgentDict
 
 from core.annotations import override
 from core.envs.marl_regulated import MultiAgentRegulatedEnv
+from examples.bilevel_fishery.mechanism_v1 import FisheryMechanism
 
 logging.basicConfig(
     level=logging.INFO,
@@ -131,10 +132,10 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
                 "harvest_scale": harvest_scale,
                 "H_total": H_total,
                 "below_target_zone": float(
-                    S_t["fish"] / self.max_fish < self.m.target_stock
+                    S_t["fish"] / self.max_fish < self.mechanism.target_stock
                 ),
                 "target_shortfall": float(
-                    max(0.0, self.m.target_stock - (S_t["fish"] / self.max_fish))
+                    max(0.0, self.mechanism.target_stock - (S_t["fish"] / self.max_fish))
                 ),
             }
             for agent_id in self.agents
@@ -142,7 +143,8 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         return obs, rewards, terminated, truncated, infos
 
     def _is_truncated(self) -> bool:
-        return self._t >= self.horizon
+        # TODO move this to parent class
+        return self.horizon is not None and (self._t + 1) >= self.horizon
 
     def desired_harvest_signal(
         self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
@@ -156,7 +158,8 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     ) -> SupportsFloat:
         action = float(np.asarray(action).item())
         fish_norm = S_t["fish"] / self.max_fish
-        target_stock = max(EPS, self.m.target_stock)
+        mechanism : FisheryMechanism = self.m or self.m_space.default()
+        target_stock = max(EPS, mechanism.target_stock)
 
         sustainability_factor = min(1.0, fish_norm / target_stock)
         return action * fish_norm * sustainability_factor
@@ -181,7 +184,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
         quota = max(
             0.0,
-            raw_harvest_signal - min(self.m.fixed_quota, self.m.prop_quota * fish_norm),
+            raw_harvest_signal - min(self.mechanism.fixed_quota, self.mechanism.prop_quota * fish_norm),
         )
         preventive = self._predictive_collapse_penalty(A_t=A_t, S_t=S_t)
 
@@ -193,7 +196,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         }
 
     def penalty(self) -> SupportsFloat:
-        return self.m.fine_amount
+        return self.mechanism.fine_amount
 
     def transition_kernel(
         self, A_t: MultiAgentEnv, S_t: dict[str, float]
@@ -225,9 +228,8 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def _observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]):
         fish_norm = S_t["fish"] / self.max_fish
         algae_norm = S_t["algae"] / self.max_algae
-
-        effective_quota = min(self.m.fixed_quota, self.m.prop_quota * fish_norm)
-        no_fish_zone = float(fish_norm < self.m.min_stock)
+        effective_quota = min(self.mechanism.fixed_quota, self.mechanism.prop_quota * fish_norm)
+        no_fish_zone = float(fish_norm < self.mechanism.min_stock)
 
         return np.array(
             [
@@ -279,7 +281,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             self.delta * algae * fish - self.gamma * fish - H_total
         )
 
-        safe_fish = self.m.target_stock * self.max_fish
+        safe_fish = self.mechanism.target_stock * self.max_fish
 
         current_shortage = max(0.0, safe_fish - fish)
         predicted_shortage = max(0.0, safe_fish - fish_next_pred)
@@ -287,8 +289,8 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         current_shortage_norm = current_shortage / self.max_fish
         predicted_shortage_norm = predicted_shortage / self.max_fish
 
-        penalty_scale = self.m.risk_penalty_scale
-        penalty_power = self.m.risk_penalty_power
+        penalty_scale = self.mechanism.risk_penalty_scale
+        penalty_power = self.mechanism.risk_penalty_power
 
         return float(
             penalty_scale

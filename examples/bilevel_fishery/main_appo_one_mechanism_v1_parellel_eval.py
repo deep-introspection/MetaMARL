@@ -152,7 +152,7 @@ bilevel_opt_cfg: BilevelConfig = (
             timeout_s_aggregator_manager=300,
             gamma=0.99,
             lr=0.001,
-            train_batch_size=4000,  # 3200
+            train_batch_size=2000,  # determines learner updates per horizon = N envs X horizon / train batch size
             minibatch_size=500,  # 512
             entropy_coeff=0.001,
             # entropy_coeff_schedule=[
@@ -167,19 +167,17 @@ bilevel_opt_cfg: BilevelConfig = (
             #     [1_000_000, 1e-4],
             # ]
         )
+        # TODO review these metrics before merging to dev
         .evaluation(
-            evaluation_interval=None,
-            evaluation_duration=1000,  # rollout_fragment_length X num_episodes
-            evaluation_duration_unit="timesteps",
-            evaluation_num_env_runners=1,
-            # evaluation_parallel_to_training=False,  # keep it simple/deterministic
+            evaluation_interval=1,
+            evaluation_duration=4,  # rollout_fragment_length X num_episodes
+            evaluation_duration_unit="episodes",
+            evaluation_num_env_runners=1, # should also be the same as num mechanisms no ?
+            evaluation_parallel_to_training=False,  # This must be False when local_mode is True !
             evaluation_config={
                 "explore": False,  # greedy eval actions
-                "seed": 42,
-                "num_envs_per_env_runner": 1,  # same as training
                 "rollout_fragment_length": 1000,  # same as training
                 "batch_mode": "complete_episodes",  # same as training
-                "minibatch_size": None,
             },
         )
         .agents(
