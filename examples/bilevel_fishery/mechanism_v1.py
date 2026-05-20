@@ -17,15 +17,14 @@ class FisheryMechanism(Mechanism):
     fine_amount: float
     risk_penalty_scale: float
     risk_penalty_power: float
-    max_fine: float = 5.0
 
     def __post_init__(self) -> None:
         assert 0.0 <= self.fixed_quota <= 1.0
         assert 0.0 <= self.prop_quota <= 1.0
         assert 0.0 <= self.min_stock <= 1.0
         assert 0.0 <= self.target_stock <= 1.0
-        assert 0.0 <= self.fine_amount <= self.max_fine
-        assert 0.0 <= self.risk_penalty_scale <= self.max_fine
+        assert 0.0 <= self.fine_amount <= 1.0
+        assert 0.0 <= self.risk_penalty_scale <= 1.0
         assert 1.0 <= self.risk_penalty_power <= 5.0
 
     @override(Mechanism)
@@ -36,8 +35,8 @@ class FisheryMechanism(Mechanism):
                 self.prop_quota,
                 self.min_stock,
                 self.target_stock,
-                self.fine_amount / self.max_fine,
-                self.risk_penalty_scale / self.max_fine,
+                self.fine_amount,
+                self.risk_penalty_scale,
                 (self.risk_penalty_power - 1.0) / 4.0,  # maps [1,5] -> [0,1]
             ],
             dtype=np.float32,
@@ -70,19 +69,17 @@ class FisheryMechanismSpace(MechanismSpace):
     def __init__(
         self,
         use_stochastic_roundting: bool = True,
-        max_fine: float = 5.0,
         optimize_params: list[str] | None = None,
         default_fixed_quota: float = 1.0,
         default_prop_quota: float = 1.0,
         default_min_stock: float = 0.1,
         default_target_stock: float = 0.2,
         default_fine_amount: float = 0.5,
-        default_risk_penalty_scale: float = 2.0,
+        default_risk_penalty_scale: float = 0.5,
         default_risk_penalty_power: float = 2.0,
     ):
         super().__init__()
         self.use_stochastic_roundting = use_stochastic_roundting
-        self.max_fine = max_fine
 
         self.optimize_params = optimize_params or [
             "fixed_quota",
@@ -109,7 +106,7 @@ class FisheryMechanismSpace(MechanismSpace):
 
     def _denormalize_param(self, name: str, value: float) -> float:
         if name in ("fine_amount", "risk_penalty_scale"):
-            return value * self.max_fine
+            return value
         elif name == "risk_penalty_power":
             return 1.0 + 4.0 * value
         else:
@@ -129,13 +126,12 @@ class FisheryMechanismSpace(MechanismSpace):
             target_stock=self.defaults["target_stock"],
             fine_amount=self.defaults["fine_amount"],
             risk_penalty_scale=self.defaults["risk_penalty_scale"],
-            risk_penalty_power=self.defaults["risk_penalty_power"],
-            max_fine=self.max_fine,
+            risk_penalty_power=self.defaults["risk_penalty_power"]
         )
 
     def _normalize_param(self, name: str, value: float) -> float:
         if name in ("fine_amount", "risk_penalty_scale"):
-            return value / self.max_fine
+            return value
         elif name == "risk_penalty_power":
             return (value - 1.0) / 4.0
         else:
@@ -164,7 +160,6 @@ class FisheryMechanismSpace(MechanismSpace):
             # CHANGED
             risk_penalty_scale=params["risk_penalty_scale"],
             risk_penalty_power=params["risk_penalty_power"],
-            max_fine=self.max_fine,
         )
 
         return self.clip(mech)
@@ -175,11 +170,10 @@ class FisheryMechanismSpace(MechanismSpace):
             prop_quota=float(np.clip(m.prop_quota, 0, 1)),
             min_stock=float(np.clip(m.min_stock, 0, 1)),
             target_stock=float(np.clip(m.target_stock, 0, 1)),
-            fine_amount=float(np.clip(m.fine_amount, 0, self.max_fine)),
+            fine_amount=float(np.clip(m.fine_amount, 0, 1)),
             # CHANGED
-            risk_penalty_scale=float(np.clip(m.risk_penalty_scale, 0, self.max_fine)),
+            risk_penalty_scale=float(np.clip(m.risk_penalty_scale, 0, 1)),
             risk_penalty_power=float(np.clip(m.risk_penalty_power, 1.0, 5.0)),
-            max_fine=self.max_fine,
         )
 
     def from_dict(self, cfg: dict) -> FisheryMechanism:
@@ -189,4 +183,4 @@ class FisheryMechanismSpace(MechanismSpace):
         if "risk_penalty_power" not in cfg:
             cfg = {**cfg, "risk_penalty_power": self.defaults["risk_penalty_power"]}
 
-        return FisheryMechanism(**cfg, max_fine=self.max_fine)
+        return FisheryMechanism(**cfg)
