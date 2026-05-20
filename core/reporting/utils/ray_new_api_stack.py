@@ -50,8 +50,8 @@ def _summarize_dict_of_scalars(d: Dict[str, Any]) -> Dict[str, float]:
 
 def _global_step(outer_iter: int, train_step: int) -> int:
     # monotonic across outer iters
+    # TODO find a way to reduce outer iterations
     return int(outer_iter) * 1_000_000 + int(train_step)
-
 
 # MODIFIED: helper to extract mechanism identity from seeded policy ids.
 # Example:
@@ -411,9 +411,34 @@ def _log_train_eval_return_by_mechanism_plot(
 def extract_episode_metrics_newstack(
     results: Dict[str, Any],
 ) -> Dict[str, Optional[float]]:
+    """
+        RLlib raw episode metric.
+
+        This is useful as a sanity/debug metric, but NOT as the main mechanism
+        comparison metric.
+
+        In MARL, episode_return_mean is:
+
+            mean over completed episodes of:
+               sum over timesteps:
+                   sum over agents:
+                       reward_t_agent
+        
+        Therefore it scales with:
+          - number of agents
+          - episode length
+          - reward scale
+        
+        It can also mix mechanisms/seeds if multiple envs are sampled together.
+        
+        Main reporting metric should come from extract_series_returns_newstack(),
+        which returns reward_per_agent_per_step by module/policy.
+    """
+    
     env = results.get("env_runners", {}) or {}
 
     # new-stack first, fallback to old-stack names if present
+    # N.B. this is the total return over episode (num_agents * sum(rollout_fragement_length return mean))/ num_env_runners !
     return_mean = finite(env.get("episode_return_mean"))
     if return_mean is None:
         return_mean = finite(env.get("episode_reward_mean"))
@@ -432,19 +457,124 @@ def extract_episode_metrics_newstack(
 
 def extract_series_returns_newstack(results: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Prefer module-level returns (RLModule ids), else fall back to agent ids.
-    - env_runners["module_episode_returns_mean"] e.g. {"fisher_policy_0": ...}
-    - env_runners["agent_episode_returns_mean"]  e.g. {"fisher:0": ...}
+    Returns reward_per_agent_per_step instead of raw episode return.
+
+    Future-proof version:
+    - fisher:* agents are counted for fisher_policy_*
+    - merchant:* agents are counted for merchant_policy_*
+    - etc.
+
+    Formula:
+
+        module_env_steps =
+            num_module_steps_sampled[module_id] / num_agents_in_that_module
+
+        reward_per_agent_per_step =
+            module_episode_return_mean / module_env_steps
     """
+
     env = results.get("env_runners", {}) or {}
 
-    module_means = env.get("module_episode_returns_mean")
-    if isinstance(module_means, dict) and module_means:
-        return module_means
+    module_steps = env.get("num_module_steps_sampled")
+    module_rewards = env.get("module_episode_returns_mean")
+    agent_steps = env.get("num_agent_steps_sampled")
 
-    agent_means = env.get("agent_episode_returns_mean")
-    if isinstance(agent_means, dict) and agent_means:
-        return agent_means
+    def _agent_type_from_agent_id(agent_id: str) -> str:
+        # Example:
+        #   fisher:0 -> fisher
+        #   merchant:2 -> merchant
+        return str(agent_id).split(":", 1)[0]
+
+    def _agent_type_from_module_id(module_id: str) -> Optional[str]:
+        # Example:
+        #   fisher_policy_m0_s123 -> fisher
+        #   merchant_policy_m0_s123 -> merchant
+        module_id = str(module_id)
+
+        if "_policy" in module_id:
+            return module_id.split("_policy", 1)[0]
+
+        return None
+
+    def _count_agents_for_module(module_id: str) -> Optional[int]:
+        if not isinstance(agent_steps, dict) or not agent_steps:
+            return None
+
+        module_agent_type = _agent_type_from_module_id(module_id)
+
+        if module_agent_type is None:
+            return None
+
+        count = 0
+
+        for agent_id in agent_steps.keys():
+            agent_type = _agent_type_from_agent_id(str(agent_id))
+
+            if agent_type == module_agent_type:
+                count += 1
+
+        return count if count > 0 else None
+
+    if (
+        isinstance(module_rewards, dict)
+        and module_rewards
+        and isinstance(module_steps, dict)
+        and module_steps
+    ):
+        normalized = {}
+
+        for module_id, episode_reward_mean in module_rewards.items():
+            episode_reward_mean = finite(episode_reward_mean)
+            steps_for_module = finite(module_steps.get(module_id))
+            num_agents_in_module = _count_agents_for_module(str(module_id))
+
+            if (
+                episode_reward_mean is None
+                or steps_for_module is None
+                or num_agents_in_module is None
+                or num_agents_in_module <= 0
+            ):
+                continue
+
+            module_env_steps = steps_for_module / num_agents_in_module
+
+            if module_env_steps <= 0:
+                continue
+
+            # MODIFIED:
+            # Normalize cumulative module return into mean reward per agent
+            # per environment step.
+            reward_per_agent_per_step = (
+                episode_reward_mean / module_env_steps
+            )
+
+            normalized[module_id] = reward_per_agent_per_step
+
+        return normalized
+
+    agent_rewards = env.get("agent_episode_returns_mean")
+
+    if (
+        isinstance(agent_rewards, dict)
+        and agent_rewards
+        and isinstance(agent_steps, dict)
+        and agent_steps
+    ):
+        normalized = {}
+
+        for agent_id, episode_return in agent_rewards.items():
+            episode_return = finite(episode_return)
+            steps_for_agent = finite(agent_steps.get(agent_id))
+
+            if episode_return is None or steps_for_agent is None:
+                continue
+
+            if steps_for_agent <= 0:
+                continue
+
+            normalized[agent_id] = episode_return / steps_for_agent
+
+        return normalized
 
     return {}
 
@@ -719,14 +849,13 @@ def plot_training_results_new_stack(
     include_all_modules_in_learner_plots: bool = False,  # usually False
     skip_learner_plot_keys: Optional[set[str]] = None,
     learner_plot_whitelist: Optional[set[str]] = None,
-    # UI spam controls
     log_per_policy_learner_scalars: bool = False,
     learner_scalar_whitelist: Optional[set[str]] = None,
-    # MODIFIED: disable noisy W&B plots/scalars by default
     log_per_series_return_scalars: bool = False,
     log_return_multiline_plot: bool = False,
     log_learner_multiline_plots: bool = False,
     log_mechanism_shaded_plots: bool = False,
+    log_raw_rllib_episode_metrics: bool = False,
 ) -> None:
     """
     Logs:
@@ -751,23 +880,14 @@ def plot_training_results_new_stack(
         return
 
     gs = _global_step(outer_iter, training_episode)
-
     eps = extract_episode_metrics_newstack(results)
     perf = extract_perf_newstack(results)
     series_means = extract_series_returns_newstack(results)
     learner_by_policy = extract_learner_metrics_newstack(results)
 
-    # --------------------------
-    # 1) scalar logging (small + stable)
-    # --------------------------
     metrics: Dict[str, Any] = {
         f"{prefix}/outer_iter": outer_iter,
         f"{prefix}/train_step": training_episode,
-        f"{prefix}/episode/return_mean": eps["episode_return_mean"],
-        f"{prefix}/episode/return_min": eps["episode_return_min"],
-        f"{prefix}/episode/return_max": eps["episode_return_max"],
-        f"{prefix}/episode/len_mean": eps["episode_len_mean"],
-        f"{prefix}/episode/num_episodes": eps["num_episodes"],
         f"{prefix}/perf/env_steps_this_iter": perf["env_steps_this_iter"],
         f"{prefix}/perf/env_steps_lifetime": perf["env_steps_lifetime"],
         f"{prefix}/perf/agent_steps_this_iter_sum": perf["agent_steps_this_iter_sum"],
@@ -780,6 +900,20 @@ def plot_training_results_new_stack(
         f"{prefix}/perf/weights_seq_no": perf["weights_seq_no"],
     }
 
+    if log_raw_rllib_episode_metrics:
+        metrics.update(
+            {
+                f"{prefix}/rllib_raw/episode_return_mean": eps["episode_return_mean"],
+                f"{prefix}/rllib_raw/episode_return_min": eps["episode_return_min"],
+                f"{prefix}/rllib_raw/episode_return_max": eps["episode_return_max"],
+                f"{prefix}/rllib_raw/episode_len_mean": eps["episode_len_mean"],
+                f"{prefix}/rllib_raw/episode_len_min": eps["episode_len_min"],
+                f"{prefix}/rllib_raw/episode_len_max": eps["episode_len_max"],
+                f"{prefix}/rllib_raw/num_episodes": eps["num_episodes"],
+                f"{prefix}/rllib_raw/num_episodes_lifetime": eps["num_episodes_lifetime"],
+            }
+        )
+
     # MODIFIED: keep the aggregate summary, but stop logging one scalar chart per seeded policy
     if isinstance(series_means, dict) and series_means:
         series_ids = list(series_means.keys())[:max_lines_returns]
@@ -790,13 +924,13 @@ def plot_training_results_new_stack(
                 if fv is None:
                     continue
                 sid_clean = sanitize_key(sid)
-                metrics[f"{prefix}/series/return_mean/{sid_clean}"] = fv
+                metrics[f"{prefix}/series/reward_per_agent_per_step/{sid_clean}"] = fv
 
         summary = _summarize_dict_of_scalars(
             {sid: series_means.get(sid) for sid in series_ids}
         )
         for k, v in summary.items():
-            metrics[f"{prefix}/series/return_mean_{k}"] = v
+            metrics[f"{prefix}/series/reward_per_agent_per_step_{k}"] = v
 
     # OPTIONAL: per-policy learner scalars (OFF by default)
     if log_per_policy_learner_scalars and isinstance(learner_by_policy, dict):
