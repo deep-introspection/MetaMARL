@@ -132,7 +132,7 @@ bilevel_opt_cfg: BilevelConfig = (
             num_env_runners=0,
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
-            num_envs_per_env_runner=1,  # batch evaluated mechanism or population size for ES 16
+            num_envs_per_env_runner=4,  # batch evaluated mechanism or population size for ES 16. Must be even due to antithetic sampling. If odd, set break_symmetry = false in esconfig
             rollout_fragment_length=500,  # must be same as env horizon 200
             batch_mode="truncate_episodes",
         )
@@ -170,7 +170,7 @@ bilevel_opt_cfg: BilevelConfig = (
         # TODO review these metrics before merging to dev
         .evaluation(
             evaluation_interval=1,
-            evaluation_duration=4,  # rollout_fragment_length X num_episodes
+            evaluation_duration=6,  # rollout_fragment_length X num_episodes
             evaluation_duration_unit="episodes",
             evaluation_num_env_runners=1, # should also be the same as num mechanisms no ?
             evaluation_parallel_to_training=False,  # This must be False when local_mode is True !
@@ -205,7 +205,7 @@ bilevel_opt_cfg: BilevelConfig = (
         .fault_tolerance(restart_failed_env_runners=False)
         .debugging(
             seed = 42, # this is base seed same as training
-            num_seeds = 4, #TODO enforce even-ness
+            num_seeds = 3, #TODO rm enforce even-ness
         )
     )
 )
