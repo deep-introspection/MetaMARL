@@ -1,6 +1,6 @@
 import logging
 from abc import abstractmethod
-from typing import Any, SupportsFloat, Tuple
+from typing import Any, SupportsFloat
 
 import numpy as np
 from gymnasium.core import ActType, ObsType
@@ -49,14 +49,16 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         self.observation_space = spaces.Dict(self.observation_spaces)
         self.action_space = spaces.Dict(self.action_spaces)
 
-    @abstractmethod
-    def _step(
-        self, action_dict: MultiAgentDict = None
-    ) -> Tuple[
-        MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
-    ]:
-        """Run one timestep of the environment's dynamics using the agent actions."""
-        raise NotImplementedError
+        self._infos : MultiAgentDict = {agent_id: {} for agent_id in self.agents}
+
+    def _update_infos(self, key: str, values: MultiAgentDict | SupportsFloat):
+        values = (
+            values
+            if isinstance(values, dict)
+            else {agent_id: values for agent_id in self._infos}
+        )
+        for agent_id, value in values.items():
+            self._infos[agent_id][key] = value
 
     @abstractmethod
     def _reset(self) -> MultiAgentDict:
@@ -66,7 +68,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
     @override(MultiAgentEnv)
     def reset(
         self, *, seed=None, options=None
-    ) -> Tuple[MultiAgentDict, MultiAgentDict]:
+    ) -> tuple[MultiAgentDict, MultiAgentDict]:
         if seed is not None and self.seed is not None and seed != self.seed:
             pass # do not mutate seed after construction
 
@@ -77,17 +79,17 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         self._pre_reset(seed=effective_seed)
         self.rng = np.random.default_rng(effective_seed)
         obs = self._reset()
-        infos = {agent_id: {} for agent_id in self.agents}
-        return obs, infos
+        self._infos = {agent_id: {} for agent_id in self.agents}
+        return obs, self._infos
 
     @override(MultiAgentEnv)
     def step(
         self, action_dict: MultiAgentDict
-    ) -> Tuple[
+    ) -> tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
         actions = self.action(action_dict)
-        obs, rewards, terminated, truncated, infos = self._step(actions)
+        obs, rewards, terminated, truncated, self._infos = self._step(actions)
 
         self._publish(
             EnvStepContext(
@@ -99,12 +101,37 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
                 observation_map=self.obs_map,
                 reward=rewards,
                 action=actions,
-                info=infos,
+                info=self._infos,
             )
         )
 
         self._t += 1
-        return obs, rewards, terminated, truncated, infos
+        return obs, rewards, terminated, truncated, self._infos
+    
+    def _step(
+        self, action_dict: dict[AgentID, ActType]
+    ) -> tuple[
+        MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
+    ]:
+        intrinsic_rewards : MultiAgentDict = self.intrinsic_utility(A_t=action_dict)
+        rewards = self.reward(rewards=intrinsic_rewards, A_t=action_dict)
+
+        self.S_t = self.transition_kernel(A_t=action_dict, S_t=self.S_t.copy())
+
+        obs = {
+            agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
+        }
+
+        time_limit = self._is_truncated()
+
+        terminated = {aid: False for aid in self.agents}
+        terminated["__all__"] = False
+
+        truncated = {aid: time_limit for aid in self.agents}
+        truncated["__all__"] = time_limit
+
+        self._update_infos(key="intrinsic_utility", values=intrinsic_rewards)
+        return obs, rewards, terminated, truncated, self._infos
 
     @abstractmethod
     def transition_kernel(
@@ -115,35 +142,44 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         **kwargs,
     ) -> dict[str, float]:
         """S_{t+1} = T(S_t, A_t)"""
-        ...
+        raise NotImplementedError
 
     @abstractmethod
     def intrinsic_utility(
-        self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
+        self, 
+        *,
+        A_t: MultiAgentDict,
+        **kwargs,
     ) -> SupportsFloat:
         """u_i = U(a_i, S_t)"""
-        ...
+        raise NotImplementedError
 
     @abstractmethod
-    @override(RegulatedEnv)
     def violation_signal(
-        self, agent_id: AgentID, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
-    ) -> SupportsFloat:
+        self, 
+        u_i: SupportsFloat, 
+        **kwargs) -> SupportsFloat:
         """v_i = V(a_i, S_t, M)"""
-        ...
+        raise NotImplementedError
 
     @abstractmethod
-    @override(RegulatedEnv)
-    def penalty(self) -> np.ndarray:
+    def penalty(
+        self, 
+        u_i: SupportsFloat, 
+        **kwargs) -> SupportsFloat:
         """λ = λ(M)"""
-        ...
-
+        raise NotImplementedError
+    
     @abstractmethod
     def _observation(
         self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]
     ) -> ObsType:
         """o_i = O_i(S_t)"""
-        ...
+        raise NotImplementedError
+    
+    @abstractmethod
+    def _is_truncated(self) -> bool:
+        raise NotImplementedError
 
     # TODO Restrict Any Type
     @override(BaseEnv)
@@ -154,16 +190,14 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         theta = self.mechanism.to_vector()
         return np.concatenate([base_obs, theta], axis=0)
 
-    @abstractmethod
-    def _is_truncated(self) -> bool: ...
-
-    @abstractmethod
-    def aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict: ...
-
-    # @override(BaseEnv)
-    # def reward(self, agent_id: AgentID, action: ActType) -> SupportsFloat:
-    #     o_i = self.observation(agent_id=agent_id, S_t=self.S_t)
-    #     u_i = self.intrinsic_utility(agent_id=agent_id, action=action, observation=o_i)
-    #     return u_i - self.penalty() * self.violation_signal(
-    #         agent_id=agent_id, reward=u_i, observation=o_i
-    #     )
+    def _aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict:
+        mean_reward = float(np.mean(list(rewards.values())))
+        return {agent_id: mean_reward for agent_id in self.agents}
+    
+    @override(RegulatedEnv)
+    def reward(self, rewards: MultiAgentDict, **kwargs) -> SupportsFloat:
+        rewards = {
+            aid : u_i - self.penalty(u_i, **kwargs) * self.violation_signal(u_i, aid, **kwargs)
+            for aid, u_i in rewards.items()
+        }
+        return self._aggregate_rewards(rewards=rewards)

@@ -45,31 +45,11 @@ class RegulatedEnv(BaseEnv):
     @property
     def published_mechanism_assigned(self) -> bool:
         return self.m is not None and not self._using_default_mechanism
-
-
-    def _debug_remote(self, event: str, extra: dict | None = None):
-        path = Path("/tmp/bilevel_ray_debug.log")
-        payload = {
-            "event": event,
-            "pid": os.getpid(),
-            "env_class": type(self).__name__,
-            "world_repr": repr(self.world),
-            "world_type": str(type(self.world)),
-            "mechanism_id": self.mechanism_id,
-            "seed": self.seed,
-            "phase": getattr(self, "phase", None),
-            **(extra or {}),
-        }
-        with path.open("a") as f:
-            f.write(json.dumps(payload, default=str) + "\n")
     
     @override(BaseEnv)
     def _pre_reset(self, seed: Optional[int] = None):
         # Try to fetch a new mechanism if one is available (published)
         # Otherwise keep the current mechanism for subsequent episodes
-        
-        self._debug_remote("pre_reset_before_fetch")
-
         if self.mechanism_id is None:
             raise RuntimeError(
                 "RegulatedEnv has no mechanism_id. "
@@ -105,21 +85,21 @@ class RegulatedEnv(BaseEnv):
             # TODO raising error if training started and default mechanism is still on - leads to silent error
 
     @abstractmethod
-    def violation_signal(self, reward: Optional[SupportsFloat] = None) -> float:
+    def violation_signal(self, **kwargs) -> float:
         raise NotImplementedError
 
     @abstractmethod
-    def penalty(self, reward: Optional[SupportsFloat] = None) -> float:
+    def penalty(self, **kwargs) -> float:
         raise NotImplementedError
 
     @override(BaseEnv)
-    def reward(self, reward: SupportsFloat) -> SupportsFloat:
+    def reward(self, reward: SupportsFloat, **kwargs) -> SupportsFloat:
         """Returns a modified environment ``reward``.
 
         Args:
-            reward: The :attr:`env` :meth:`step` reward
+            reward: The :attr:`en v` :meth:`step` reward
 
         Returns:
             The modified `reward`
         """
-        return reward - self.penalty(reward) * self.violation_signal(reward)
+        return reward - self.penalty(**kwargs) * self.violation_signal(**kwargs)
