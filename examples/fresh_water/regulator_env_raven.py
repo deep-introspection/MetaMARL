@@ -18,7 +18,7 @@ from examples.fresh_water.contexts import FitnessContext
 logger = logging.getLogger(__name__)
 
 
-class WaterRegulatorEnv(RegulatorEnv):
+class WaterRegulatorRavenEnv(RegulatorEnv):
     """
     Outer-loop environment for water mechanism optimization.
 
@@ -52,7 +52,6 @@ class WaterRegulatorEnv(RegulatorEnv):
         Compute per-mechanism fitness from step-level EnvStepContexts.
         Implementation mirrors `FisheryRegulatorEnv.aggregate_rewards`.
         """
-
         per_mech_metrics: list[dict[str, float]] = []
         step_ctxs = [ctx for ctx in ctxs if isinstance(ctx.payload, EnvStepContext)]
 

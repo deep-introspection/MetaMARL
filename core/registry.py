@@ -11,12 +11,15 @@ from examples.bilevel_fishery.mechanism import FisheryMechanism as FisheryMechan
 from examples.bilevel_fishery.mechanism_v1 import FisheryMechanism as FisheryMechanismV1
 
 # Water-usage example components
-# from examples.water_usage.mechanism import (
-#     WaterMechanism,
-#     WaterMechanismSpace,
-# )
-# from examples.water_usage.regulated_env import WaterRegulatedEnv
-# from examples.water_usage.regulator_env import WaterRegulatorEnv
+from examples.fresh_water.mechanism import (
+    WaterMechanism,
+    WaterMechanismSpace,
+)
+from examples.fresh_water.regulated_env import WaterRegulatedEnv
+
+from examples.fresh_water.regulated_env_ed_hs import WaterRegulatedEdHsEnv
+from examples.fresh_water.regulator_env import WaterRegulatorEnv
+from examples.fresh_water.regulator_env_raven import WaterRegulatorRavenEnv
 
 REGISTRY = {
     "mechanism_space": {
@@ -33,10 +36,12 @@ REGISTRY = {
         "FisheryRegulatorEnv": FisheryRegulatorEnv,
         "FisheryRegulatedEnv": FisheryRegulatedEnv,
         "FisheryRegulatedEnvV1": FisheryRegulatedEnvV1,
-        # "WaterRegulatorEnv": WaterRegulatorEnv,
-        # "WaterRegulatedEnv": WaterRegulatedEnv,
+        "WaterRegulatorEnv": WaterRegulatorEnv,
+        "WaterRegulatedEnv": WaterRegulatedEnv,
         # Generic bilevel aliases (map to water example by default)
-        # "RegulatorEnv": WaterRegulatorEnv,
-        # "RegulatedEnv": WaterRegulatedEnv,
+        "RegulatorEnv": WaterRegulatorEnv,
+        "WaterRegulatorRavenEnv": WaterRegulatorRavenEnv,
+        "RegulatedEnv": WaterRegulatedEnv,
+        "WaterRegulatedEdHsEnv": WaterRegulatedEdHsEnv
     },
 }
