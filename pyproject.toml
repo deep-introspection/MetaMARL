@@ -1,0 +1,112 @@
+[project]
+name = "bilevel-fishery"
+version = "0.1.0"
+description = "Bilevel optimization framework for sustainable fishery management."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = {text = "BSD-3-Clause"}
+authors = [
+    {name = "Guillaume Dumas", email = "guillaume.dumas@umontreal.ca"},
+]
+keywords = [
+    "bilevel-optimization",
+    "reinforcement-learning",
+    "sustainability",
+    "mechanism-design",
+    "multi-agent",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.14",
+    "mypy>=1.0",
+    "pytest>=8.0",
+    "pytest-cov>=7.0",
+    "nbstripout>=0.7",
+    "pre-commit>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/deep-introspection/bilevel-fishery"
+Repository = "https://github.com/deep-introspection/bilevel-fishery"
+Issues = "https://github.com/deep-introspection/bilevel-fishery/issues"
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---------------------------------------------------------------------------
+# Ruff — single source of truth for linting and formatting.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "RUF", # ruff-specific
+    "SIM", # flake8-simplify
+    "N",   # pep8-naming
+    "D",   # pydocstyle
+]
+ignore = [
+    "D203",  # 1 blank line before class docstring (conflicts with D211)
+    "D213",  # multi-line summary on second line (conflicts with D212)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]            # no docstring requirements on tests
+"notebooks/*" = ["D", "E402"]  # notebooks have relaxed rules
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------------------------------------------------------------------------
+# Pytest — single source of truth, replaces pytest.ini.
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--cov=src/bilevel_fishery",
+    "--cov-report=term-missing",
+    "--cov-fail-under=0",  # raised as bricks are built
+]
+testpaths = ["tests"]
+markers = [
+    "unit: fast, isolated tests",
+    "integration: multi-component tests",
+]
+
+# ---------------------------------------------------------------------------
+# Mypy — strict typing on the package, relaxed on tests/notebooks.
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/bilevel_fishery"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false

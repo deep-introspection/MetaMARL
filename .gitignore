@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+
+# IDEs
+.vscode/*
+!.vscode/settings.json
+.idea/
+*.swp
+.DS_Store
+
+# Tests & quality
+.coverage
+.pytest_cache/
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# Jupyter (notebooks themselves ARE versioned; outputs stripped via nbstripout)
+.ipynb_checkpoints/
+
+# ML experiment outputs
+wandb/
+ray_results/
+ray_session*/
+runs/
+results/
+outputs/
+checkpoints/
+models/
+logs/
+
+# Visualization outputs (generated)
+*.png
+*.jpg
+*.pdf
+*.svg
+plots/
+figures/
+
+# Heavy binary data
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.parquet
+*.pkl
+
+# Claude Code local config
+CLAUDE.md
+.claude/
