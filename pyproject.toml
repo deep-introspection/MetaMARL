@@ -39,6 +39,7 @@ dev = [
     # Pedagogical notebooks (notebooks/NN_*.ipynb)
     "matplotlib>=3.8",
     "ipykernel>=6.0",
+    "nbconvert>=7.0",
 ]
 
 [project.urls]

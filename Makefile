@@ -1,4 +1,4 @@
-.PHONY: install test lint format typecheck precommit clean
+.PHONY: install test lint format typecheck precommit notebook-test clean
 
 install:
 	uv sync --all-extras
@@ -22,6 +22,16 @@ typecheck:
 
 precommit:
 	uv run pre-commit run --all-files
+
+notebook-test:
+	@echo "Executing every notebook in notebooks/ end-to-end..."
+	@for nb in notebooks/*.ipynb; do \
+		echo "→ $$nb"; \
+		uv run jupyter nbconvert --to notebook --execute --inplace "$$nb" || exit 1; \
+	done
+	@echo "Stripping outputs (so the repo stays clean)..."
+	@uv run nbstripout notebooks/*.ipynb
+	@echo "All notebooks executed successfully."
 
 clean:
 	rm -rf .pytest_cache .ruff_cache .mypy_cache htmlcov .coverage
