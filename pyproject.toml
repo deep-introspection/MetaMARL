@@ -36,6 +36,9 @@ dev = [
     "pytest-cov>=7.0",
     "nbstripout>=0.7",
     "pre-commit>=4.0",
+    # Pedagogical notebooks (notebooks/NN_*.ipynb)
+    "matplotlib>=3.8",
+    "ipykernel>=6.0",
 ]
 
 [project.urls]
