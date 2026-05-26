@@ -1,62 +1,64 @@
-# D-001 — Reward function du `FisheryEnv` (single-agent)
+# D-001 — Reward function of `FisheryEnv` (single-agent)
 
-> **Date** : 2026-05-25
-> **Statut** : Accepté
-> **Brique** : 2 — Environnement Gymnasium single-agent
-> **Décideur** : Rémy Ramadour (avec proposition Claude)
-> **Note pour Nadine** : ce choix conditionne les valeurs de récompense de
-> tout pêcheur entraîné dans cette brique. Si on change la reward plus
-> tard, les agents pré-entraînés ne sont **plus comparables**.
+> **Date**: 2026-05-25
+> **Status**: Accepted
+> **Brick**: 2 — Single-agent Gymnasium environment
+> **Decider**: Rémy Ramadour (with Claude proposal)
+> **Note for Nadine**: this choice conditions every reward value a fisher
+> trained in this brick will see. If we change the reward later,
+> previously trained agents are **no longer comparable**.
 
-## Contexte
+## Context
 
-Le pêcheur dans `FisheryEnv` doit recevoir une **reward** à chaque pas qui
-représente la valeur économique de son action. Le choix de la fonction de
-reward conditionne le comportement appris par l'agent RL.
+The fisher in `FisheryEnv` must receive a **reward** at each step that
+represents the economic value of its action. The reward function shapes
+the behaviour learned by the RL agent.
 
-## Décision
+## Decision
 
 ```python
 reward = log(1 + harvest_realized)
 ```
 
-Reward **concave** (utility logarithmique) sur la prise effective.
+A **concave** reward (logarithmic utility) on the realized catch.
 
-## Alternatives considérées
+## Alternatives considered
 
-| Option | Formule | Avantage | Inconvénient |
+| Option | Formula | Pros | Cons |
 |---|---|---|---|
-| A — Brute | `harvest_realized` | Simple, interprétable | Pas d'aversion au risque, encourage prises massives |
-| B — Utility scaling (master) | `harvest_realized * fish/max_fish` | Pénalise la raréfaction | Couplé au stock dispo, moins lisible |
-| **C — Concave log (retenue)** | `log(1 + harvest_realized)` | Aversion au risque, prises régulières, économiquement standard | Légèrement plus complexe |
+| A — Linear | `harvest_realized` | Simple, interpretable | No risk aversion, encourages bursts |
+| B — Utility scaling (master) | `harvest_realized * fish/max_fish` | Penalizes scarcity | Coupled to stock, less readable |
+| **C — Concave log (selected)** | `log(1 + harvest_realized)` | Risk aversion, regular catches, economically standard | Slightly more complex |
 
-## Raison du choix
+## Rationale
 
-La concavité (rendement marginal décroissant) :
+Concavity (diminishing marginal returns):
 
-- Encourage l'agent à **étaler** ses prises plutôt qu'à faire de gros coups
-  sporadiques.
-- Est cohérente avec la théorie économique de l'utilité (aversion au risque).
-- Donne un signal d'apprentissage **stable** : ne diverge pas pour de gros
-  harvests, n'écrase pas pour des petits.
+- Encourages the agent to **spread** catches rather than make sporadic
+  large hauls.
+- Is consistent with standard utility theory (risk aversion).
+- Provides a **stable** learning signal: does not blow up for large
+  harvests, does not vanish for small ones.
 
-## Conséquences
+## Consequences
 
-- L'agent RL apprendra une stratégie de **lissage** (préférence pour régularité).
-- Les valeurs de reward sont en `[0, log(1 + max_harvest_rate * dt)]` ≈ `[0, 0.7]`
-  pour les paramètres par défaut.
-- Si on compare 2 agents avec des fonctions de reward différentes, les courbes
-  d'apprentissage ne sont **pas comparables** sans normalisation.
+- The RL agent will learn a **smoothing** strategy (preference for
+  regularity).
+- Reward values lie in `[0, log(1 + max_harvest_rate * dt)]` ≈ `[0, 0.7]`
+  for default parameters.
+- Comparing two agents trained with different reward functions is **not
+  meaningful** without normalization.
 
-## Implémentation
+## Implementation
 
-`src/bilevel_fishery/envs/fishery_env.py:step()`, ligne avec `np.log1p`.
+`src/bilevel_fishery/envs/fishery_env.py:step()`, the line that calls
+`np.log1p`.
 
-## Référence académique
+## Academic references
 
 - Pratt, J. W. (1964). Risk aversion in the small and in the large.
   *Econometrica*, 32(1/2), 122-136.
 - Arrow, K. J. (1965). *Aspects of the Theory of Risk Bearing*.
   Yrjö Jahnssonin Säätiö, Helsinki.
 
-(Utility logarithmique = constant relative risk aversion, CRRA, η=1.)
+(Logarithmic utility ≡ constant relative risk aversion, CRRA, η=1.)

@@ -1,67 +1,68 @@
-# Brique 2 — Environnement Gymnasium single-agent
+# Brick 2 — Single-agent Gymnasium environment
 
-> **Date** : 2026-05-25
-> **Branche** : `rebuild/from-scratch`
-> **Référence** : audit master `pre-rebuild-2026-05-25` —
+> **Date**: 2026-05-25
+> **Branch**: `rebuild/from-scratch`
+> **Reference**: master audit `pre-rebuild-2026-05-25` —
 > `core/envs/base.py`, `core/envs/regulated.py`,
 > `examples/cartpole/regulated_env.py`.
 
-## Pourquoi cette brique
+## Why this brick
 
-On wrappe `ecology.step()` (Brique 1) dans une interface **Gymnasium standard**
-single-agent : `reset()` / `step()` / `observation_space` / `action_space`.
+We wrap `ecology.step()` (Brick 1) in a **standard Gymnasium** single-agent
+interface: `reset()` / `step()` / `observation_space` / `action_space`.
 
-Le résultat : un pêcheur simple qui peut pêcher dans un lac, avec :
+The result is a simple fisher who can fish in a lake, with:
 
-- Aucune dépendance à Ray, World, mechanism ou multi-agent
-- Une API conforme à Gymnasium 1.x
-- Un cap physique sur la pêche (on ne peut pas pêcher ce qui n'existe pas)
-- Une reward concave (`log1p`) — décision tracée en D-001
+- No dependency on Ray, World, mechanism, or multi-agent
+- A Gymnasium 1.x compliant API
+- A physical cap on harvest (you cannot fish what doesn't exist)
+- A concave reward (`log1p`) — decision tracked in D-001
 
-C'est l'unité de base sur laquelle les briques suivantes greffent :
-- Brique 3 : un mécanisme de régulation (quota, amende)
-- Brique 4 : plusieurs pêcheurs (multi-agent)
-- Brique 5 : un `World` partagé pour les optimizers bilevel
+This is the building block on which the next bricks graft:
 
-## Reverse-prompts et corrections d'audit
+- Brick 3: a regulation mechanism (quota, fine)
+- Brick 4: several fishers (multi-agent)
+- Brick 5: a shared `World` for bilevel optimizers
 
-| # | Prompt source | Correction |
+## Reverse-prompts and audit corrections
+
+| # | Source prompt | Correction |
 |---|---|---|
-| B2.1 | `BaseEnv` couplé au `World` Ray actor | **Suppression** du World — env autonome |
-| B2.2 | `RegulatedEnv` fetch mechanism via Ray | **Suppression** — pas de mechanism en Brique 2 |
-| B2.3 | `MultiAgentRegulatedEnv` via RLlib | **Suppression** — single-agent pur |
-| B2.4 | `CartpoleRegulatedEnv` "single-agent" héritant du multi-agent | **Reproduit** comme `gymnasium.Env` direct, sans héritage exotique |
+| B2.1 | `BaseEnv` coupled to a `World` Ray actor | **Removed** — env is autonomous |
+| B2.2 | `RegulatedEnv` fetches mechanism via Ray | **Removed** — no mechanism in Brick 2 |
+| B2.3 | `MultiAgentRegulatedEnv` via RLlib | **Removed** — pure single-agent |
+| B2.4 | `CartpoleRegulatedEnv` "single-agent" via multi-agent inheritance | **Reproduced** as direct `gymnasium.Env`, no exotic inheritance |
 
-## Décisions design
+## Design decisions
 
-| # | Décision | Choix |
+| # | Decision | Choice |
 |---|---|---|
-| 1 | Action space | `Box(0, 1, shape=(1,), float32)` — intensité normalisée |
+| 1 | Action space | `Box(0, 1, shape=(1,), float32)` — normalized intensity |
 | 2 | Observation space | `Box(0, 1, shape=(2,), float32)` — `(fish/max_fish, algae/max_algae)` |
-| 3 | Reward function | `log(1 + harvest_realized)` — concave (voir [D-001](../decisions/D-001-reward-function.md)) |
-| 4 | Cap physique | `harvest_realized = min(action·max_rate,  0.99·fish/dt)` |
-| 5 | Horizon | 200 steps par défaut, configurable |
-| 6 | Terminated | Toujours `False` (le stock peut s'effondrer sans fin d'épisode) |
-| 7 | Truncated | À `horizon` |
-| 8 | Seeding | Standard `gymnasium` + `reset_state` de Brique 1 |
+| 3 | Reward function | `log(1 + harvest_realized)` — concave (see [D-001](../decisions/D-001-reward-function.md)) |
+| 4 | Physical cap | `harvest_realized = min(action·max_rate, 0.99·fish/dt)` |
+| 5 | Horizon | 200 steps default, configurable |
+| 6 | Terminated | Always `False` (stock can collapse without ending the episode) |
+| 7 | Truncated | At `horizon` |
+| 8 | Seeding | Standard `gymnasium` + Brick 1 `reset_state` |
 
-## Decision log — NOTE NADINE
+## Decision log — NOTE FOR NADINE
 
-[D-001 Reward function](../decisions/D-001-reward-function.md) — choix de
-`log1p(harvest)` comme reward pour le pêcheur single-agent. Si on change la
-reward plus tard, les agents pré-entraînés ne seront plus comparables.
+[D-001 Reward function](../decisions/D-001-reward-function.md) — the choice
+of `log1p(harvest)` as the single-agent fisher reward. If we change the
+reward later, previously trained agents will **no longer be comparable**.
 
-## Concepts introduits
+## Concepts introduced
 
-- **API Gymnasium 1.x** : `reset(seed) -> (obs, info)`, `step(action) ->
-  (obs, reward, terminated, truncated, info)` (5-tuple, pas 4 comme dans
-  l'ancien `gym`)
-- **`Box` spaces** continus, normalisés `[0, 1]`
-- **Cap physique** vs **clamp numérique** (sémantique différente)
-- **Reward concave** (CRRA avec η=1, utility logarithmique)
-- **Environnement autonome** sans état partagé externe
+- **Gymnasium 1.x API**: `reset(seed) -> (obs, info)`, `step(action) ->
+  (obs, reward, terminated, truncated, info)` (5-tuple, not the legacy
+  4-tuple of `gym`)
+- **`Box` spaces**, continuous, normalized to `[0, 1]`
+- **Physical cap** vs **numerical clamp** (different semantics)
+- **Concave reward** (CRRA with η=1, logarithmic utility)
+- **Self-contained environment** without external shared state
 
-## Structure ajoutée
+## Layout added
 
 ```
 src/bilevel_fishery/envs/
@@ -70,33 +71,33 @@ src/bilevel_fishery/envs/
 
 tests/envs/
 ├── __init__.py
-└── test_fishery_env.py     11 tests d'API + comportement
+└── test_fishery_env.py     11 API + behaviour tests
 
-config/env_default.yaml     Paramètres par défaut
-docs/decisions/D-001-...    ADR sur le choix de reward
-notebooks/02_environment.ipynb  Exploration : random policy, harvest constant,
-                                effet du max_harvest_rate
+config/env_default.yaml     Default parameters
+docs/decisions/D-001-...    ADR on reward choice
+notebooks/02_environment.ipynb  Exploration: random policy, scripted
+                                policies, physical cap demo
 ```
 
-## Vérifications
+## Verifications
 
 ```bash
-make test           # 31 tests = 20 (Brique 1) + 11 (Brique 2), ≥ 92% coverage
-make lint           # ruff strict clean
-make typecheck      # mypy strict clean
-make notebook-test  # exécute 00 + 01 + 02 end-to-end
+make test            # 31 tests = 20 (Brick 1) + 11 (Brick 2), ~98% coverage
+make lint            # ruff strict clean
+make typecheck       # mypy strict clean
+make notebook-test   # 00 + 01 + 02 execute end-to-end
 ```
 
-## Ce qui ne fait PAS partie de la Brique 2
+## What is NOT part of Brick 2
 
-- Pas de mécanisme de régulation (quota, amende, ban) — Brique 3
-- Pas de multi-agent — Brique 4
-- Pas de `World` ni de Ray — Brique 5
-- Pas d'apprentissage RL (PPO) — Brique 6
+- No regulation mechanism (quota, fine, ban) — Brick 3
+- No multi-agent — Brick 4
+- No `World`, no Ray — Brick 5
+- No RL training (PPO) — Brick 6
 
-## Prochaine brique
+## Next brick
 
-**Brique 3** — Mechanism design : introduire la régulation (quota fixe, quota
-proportionnel au stock, amende, seuil minimal). Le `FisheryEnv` sera étendu
-pour intégrer ces contraintes dans le calcul de la reward (utility nette =
-harvest - fine·violation).
+**Brick 3** — Mechanism design: introduce regulation (fixed quota,
+stock-proportional quota, fine, minimum threshold). `FisheryEnv` is extended
+to integrate those constraints in the reward computation
+(net utility = harvest − fine·violation).

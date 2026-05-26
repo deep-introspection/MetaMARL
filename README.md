@@ -1,45 +1,47 @@
 # bilevel-fishery
 
-Framework de recherche pour l'**optimisation bilevel** appliquée à la gestion
-durable des pêcheries.
+Research framework for **bilevel optimization** applied to sustainable
+fishery management.
 
-- **Couche externe** : Evolution Strategies optimise les paramètres d'un
-  mécanisme de régulation (quota, amende, seuil minimal de stock).
-- **Couche interne** : multi-agent RL (PPO via Ray RLlib) entraîne les
-  comportements des pêcheurs sous le mécanisme imposé.
+- **Outer level**: Evolution Strategies optimize the parameters of a
+  regulation mechanism (quota, fine, minimum stock threshold).
+- **Inner level**: multi-agent RL (PPO via Ray RLlib) trains fisher
+  behaviours under the imposed mechanism.
 
-> **Statut** : reconstruction pédagogique en cours sur la branche
-> `rebuild/from-scratch`. Le code historique est archivé sous le tag
-> `pre-rebuild-2026-05-25` (voir `docs/bricks/` pour la progression).
+> **Status**: pedagogical rebuild in progress on the
+> `rebuild/from-scratch` branch. The historical codebase is archived under
+> the `pre-rebuild-2026-05-25` tag (see `docs/bricks/` for progress).
 
 ## Installation
 
-Requiert Python 3.12 et [`uv`](https://docs.astral.sh/uv/).
+Requires Python 3.12 and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 make install
 ```
 
-## Tests & qualité
+## Tests & quality gates
 
 ```bash
-make test       # pytest + coverage
-make lint       # ruff check + format check
-make format     # auto-fix
-make typecheck  # mypy strict
-make clean      # remove caches
+make test           # pytest + coverage
+make lint           # ruff check + format check
+make format         # auto-fix
+make typecheck      # mypy strict
+make notebook-test  # execute every notebook end-to-end
+make clean          # remove caches
 ```
 
-## Structure
+## Repository layout
 
 ```
-src/bilevel_fishery/   # code source (package)
+src/bilevel_fishery/   # source package
 tests/                 # pytest tests
-docs/bricks/           # documentation pédagogique brique par brique
-notebooks/             # notebooks pédagogiques pendants des briques
-config/                # YAML d'expérimentation (alimenté au fil de l'eau)
+docs/bricks/           # per-brick pedagogical docs
+docs/decisions/        # architecture decision records (ADRs)
+notebooks/             # per-brick pedagogical notebooks
+config/                # YAML experiment configs (populated as bricks land)
 ```
 
 ## License
 
-BSD-3-Clause — voir `LICENSE`.
+BSD-3-Clause — see `LICENSE`.
