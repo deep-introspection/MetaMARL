@@ -22,7 +22,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = []
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "pydantic>=2.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -91,7 +95,7 @@ addopts = [
     "--strict-markers",
     "--cov=src/bilevel_fishery",
     "--cov-report=term-missing",
-    "--cov-fail-under=0",  # raised as bricks are built
+    "--cov-fail-under=90",  # raised at each brick — Brique 1: 90%
 ]
 testpaths = ["tests"]
 markers = [
@@ -110,3 +114,7 @@ files = ["src/bilevel_fishery"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "scipy.*"
+ignore_missing_imports = true

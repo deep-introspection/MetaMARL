@@ -1,0 +1,24 @@
+# Default ecological parameters for the bilevel-fishery model.
+# Lotka-Volterra predator-prey dynamics.
+# References: Lotka (1925), Volterra (1926), Clark (1990).
+
+ecology:
+  # --- Dynamics coefficients ---------------------------------------------
+  alpha: 1.0     # algae intrinsic growth (1/time)
+  beta:  0.1     # algae predation rate by fish (1/(fish*time))
+  delta: 0.075   # fish growth efficiency per algae consumed (1/(algae*time))
+  gamma: 1.5     # fish natural mortality (1/time)
+  # Equilibrium: F* = alpha/beta = 10, A* = gamma/delta = 20
+
+  # --- Initial conditions ------------------------------------------------
+  fish_init:  10.0
+  algae_init: 10.0
+  noise_std:  0.05   # log-normal noise on reset (0.0 = deterministic)
+
+  # --- Reference scales (used for normalization in later bricks) --------
+  max_fish:  100.0
+  max_algae: 100.0
+
+  # --- Integration -------------------------------------------------------
+  dt: 0.01
+  integrator: rk45    # "rk45" (scipy, adaptive) or "euler" (pedagogical)
