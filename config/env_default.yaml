@@ -1,0 +1,7 @@
+# Default parameters for FisheryEnv (single-agent, no regulation).
+
+env:
+  max_harvest_rate: 2.0    # max harvest per unit time when action=1
+  horizon: 200             # truncation length
+
+# Ecological parameters are loaded from config/ecology_default.yaml.
