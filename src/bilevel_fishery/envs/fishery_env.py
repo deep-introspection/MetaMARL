@@ -16,6 +16,7 @@ from numpy.typing import NDArray
 
 from bilevel_fishery.ecology import (
     EcologicalState,
+    EcologyInstabilityError,
     EcologyParams,
     reset_state,
     step,
@@ -139,7 +140,15 @@ class FisheryEnv(gym.Env[Observation, Action]):
         max_extractable = 0.99 * self._state.fish / self.params.dt
         harvest_realized = float(min(harvest_demanded, max(0.0, max_extractable)))
 
-        self._state = step(self._state, self.params, harvest=harvest_realized)
+        try:
+            self._state = step(self._state, self.params, harvest=harvest_realized)
+        except EcologyInstabilityError:
+            # The harvest cap is a heuristic and can be a hair too loose near
+            # total stock depletion (RK45 returns a tiny negative fish biomass
+            # due to numerical noise). The env-level semantics is "you cannot
+            # fish what doesn't exist": treat as full collapse with no harvest.
+            self._state = EcologicalState(fish=0.0, algae=self._state.algae)
+            harvest_realized = 0.0
         self._t += 1
 
         reward = float(np.log1p(harvest_realized))

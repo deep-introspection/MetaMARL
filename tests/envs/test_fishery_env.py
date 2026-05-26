@@ -103,6 +103,25 @@ def test_reward_is_concave_log1p() -> None:
 
 
 @pytest.mark.unit
+def test_extreme_overharvest_collapses_gracefully() -> None:
+    """Sustained max action with low initial stock should not crash the env.
+
+    Even if `ecology.step` raises `EcologyInstabilityError` because the cap
+    heuristic missed by a numerical hair, the env layer must keep advancing
+    so the agent simply sees ``harvest_realized = 0`` and stock at 0.
+    """
+    p = EcologyParams(fish_init=0.05, algae_init=2.0, noise_std=0.0, dt=0.05)
+    env = FisheryEnv(params=p, max_harvest_rate=10.0, horizon=200)
+    env.reset(seed=42)
+    for _ in range(200):
+        _, reward, _, truncated, info = env.step(np.array([1.0], dtype=np.float32))
+        assert info["fish"] >= 0.0
+        assert reward >= 0.0
+        if truncated:
+            break
+
+
+@pytest.mark.unit
 def test_observation_bounds_respected() -> None:
     env = FisheryEnv(horizon=100)
     env.reset(seed=42)

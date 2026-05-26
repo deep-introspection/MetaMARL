@@ -81,8 +81,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D"]            # no docstring requirements on tests
-# Notebooks: docstrings optional, late imports OK, Unicode math symbols allowed
-"notebooks/*" = ["D", "E402", "RUF001", "RUF002"]
+# Notebooks: docstrings optional, late imports OK, Unicode math symbols allowed,
+# math-style mixed-case variable names (dF, dA, V0) allowed.
+"notebooks/*" = ["D", "E402", "RUF001", "RUF002", "RUF003", "N816", "N803", "N806"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
