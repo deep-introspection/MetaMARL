@@ -75,8 +75,11 @@ tests/envs/
 
 config/env_default.yaml     Default parameters
 docs/decisions/D-001-...    ADR on reward choice
-notebooks/02_environment.ipynb  Exploration: random policy, scripted
-                                policies, physical cap demo
+notebooks/02_environment.ipynb  Deep dive (~12 figures): reward function
+                                shape, 30-seed stochastic bands, action
+                                sweep (trajectories, finals, Pareto,
+                                heatmap), physical cap recovery,
+                                max_harvest_rate sensitivity
 ```
 
 ## Verifications
