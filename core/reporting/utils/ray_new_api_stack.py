@@ -899,6 +899,24 @@ def plot_training_results_new_stack(
         f"{prefix}/perf/learner_update_s": perf["learner_update_s"],
         f"{prefix}/perf/weights_seq_no": perf["weights_seq_no"],
     }
+    custom = (
+        results.get("env_runners", {})
+        .get("custom_metrics", {})
+    )
+
+    water_metrics = [
+        "reservoir_stage_m",
+        "reservoir_depth_m",
+        "reservoir_level_norm",
+        "max_depth_m",
+        "total_usage_m3s",
+    ]
+
+    for metric in water_metrics:
+        for suffix in ["mean", "min", "max"]:
+            val = finite(custom.get(f"{metric}_{suffix}"))
+            if val is not None:
+                metrics[f"{prefix}/water/{metric}_{suffix}"] = val
 
     if log_raw_rllib_episode_metrics:
         metrics.update(
