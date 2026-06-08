@@ -15,10 +15,10 @@ from examples.fresh_water.mechanism import (
     WaterMechanism,
     WaterMechanismSpace,
 )
-from examples.fresh_water.regulated_env import WaterRegulatedEnv
+from examples.fresh_water.deprecated.regulated_env import WaterRegulatedEnv
 
 from examples.fresh_water.regulated_env_ed_hs import WaterRegulatedEdHsEnv
-from examples.fresh_water.regulator_env import WaterRegulatorEnv
+from examples.fresh_water.deprecated.regulator_env import WaterRegulatorEnv
 from examples.fresh_water.regulator_env_raven import WaterRegulatorRavenEnv
 
 REGISTRY = {
