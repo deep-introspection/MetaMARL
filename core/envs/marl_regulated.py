@@ -89,7 +89,25 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
         actions = self.action(action_dict)
+
+        if not self.published_mechanism_assigned:
+            obs = {
+                agent_id: self.observation(agent_id, self.S_t)
+                for agent_id in self.agents
+            }
+
+            rewards = {agent_id: 0.0 for agent_id in self.agents}
+
+            terminated = {agent_id: False for agent_id in self.agents}
+            terminated["__all__"] = False
+
+            truncated = {agent_id: False for agent_id in self.agents}
+            truncated["__all__"] = False
+
+            self._t += 1
+            return obs, rewards, terminated, truncated, self._infos
         obs, rewards, terminated, truncated, self._infos = self._step(actions)
+
 
         self._publish(
             EnvStepContext(
@@ -104,7 +122,6 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
                 info=self._infos,
             )
         )
-
         self._t += 1
         return obs, rewards, terminated, truncated, self._infos
     
