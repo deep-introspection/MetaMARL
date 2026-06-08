@@ -18,8 +18,30 @@ from core.envs.marl_regulated import MultiAgentRegulatedEnv
 
 logger = logging.getLogger(__name__)
 
+# Constants 
 EPS = 1e-8
 
+CORN_GRAIN_KC = {
+    "initial": 0.40,
+    "development": 0.80,
+    "mid": 1.15,
+    "late": 0.70,
+}
+
+P_BY_MONTH_45N = {
+    1: 0.20,
+    2: 0.23,
+    3: 0.27,
+    4: 0.30,
+    5: 0.34,
+    6: 0.35,
+    7: 0.34,
+    8: 0.32,
+    9: 0.28,
+    10: 0.24,
+    11: 0.21,
+    12: 0.20,
+}
 
 class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
     def __init__(
@@ -40,40 +62,9 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         self.inflow_rate = ecology_cfg.get("inflow_rate", 1.0)
         self.dt = ecology_cfg.get("dt", 1.0)
 
-        # max_pull_fraction is physical extraction capacity, not regulation.
-        # It approximates the pump / intake capacity of one agent as a fraction
-        # of current streamflow.
-        #
-        # Rough interpretation:
-        # 0.0001 -> very small pump / individual farm
-        # 0.0005 -> large farm / small irrigation setup
-        # 0.001  -> irrigation user / small utility
-        # 0.005  -> irrigation district / municipality / industrial user
-        # 0.01   -> large municipal or industrial intake
-        # 0.05   -> regional-scale extraction; usually unrealistic for one agent
-        #
-        # This is not the legal quota. The mechanism parameters fixed_quota and
-        # prop_quota define regulation. max_pull_fraction only defines how much
-        # the agent could physically request before regulation is applied.
-        # large scale farmer - 
-        # increase water pull when there is percipitation otherwise consume water
-        self.max_pull_fraction = ecology_cfg.get("max_pull_fraction", 0.005)
-
-        # TODO move this to automatic parsing from raven files (default vals for Belwood Lake)
-        # self.streamflow_init = ecology_cfg.get("streamflow_init", 124.724) # ohms_canshield.rvh
-        self.streamflow_init = ecology_cfg.get("streamflow_init", 12.4724)
-        self.streamflow_init_sigma = ecology_cfg.get("streamflow_init_sigma", 0.05)
-
-        # Ontario requires a Permit to Take Water above 50,000 L/day.
-        # 50,000 L/day = 50 m3/day ≈ 0.00058 m3/s.
-        # 0.01 m³/s = 10 L/s      → small user
-        # 0.05 m³/s = 50 L/s      → moderate
-        # 0.1  m³/s = 100 L/s     → substantial
-        # 0.3  m³/s = 300 L/s     → very large demand
-        # precip [mm/day]
-
-        # West_Montrose [m3/s]
-        # West_Montrose (observed) [m3/s]
+        # TODO this means every agent has the same farm area. Better eventually:
+        self.max_farm_area_m2 = ecology_cfg.get("max_farm_area_m2", 10_000.0)
+ 
         
         self.min_required_demand_m3s = ecology_cfg.get("min_required_demand_m3s", 0.02)
         self.lake_elevation = ecology_cfg.get("lake_elevation", 420.41)
@@ -110,9 +101,25 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             ),
         )
 
+        # Ontario corn season ~ May–September
+        start_day_of_year = int(
+            self.rng.integers(
+                low=121,   # May 1
+                high=274,  # Sept 30
+            )
+        )
+
+        start_date = (
+            datetime(1980, 1, 1)
+            + timedelta(days=start_day_of_year)
+        )
+
         self.S_t = {
             "reservoir_level_norm": 1.0,
             "streamflow": streamflow0,
+            "percip_mm_day": self.default_percip_mm_day,
+            "temperature_c": self.default_temperature_c,
+            "date": start_date,
             "last_usage": 0.0,
             "total_usage": 0.0,
         }
@@ -129,27 +136,46 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
     @override(MultiAgentRegulatedEnv)
     def intrinsic_utility(self, A_t: dict[AgentID, ActType]) -> MultiAgentDict:
-        # Q: Water allocation is indexed here as percentage of the total active storage capacity.
-        # Q: The volume of water pumps depends on the max capacity
-        # Q: perhaps we should integrate the maximum pump capacity ?
-            # Example solution :
-            # max_pump_capacity = 0.05
-            # max_step_extraction = self.max_water * max_pump_capacity
-            # return {
-            #     agent_id: (action.item() * max_step_extraction) / self.max_water
-            #     for agent_id, action in A_t.items()
-            # }
+        # TODO 
+        # precip [mm/day]- ohms_canshield_ReservoirStages at t-1
+        precip_mm_day = self.S_t["precipitation"]
+        T_mean = self.S_t["temperature"]
+        date : datetime = self.S_t["date"]
+        month = date.month
 
-        # fixed level - dependent on the tater level - hyperparameter to slide between both
-        # lake height relative to sea level
-        # water_lake = lake_level - elevation (.rvh) / 11 (.rvh)
 
-        # Action is the requested fraction of max allowable streamflow extraction.
-        # constant value - constant demand > threshold * stream flow. then limit by ability to pull 
-        # water. 
+        # TODO # TODO: replace with stage based on planting date / day after planting.
+        development_stage = "development"
+        
+        # Blaney-Criddle Formula
+        ETo_mm_day = P_BY_MONTH_45N[month] * ((0.46 * T_mean) + 8)
 
+        ETcrop_mm_day = ETo_mm_day * CORN_GRAIN_KC[development_stage]
+
+        deficit_mm_day = max(0, ETcrop_mm_day - precip_mm_day)
+        full_required_m3_s = (deficit_mm_day / 1000.0 * self.max_farm_area_m2 / 86400.0)
+
+        self._update_infos(
+            key="eto_mm_day",
+            values=ETo_mm_day,
+        )
+        self._update_infos(
+            key="etcrop_mm_day",
+            values=ETcrop_mm_day,
+        )
+        self._update_infos(
+            key="deficit_mm_day",
+            values=deficit_mm_day,
+        )
+        self._update_infos(
+            key="full_required_m3s",
+            values=full_required_m3_s,
+        )
+
+        # action = fraction of maximum crop yield the farmer attempts to achieve
+        # action = irrigation effort/intensity
         return {
-            agent_id: float(action.item()) * self.max_pull_fraction
+            agent_id: float(action.item()) * full_required_m3_s
             for agent_id, action in A_t.items()
         }
 

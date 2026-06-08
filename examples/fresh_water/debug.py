@@ -8,14 +8,11 @@ from core.optimizers.es.config import ESConfig
 from core.optimizers.appo.config import APPOptimizerConfig
 
 from examples.fresh_water.mechanism import WaterMechanismSpace
-from examples.fresh_water.regulated_env_ed_hs import WaterRegulatedEdHsEnv
+from examples.fresh_water.regulated_env_ed_hs_v3 import WaterRegulatedEdHsEnv
 from examples.fresh_water.regulator_env_raven import WaterRegulatorRavenEnv
 
 
 ray.shutdown()
-
-water_space = WaterMechanismSpace()
-mechanism_dim = getattr(water_space, "full_dimension", water_space.dimension)
 
 bilevel_opt_cfg: BilevelConfig = (
     BilevelConfig()
@@ -32,7 +29,8 @@ bilevel_opt_cfg: BilevelConfig = (
         },
     )
     .mechanism(
-        space=water_space,
+        # TODO adding defaults
+        space=WaterMechanismSpace(),
     )
     .training(outer_iters=100)
     .ray(
@@ -54,23 +52,23 @@ bilevel_opt_cfg: BilevelConfig = (
     .outer(
         ESConfig()
         .training(
-            sigma=0.15,
-            mean_lr=0.1,
+            sigma=0.5,
+            mean_lr=0.2,
             sigma_lr=0.05,
-            min_sigma=0.001,
-            max_sigma=0.5,
+            min_sigma=0.01,
+            max_sigma=0.6,
         )
         .environment(
             env=WaterRegulatorRavenEnv,
             env_config={
                 "ecology_cfg": {
-                    "sus_weight": 5.0,
-                    "sus_threshold": 0.2,
+                    "sus_weight": 1.0,
+                    "sus_threshold": 0.1,
                     "max_water": 100.0,
                 },
             },
-            horizon=7,
-            train_iters=1,
+            horizon=100,
+            train_iters=200,
         )
         .debugging(
             seed=42,
@@ -93,17 +91,27 @@ bilevel_opt_cfg: BilevelConfig = (
             env=WaterRegulatedEdHsEnv,
             env_config={
                 "ecology_cfg": {
-                    "water_init": 80.0,
-                    "max_water": 100.0,
+                    "sus_weight": 1.0,
+                    "sus_threshold": 0.1,
                     "inflow_rate": 1.0,
+                    "max_pull_fraction": 0.005,
+
+                    # TODO move this to Raven helper
+                    "streamflow_init": 12.4724,
+                    "lake_elevation": 420.41,
+                    "max_depth": 11.0,
+
+                    # TODO move this to mechanism
+                    "underuse_penalty_scale": 0.2,
+                    "underuse_penalty_power": 2.0,
                 },
                 "use_raven": True,
-                "raven_cwd": "/Users/egd1/bilevel-fishery/raven",
-                "raven_cmd": "/Users/egd1/bilevel-fishery/raven/2_Raven/Raven.exe",
+                "raven_cwd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven",
+                "raven_cmd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven/2_Raven/Raven.exe",
                 "raven_freq": 1,
                 "seed": 0,
             },
-            horizon=7,
+            horizon=150,
             disable_env_checking=False,
         )
         .env_runners(
@@ -111,7 +119,7 @@ bilevel_opt_cfg: BilevelConfig = (
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
             num_envs_per_env_runner=1,
-            rollout_fragment_length=7,
+            rollout_fragment_length=150,
             batch_mode="truncate_episodes",
         )
         .learners(
@@ -130,8 +138,8 @@ bilevel_opt_cfg: BilevelConfig = (
             timeout_s_aggregator_manager=10,
             gamma=0.99,
             lr=0.001,
-            train_batch_size_per_learner=7,
-            minibatch_size=7,
+            train_batch_size_per_learner=150,
+            minibatch_size=150,
             num_epochs=1,
             entropy_coeff=0.001,
             grad_clip=40.0,
@@ -144,24 +152,50 @@ bilevel_opt_cfg: BilevelConfig = (
             evaluation_parallel_to_training=False,
             evaluation_config={
                 "explore": False,
-                "rollout_fragment_length": 7,
+                "rollout_fragment_length": 150,
                 "batch_mode": "complete_episodes",
             },
         )
         .agents(
             {
                 "utilizer": {
-                    "count": 5,
+                    "count": 500,
                     "policy": "utilizer_policy",
                     "observation_space": spaces.Box(
                         low=-np.inf,
                         high=np.inf,
-                        shape=(5 + mechanism_dim,),
+                        shape=(3 + WaterMechanismSpace().full_dimension,
+                        ),
                         dtype=np.float32,
                     ),
                     "action_space": spaces.Box(
+                        # Action is the fraction of the agent's maximum pull capacity.
+                        #
+                        # action = 0.0 -> requests 0% of max_pull_fraction
+                        # action = 0.5 -> requests 50% of max_pull_fraction
+                        # action = 1.0 -> requests 100% of max_pull_fraction
+                        #
+                        # Actual requested flow:
+                        # requested_m3s = action * max_pull_fraction * current_streamflow
+                        #
+                        # With max_pull_fraction = 0.005:
+                        # action high=1.0 -> up to 0.5% of current streamflow
+                        # action high=0.5 -> up to 0.25% of current streamflow
+                        # action high=0.2 -> up to 0.10% of current streamflow
+                        # action high=0.1 -> up to 0.05% of current streamflow
+                        #
+                        # Rough agent interpretation:
+                        # high=0.05 -> individual/small farm-scale user
+                        # high=0.1  -> large farm / small irrigation user
+                        # high=0.2  -> irrigation district / small utility
+                        # high=0.5  -> municipality / industrial user
+                        # high=1.0  -> large municipality / regional user
+                        #
+                        # NOTE:
+                        # This does not change max_pull_fraction itself. It changes how much
+                        # of that maximum capacity the policy is allowed to request.
                         low=0.0,
-                        high=1.0,
+                        high=1,
                         shape=(1,),
                         dtype=np.float32,
                     ),
