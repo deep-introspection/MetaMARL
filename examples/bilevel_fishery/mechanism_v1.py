@@ -19,6 +19,7 @@ class FisheryMechanism(Mechanism):
     risk_penalty_power: float
 
     def __post_init__(self) -> None:
+        # Q: review these ranges. its probably not realistic to pull 80% of basin capacity !
         assert 0.0 <= self.fixed_quota <= 1.0
         assert 0.0 <= self.prop_quota <= 1.0
         assert 0.0 <= self.min_stock <= 1.0
