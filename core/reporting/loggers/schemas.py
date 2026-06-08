@@ -1,7 +1,7 @@
 from dataclasses import Field
 
 from pydantic import BaseModel
-from loggers.enums import ReduceProtocol
+from core.reporting.loggers.enums import ReduceProtocol
 
 
 class LoggerSchema(BaseModel):

@@ -1,7 +1,7 @@
 from typing import Self, Any, ClassVar
 from typing import TypeAlias
 
-from core.loggers.schemas import LoggerSchema
+from core.reporting.loggers.schemas import LoggerSchema
 
 Path: TypeAlias = tuple[str, ...]
 
