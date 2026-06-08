@@ -99,6 +99,7 @@ class WandbReporter:
         log_return_multiline_plot: bool = False,
         log_learner_multiline_plots: bool = False,
         log_mechanism_shaded_plots: bool = True,
+        log_raw_rllib_episode_metrics: bool = False,
     ) -> None:
         self._ensure_prefix_metrics(prefix)
         is_eval = prefix.endswith("/eval")
@@ -116,11 +117,11 @@ class WandbReporter:
             learner_plot_whitelist=learner_plot_whitelist,
             log_per_policy_learner_scalars=log_per_policy_learner_scalars,
             learner_scalar_whitelist=learner_scalar_whitelist,
-            # MODIFIED: forwarded
             log_per_series_return_scalars=log_per_series_return_scalars,
             log_return_multiline_plot=log_return_multiline_plot,
             log_learner_multiline_plots=log_learner_multiline_plots and not is_eval,
             log_mechanism_shaded_plots=log_mechanism_shaded_plots,
+            log_raw_rllib_episode_metrics=log_raw_rllib_episode_metrics,
         )
 
     def plot_env_step(

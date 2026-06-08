@@ -19,6 +19,17 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.rvp
+*.rvh
+*.rvt
+*.rvi
+*.rvc
+*.txt
+*.exe
+*.bat
+*.csv
+*.geojson
+*.nc
 
 # Virtual environments
 .venv/

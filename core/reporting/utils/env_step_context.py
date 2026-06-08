@@ -120,10 +120,7 @@ def _extract_observation_series(
 def _extract_info_series(info: Any) -> dict[str, dict[str, float]]:
     out: dict[str, dict[str, float]] = {}
 
-    if info is None:
-        return out
-
-    if not isinstance(info, dict):
+    if info is None or not isinstance(info, dict):
         return out
 
     for agent_id, agent_info in info.items():
@@ -133,7 +130,10 @@ def _extract_info_series(info: Any) -> dict[str, dict[str, float]]:
             continue
 
         for info_key, value in agent_info.items():
-            flat = flatten_numeric(value)
+            try:
+                flat = flatten_numeric(value)
+            except (TypeError, ValueError):
+                continue
 
             if len(flat) == 1:
                 out.setdefault(str(info_key), {})[agent_id] = flat[0]

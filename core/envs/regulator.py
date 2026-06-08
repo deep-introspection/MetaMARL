@@ -91,46 +91,14 @@ class RegulatorEnv(BaseEnv):
         for _ in range(self.train_iters):
             self.inner.run()
 
-        # todo : the total episodes must be same as numer mechanisms
-        # reset mechanism contexts
-        for _ in range(self.inner.eval_episodes):
-            for idx, m in enumerate(mechanisms):
-                for seed in self.seeds:
-                    self._publish(
-                        MechanismContext(
-                            index=idx,
-                            seed=seed,
-                            status=MechanismStatus.published,
-                            env_id=None,
-                            mechanism=m,
-                            metrics=None,
-                        )
-                    )
 
-        ctx_registry_before = set(ray.get(self.world.get_ctx_registry.remote()).keys())
+        ctx_registry = ray.get(self.world.get_ctx_registry.remote())
 
-        # TODO review env step geometry
-        self.inner.evaluate()
-
-        ctx_registry_after = ray.get(self.world.get_ctx_registry.remote())
-
-        new_ctxs = [
-            ctx
-            for cid, ctx in ctx_registry_after.items()
-            if cid not in ctx_registry_before
-            and ctx.opt_id == self.inner.opt_id
-            and isinstance(ctx.payload, EnvStepContext)
-        ]
-        consumed_ids = [ctx.id for ctx in new_ctxs]
-
-        # Evaluation metrics are defined by user and provided as a callable.
-        # metrics = user_eval_fn(contexts)
-
-        reward = self.aggregate_rewards(new_ctxs)
+        # Aggregate rewards
+        reward = self.aggregate_rewards(ctx_registry.values())
 
         # flush consumed contexts
-
-        ray.get(self.world.flush_ctx.remote(consumed_ids))
+        ray.get(self.world.flush_ctx.remote(ctx_registry.keys()))
         ray.get(self.world.flush.remote(job=MechanismStatus.eval))
 
         return None, reward, False, False, {}

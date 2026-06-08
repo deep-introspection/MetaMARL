@@ -6,39 +6,43 @@ from numpy.typing import NDArray
 from core.annotations import override
 from core.mechanism.base import Mechanism
 from core.mechanism.space import MechanismSpace
-from examples.bilevel_fishery.mechanism import FisheryMechanism
 
 
 @dataclass(frozen=True)
 class WaterMechanism(Mechanism):
-    """Regulatory mechanism parameters for the fishery.
-
-    Attributes:
-        water_: Absolute harvest limit (0 to 1)
-        prop_quota: Proportional quota factor (0 to 1)
-        min_stock: Minimum stock threshold for fishing (0 to 1)
-        fine_amount: Penalty per unit over-harvest (0 to max_fine)
-        ban_period: Duration of ban after violation (0 to max_ban periods)
-
-        # new water usage is like the fitness
-    """
-
-    water_threshold: float
-
+    fixed_quota: float
     prop_quota: float
     min_stock: float
     fine_amount: float
     ban_period: int
-    # Scaling parameters (not optimized, used for normalization)
-    max_fine: float = 5.0
+
+    risk_penalty_scale: float
+    risk_penalty_power: float
+
     max_ban: int = 50
 
     def __post_init__(self) -> None:
-        """Validate parameter ranges."""
-        assert 0.0 <= self.fixed_quota <= 1.0
-        assert 0.0 <= self.prop_quota <= 1.0
+        # max_pull_fraction = 0.0001 -> individual farm / small water user
+        # max_pull_fraction = 0.0005 -> large farm / small irrigation system
+        # max_pull_fraction = 0.001  -> irrigation district / small utility
+        # max_pull_fraction = 0.005  -> municipality / industrial user / large irrigation district
+        # max_pull_fraction = 0.01   -> major municipality / large industrial user
+        # max_pull_fraction = 0.05   -> unrealistic for one agent; behaves like regional extraction
+
+        # Quota scales:
+        # 0.001 -> severe drought restriction
+        # 0.003 -> strict regulation
+        # 0.005 -> moderate (municipality / irrigation district)
+        # 0.01  -> permissive
+        # >0.05 -> effectively unconstrained
+        
+        # fixed_quota = protected reservoir fullness
+        assert 0.6 <= self.fixed_quota <= 0.95
+        assert 1e-7 <= self.prop_quota <= 1e-4
         assert 0.0 <= self.min_stock <= 1.0
-        assert 0.0 <= self.fine_amount <= self.max_fine
+        assert 0.0 <= self.fine_amount <= 0.1
+        assert 0.0 <= self.risk_penalty_scale <= 1.0
+        assert 1.0 <= self.risk_penalty_power <= 5.0
         assert 0 <= self.ban_period <= self.max_ban
 
     @override(Mechanism)
@@ -48,8 +52,10 @@ class WaterMechanism(Mechanism):
                 self.fixed_quota,
                 self.prop_quota,
                 self.min_stock,
-                self.fine_amount / self.max_fine,
+                self.fine_amount,
                 self.ban_period / self.max_ban,
+                self.risk_penalty_scale,
+                (self.risk_penalty_power - 1.0) / 4.0,  # maps [1,5] -> [0,1]
             ],
             dtype=np.float32,
         )
@@ -61,25 +67,65 @@ class WaterMechanism(Mechanism):
             "min_stock",
             "fine_amount",
             "ban_period",
+            "risk_penalty_scale",
+            "risk_penalty_power",
         ]
 
 
-class FisheryMechanismSpace(MechanismSpace):
+class WaterMechanismSpace(MechanismSpace):
+    ALL_PARAMS = [
+        "fixed_quota",
+        "prop_quota",
+        "min_stock",
+        "fine_amount",
+        "ban_period",
+        "risk_penalty_scale",
+        "risk_penalty_power",
+    ]
+
     def __init__(
         self,
-        use_stochastic_roundting: bool = True,
-        max_fine: float = 5.0,
+        use_stochastic_rounding: bool = True,
+        optimize_params: list[str] | None = None,
+        default_fixed_quota: float = 0.85,
+        default_prop_quota: float = 1e-5,
+        default_min_stock: float = 0.15,
+        default_fine_amount: float = 0.05,
+        default_ban_period: int = 3,
+        default_risk_penalty_scale: float = 0.5,
+        default_risk_penalty_power: float = 2.0,
         max_ban: int = 50,
     ):
         super().__init__()
-        self.use_stochastic_roundting = use_stochastic_roundting
-        self.max_fine = max_fine
-        self.max_ban = max_ban
-        self.dimension = 5
 
-    # private
+        self.use_stochastic_rounding = use_stochastic_rounding
+        self.max_ban = max_ban
+
+        self.optimize_params = optimize_params or [
+            "fixed_quota",
+            "prop_quota",
+            "min_stock",
+            "fine_amount",
+            "ban_period",
+            "risk_penalty_scale",
+            "risk_penalty_power",
+        ]
+
+        self.dimension = len(self.optimize_params)
+        self.full_dimension = len(self.ALL_PARAMS)
+
+        self.defaults = {
+            "fixed_quota": default_fixed_quota,
+            "prop_quota": default_prop_quota,
+            "min_stock": default_min_stock,
+            "fine_amount": default_fine_amount,
+            "ban_period": default_ban_period,
+            "risk_penalty_scale": default_risk_penalty_scale,
+            "risk_penalty_power": default_risk_penalty_power,
+        }
+
     def _discretize_ban(self, ban_period_cont: float, u: np.ndarray) -> int:
-        if not self.use_stochastic_roundting:
+        if not self.use_stochastic_rounding:
             return int(np.clip(round(ban_period_cont), 0, self.max_ban))
 
         floor = int(np.floor(ban_period_cont))
@@ -90,58 +136,104 @@ class FisheryMechanismSpace(MechanismSpace):
 
         if pseudo_random < frac and floor < self.max_ban:
             return floor + 1
+
         return floor
 
-    def _denormalize(self, u: np.ndarray) -> dict:
-        return {
-            "fixed_quota": float(u[0]),
-            "prop_quota": float(u[1]),
-            "min_stock": float(u[2]),
-            "fine_amount": float(u[3]) * self.max_fine,
-            "ban_period_cont": float(u[4]) * self.max_ban,
-        }
+    def _denormalize_param(self, name: str, value: float, u: np.ndarray) -> float | int:
+        if name == "fixed_quota":
+            return 0.6 + value * (0.95 - 0.6)
+        if name == "prop_quota":
+            return 1e-7 + value * (1e-4 - 1e-7)
+        if name == "fine_amount":
+            return value * 0.10   # map [0,1] -> [0,0.1]
 
-    def default(self) -> FisheryMechanism:
-        # Permissive defaults so PPO learns to fish (not just avoid penalties)
-        return FisheryMechanism(
-            fixed_quota=0.7,
-            prop_quota=0.6,
-            min_stock=0.15,
-            fine_amount=0.5,
-            ban_period=3,
-            max_fine=self.max_fine,
+        if name == "risk_penalty_scale":
+            return value
+        if name == "ban_period":
+            return self._discretize_ban(value * self.max_ban, u)
+        elif name == "risk_penalty_power":
+            return 1.0 + 4.0 * value
+        return value
+    
+    def _denormalize(self, u: np.ndarray) -> dict:
+        result = {}
+        for i, name in enumerate(self.optimize_params):
+            result[name] = self._denormalize_param(name, float(u[i]), u)
+        return result
+
+    def _normalize_param(self, name: str, value: float | int) -> float:
+        if name == "fixed_quota":
+            return (float(value) - 0.6) / (0.95 - 0.6)
+        if name == "prop_quota":
+            return (float(value) - 1e-7) / (1e-4 - 1e-7)
+        if name == "ban_period":
+            return float(value) / self.max_ban
+        if name == "fine_amount":
+            return float(value) / 0.10
+        if name == "risk_penalty_scale":
+            return value
+        if name == "risk_penalty_power":
+            return (float(value) - 1.0) / 4.0
+
+        return float(value)
+
+    def default(self) -> WaterMechanism:
+        return WaterMechanism(
+            fixed_quota=self.defaults["fixed_quota"],
+            prop_quota=self.defaults["prop_quota"],
+            min_stock=self.defaults["min_stock"],
+            fine_amount=self.defaults["fine_amount"],
+            risk_penalty_scale=self.defaults["risk_penalty_scale"],
+            risk_penalty_power=self.defaults["risk_penalty_power"],
+            ban_period=self.defaults["ban_period"],
             max_ban=self.max_ban,
         )
 
-    def encode(self, m: FisheryMechanism) -> NDArray[np.float32]:
-        return m.to_vector()
+    def encode(self, m: WaterMechanism) -> NDArray[np.float32]:
+        values = []
+
+        for name in self.optimize_params:
+            raw = getattr(m, name)
+            values.append(self._normalize_param(name, raw))
+
+        return np.array(values, dtype=np.float32)
 
     def decode(self, x: NDArray[np.float32]) -> Mechanism:
-        # insure input is valid
         u = np.clip(self._validate(x), 0.0, 1.0)
 
-        params = self._denormalize(u)
-        ban = self._discretize_ban(params.pop("ban_period_cont"), u)
+        params = dict(self.defaults)
 
-        mech = FisheryMechanism(
-            **params,
-            ban_period=ban,
-            max_fine=self.max_fine,
+        for i, name in enumerate(self.optimize_params):
+            params[name] = self._denormalize_param(name, float(u[i]), u)
+
+        mech = WaterMechanism(
+            fixed_quota=params["fixed_quota"],
+            prop_quota=params["prop_quota"],
+            min_stock=params["min_stock"],
+            fine_amount=params["fine_amount"],
+            risk_penalty_scale=params["risk_penalty_scale"],
+            risk_penalty_power=params["risk_penalty_power"],
+            ban_period=params["ban_period"],
             max_ban=self.max_ban,
         )
 
         return self.clip(mech)
 
-    def clip(self, m: FisheryMechanism) -> FisheryMechanism:
-        return FisheryMechanism(
-            fixed_quota=float(np.clip(m.fixed_quota, 0, 1)),
-            prop_quota=float(np.clip(m.prop_quota, 0, 1)),
-            min_stock=float(np.clip(m.min_stock, 0, 1)),
-            fine_amount=float(np.clip(m.fine_amount, 0, self.max_fine)),
+    def clip(self, m: WaterMechanism) -> WaterMechanism:
+        return WaterMechanism(
+            fixed_quota=float(np.clip(m.fixed_quota, 0.6, 0.95)),
+            prop_quota=float(np.clip(m.prop_quota, 1e-7, 1e-4)),
+            min_stock=float(np.clip(m.min_stock, 0.0, 1.0)),
+            fine_amount=float(np.clip(m.fine_amount, 0.0, 0.1)),
+            risk_penalty_scale=float(np.clip(m.risk_penalty_scale, 0, 1)),
+            risk_penalty_power=float(np.clip(m.risk_penalty_power, 1.0, 5.0)),
             ban_period=int(np.clip(m.ban_period, 0, self.max_ban)),
-            max_fine=self.max_fine,
             max_ban=self.max_ban,
         )
 
-    def from_dict(self, cfg: dict) -> FisheryMechanism:
-        return FisheryMechanism(**cfg, max_fine=self.max_fine, max_ban=self.max_ban)
+    def from_dict(self, cfg: dict) -> WaterMechanism:
+        if "risk_penalty_scale" not in cfg:
+            cfg = {**cfg, "risk_penalty_scale": self.defaults["risk_penalty_scale"]}
+        if "risk_penalty_power" not in cfg:
+            cfg = {**cfg, "risk_penalty_power": self.defaults["risk_penalty_power"]}
+        return WaterMechanism(**cfg, max_ban=self.max_ban)

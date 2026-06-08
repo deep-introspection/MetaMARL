@@ -10,7 +10,7 @@ from core.optimizers.appo.config import APPOptimizerConfig
 
 # Fishery-specific objects
 from examples.bilevel_fishery.mechanism_v1 import FisheryMechanismSpace
-from examples.bilevel_fishery.regulated_env_v1 import FisheryRegulatedEnv
+from examples.bilevel_fishery.regulated_env_v2 import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
 # TODO the default mechanism config and fisherman, and observation spaces and action spaces part of config
@@ -47,13 +47,12 @@ bilevel_opt_cfg: BilevelConfig = (
     )
     .mechanism(
         space=FisheryMechanismSpace(
-            max_fine=10.0,
             default_fixed_quota=0.25,
             default_prop_quota=0.25,
             default_min_stock=0.40,
             default_target_stock=0.6,
-            default_fine_amount=10.0,
-            default_risk_penalty_scale=8.0,
+            default_fine_amount=0.5,
+            default_risk_penalty_scale=0.8,
             default_risk_penalty_power=2.0,
         ),
     )
@@ -91,8 +90,12 @@ bilevel_opt_cfg: BilevelConfig = (
                     "sus_threshold": 0.1,
                 },
             },
-            horizon=1000,
-            train_iters=1000,  # TODO implement early stop for plateau
+            horizon=5,
+            train_iters=10,  # TODO implement early stop for plateau
+        )
+        .debugging(
+            seed=42,
+            num_seeds=1
         )
     )
     .inner(
@@ -125,18 +128,18 @@ bilevel_opt_cfg: BilevelConfig = (
                 },
                 "seed": 0,
             },
-            horizon=1000,
+            horizon=5,
             disable_env_checking=False,
         )
         .env_runners(
             num_env_runners=0,
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
-            num_envs_per_env_runner=4,  # batch evaluated mechanism or population size for ES 16. Must be even due to antithetic sampling. If odd, set break_symmetry = false in esconfig
-            rollout_fragment_length=500,  # must be same as env horizon 200
+            num_envs_per_env_runner=1,  # batch evaluated mechanism or population size for ES 16. Must be even due to antithetic sampling. If odd, set break_symmetry = false in esconfig
+            rollout_fragment_length=5,  # must be same as env horizon 200
             batch_mode="truncate_episodes",
         )
-        .learners(num_learners=1, num_gpus_per_learner=0)
+        .learners(num_learners=0, num_gpus_per_learner=0)
         .callbacks(
             on_episode_created=tag_episode_with_env_idx  # New API stack
         )
@@ -144,46 +147,34 @@ bilevel_opt_cfg: BilevelConfig = (
             vtrace=True,
             circular_buffer_num_batches=4,  # TODO review
             circular_buffer_iterations_per_batch=1,  # TODO review
-            # minibatch_buffer_size=200,
             broadcast_interval=1,
-            # learner_queue_size=64,
-            # learner_queue_timeout=300,
-            timeout_s_sampler_manager=300,
-            timeout_s_aggregator_manager=300,
+            timeout_s_sampler_manager=10, # Max time to wait for training samples before giving up
+            timeout_s_aggregator_manager=10,
             gamma=0.99,
             lr=0.001,
-            train_batch_size=2000,  # determines learner updates per horizon = N envs X horizon / train batch size
-            minibatch_size=500,  # 512
+            train_batch_size_per_learner=5, # same or less than rollout fragment length
+            minibatch_size=5,  # 512
+            num_epochs=1,
             entropy_coeff=0.001,
-            # entropy_coeff_schedule=[
-            #     [0, 0.01],
-            #     [1e5, 0.001],
-            #     [5e5, 0.0001],
-            # ],
             grad_clip=40.0,
-            # lr_schedule=[
-            #     [0, 1e-3],
-            #     [300_000, 3e-4],
-            #     [1_000_000, 1e-4],
-            # ]
         )
         # TODO review these metrics before merging to dev
         .evaluation(
             evaluation_interval=1,
-            evaluation_duration=6,  # rollout_fragment_length X num_episodes
+            evaluation_duration=1,  # rollout_fragment_length X num_episodes
             evaluation_duration_unit="episodes",
             evaluation_num_env_runners=1, # should also be the same as num mechanisms no ?
             evaluation_parallel_to_training=False,  # This must be False when local_mode is True !
             evaluation_config={
                 "explore": False,  # greedy eval actions
-                "rollout_fragment_length": 1000,  # same as training
+                "rollout_fragment_length": 5,  # same as training
                 "batch_mode": "complete_episodes",  # same as training
             },
         )
         .agents(
             {
                 "fisher": {
-                    "count": 3,
+                    "count": 1, # each share the same policy here ! this is a clone !
                     "policy": "fisher_policy",
                     "observation_space": spaces.Box(
                         low=-np.inf,
@@ -205,7 +196,12 @@ bilevel_opt_cfg: BilevelConfig = (
         .fault_tolerance(restart_failed_env_runners=False)
         .debugging(
             seed = 42, # this is base seed same as training
-            num_seeds = 3, #TODO rm enforce even-ness
+            num_seeds = 1, #TODO rm enforce even-ness
+        )
+        .reporting(
+            min_time_s_per_iteration=0,
+            min_sample_timesteps_per_iteration=0,
+            min_train_timesteps_per_iteration=0,
         )
     )
 )

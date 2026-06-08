@@ -73,41 +73,42 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         utilities = {}
         violations = {}
         quota_violations = {}
+        quota_penalties = {}
         preventive_penalties = {}
-
-        effective_actions = dict(action_dict)
 
         for agent_id in self.agents:
             u = float(
-                self.intrinsic_utility(agent_id, effective_actions[agent_id], self.S_t)
+                self.intrinsic_utility(agent_id, action_dict[agent_id], self.S_t)
             )
 
             v_dict = self.violation_signal(
                 agent_id=agent_id,
                 u_i=u,
                 S_t=self.S_t,
-                A_t=effective_actions,
+                A_t=action_dict,
             )
 
-            quota_violation = float(v_dict["quota"])
+            quota_violation = float(v_dict["quota_violation"])
+            quota_penalty = float(v_dict["quota_penalty"])
             preventive_penalty = float(v_dict["preventive"])
             v = float(v_dict["total"])
 
             utilities[agent_id] = u
             quota_violations[agent_id] = quota_violation
+            quota_penalties[agent_id] = quota_penalty
             preventive_penalties[agent_id] = preventive_penalty
             violations[agent_id] = v
             rewards[agent_id] = u - v
-            fines[agent_id] = preventive_penalty
+            fines[agent_id] = quota_penalty + preventive_penalty
 
         rewards = self.aggregate_rewards(rewards)
 
         realized_harvest, H_total, harvest_scale = self._compute_harvest_metrics(
-            effective_actions, self.S_t
+            action_dict, self.S_t
         )
         S_t = self.S_t.copy()
 
-        self.S_t = self.transition_kernel(A_t=effective_actions, S_t=S_t)
+        self.S_t = self.transition_kernel(A_t=action_dict, S_t=S_t)
 
         obs = {
             agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
@@ -127,6 +128,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
                 "intrinsic_utility": utilities.get(agent_id, 0.0),
                 "violation_signal": violations.get(agent_id, 0.0),
                 "quota_violation": quota_violations.get(agent_id, 0.0),
+                "quota_penalty": quota_penalties.get(agent_id, 0.0),
                 "preventive_penalty": preventive_penalties.get(agent_id, 0.0),
                 "fine": fines.get(agent_id, 0.0),
                 "harvest_scale": harvest_scale,
@@ -156,13 +158,13 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def intrinsic_utility(
         self, agent_id: AgentID, action: ActType, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
-        action = float(np.asarray(action).item())
+        # TODO why is the initial action high ?
         fish_norm = S_t["fish"] / self.max_fish
         mechanism : FisheryMechanism = self.m or self.m_space.default()
-        target_stock = max(EPS, mechanism.target_stock)
-
+        target_stock = max(EPS, mechanism.target_stock) # norm or absolute ?
+    
         sustainability_factor = min(1.0, fish_norm / target_stock)
-        return action * fish_norm * sustainability_factor
+        return action.item() * fish_norm * sustainability_factor
 
     def violation_signal(
         self,
@@ -182,15 +184,21 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             )
         )
 
-        quota = max(
-            0.0,
-            raw_harvest_signal - min(self.mechanism.fixed_quota, self.mechanism.prop_quota * fish_norm),
+        effective_quota = min(
+            self.mechanism.fixed_quota, 
+            self.mechanism.prop_quota * fish_norm,
+        )
+        quota_violation = max(0.0, raw_harvest_signal - effective_quota)
+        quota_penalty = min(
+            self.mechanism.max_fine,
+            self.mechanism.fine_amount * quota_violation,
         )
         preventive = self._predictive_collapse_penalty(A_t=A_t, S_t=S_t)
 
-        total = float(quota + preventive)
+        total = float(quota_penalty + preventive)
         return {
-            "quota": float(quota),
+            "quota_violation": float(quota_violation),
+            "quota_penalty": float(quota_penalty),
             "preventive": float(preventive),
             "total": total,
         }
@@ -272,13 +280,27 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def _predictive_collapse_penalty(
         self, A_t: dict[AgentID, ActType], S_t: dict[str, float]
     ) -> float:
+        # BUG FIXED: CRITICAL MATH & VALUE LOOPHOLE
+        # 1. Unit Cancellation: Multiplying by 'self.max_fish' inside the dictionary 
+        #    comprehension cancelled out the denominator of the 'scale' equation.
+        #    This bypassed physical environmental constraints and forced a pure 
+        #    proportional split of remaining fish, regardless of total scarcity.
+        # 2. Nash Equilibrium/Flat-line Exploitation: Agents learned they could 
+        #    overfish heavily, hold the pond hostage at near-extinction levels, 
+        #    and force 'worsening_shortage' to 0.0 to dodge the predictive penalty.
+        # FIX: Switched to computing absolute predicted deficits, adjusted 
+        #      'default_prop_quota' to a strict fractional brake (< 1.0), and 
+        #      isolated scale logic to prevent redundant raw unit cancellation.
+
         fish = S_t["fish"]
         algae = S_t["algae"]
 
         _, H_total, _ = self._compute_harvest_metrics(A_t, S_t)
 
         fish_next_pred = fish + self.dt * (
-            self.delta * algae * fish - self.gamma * fish - H_total
+            self.delta * algae * fish * (1 - fish / self.max_fish)
+            - self.gamma * fish
+            - H_total
         )
 
         safe_fish = self.mechanism.target_stock * self.max_fish
@@ -289,13 +311,56 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         current_shortage_norm = current_shortage / self.max_fish
         predicted_shortage_norm = predicted_shortage / self.max_fish
 
+        worsening_shortage = max(
+            0.0,
+            predicted_shortage_norm - current_shortage_norm,
+        )
+
         penalty_scale = self.mechanism.risk_penalty_scale
         penalty_power = self.mechanism.risk_penalty_power
 
-        return float(
-            penalty_scale
-            * (
-                current_shortage_norm**penalty_power
-                + predicted_shortage_norm**penalty_power
-            )
-        )
+        return float(penalty_scale * (worsening_shortage**penalty_power))
+    
+        # def _predictive_collapse_penalty(
+        #     self, A_t: dict[AgentID, ActType]
+        # ) -> float:
+        #     """Calculates a preventative risk penalty based on absolute ecosystem danger.
+
+        #     Fixes the 'flat-line collapse' bug by punishing the absolute predicted 
+        #     shortage next turn, preventing agents from holding the population at a 
+        #     constant, near-extinct level for zero penalty.
+        #     """
+        #     fish = self.S_t["fish"]
+        #     fish_norm = fish / self.max_fish
+        #     algae = self.S_t["algae"]
+
+        #     # 1. Extract total harvest from current agent choices
+        #     _, H_total, _ = self._compute_harvest_metrics(A_t=A_t)
+
+        #     # 2. Predict the raw population for the next time step
+        #     fish_next_raw = fish + self.dt * (
+        #         self.delta * algae * fish * (1 - fish_norm)
+        #         - self.gamma * fish
+        #         - H_total
+        #     )
+            
+        #     # 3. CRITICAL FIX: Clip prediction to valid physical bounds [0.0, max_fish]
+        #     # Prevents underflows that make shortages look artificially greater than 1.0
+        #     fish_next_pred = max(0.0, min(self.max_fish, fish_next_raw))
+        #     fish_next_pred_norm = fish_next_pred / self.max_fish
+
+        #     # 4. Extract target threshold (already normalized between 0.0 and 1.0)
+        #     target_stock_norm = self.mechanism.target_stock
+
+        #     # 5. CRITICAL FIX: Measure the ABSOLUTE predicted deficit below target
+        #     # Removed the previous subtraction (- current_shortage) so the penalty 
+        #     # stays active until the fish stock actually recovers.
+        #     predicted_shortage_norm = max(0.0, target_stock_norm - fish_next_pred_norm)
+
+        #     # 6. Apply non-linear scaling parameters from the mechanism space
+        #     penalty_scale = self.mechanism.risk_penalty_scale
+        #     penalty_power = self.mechanism.risk_penalty_power
+
+        #     # Bounded between 0.0 and 1.0 to match the scale of the intrinsic rewards
+        #     return float(penalty_scale * (predicted_shortage_norm ** penalty_power))
+

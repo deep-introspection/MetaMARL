@@ -75,6 +75,8 @@ inner:
         water_init: 80.0
         max_water: 100.0
         inflow_rate: 1.0
+      use_raven: true
+      raven_cmd: /Users/egd1/bilevel-fishery/raven/2_Raven/Raven.exe
       seed: 0
 
   env_runners:
