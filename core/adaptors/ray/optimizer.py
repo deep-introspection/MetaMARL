@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-import matplotlib.pyplot as plt
 import numpy as np
 import ray
 from ray.rllib.utils.typing import AgentID
 from ray.train._internal.checkpoint_manager import _TrainingResult
 from ray.actor import ActorHandle
+from ray.rllib.utils.typing import ResultDict
 
+from core.adaptors.ray.schema import RaySchema
 from core.annotations import override
 from core.optimizers.base import Optimizer
 from core.world.base import World
@@ -99,6 +99,10 @@ class RayOptimizer(Optimizer):
             # Policy API (older / classic)
             return self.algo.get_policy(policy_id)
 
+    # TODO (nadine) : in the future this could be separated into a different class if justified
+    def _to_logger_payload(self, result: ResultDict) -> RaySchema:
+        pass
+    
     @override(Optimizer)
     def run(self) -> None:
         logger.info("[PPO] Training step started")
