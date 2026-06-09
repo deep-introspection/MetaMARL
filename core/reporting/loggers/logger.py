@@ -1,6 +1,11 @@
 from typing import Self, Any, ClassVar
 from typing import TypeAlias
+import tree
+from collections import deque
 
+from pydantic import BaseModel
+
+from core.reporting.loggers.enums import ReduceProtocol
 from core.reporting.loggers.schemas import LoggerSchema
 
 Path: TypeAlias = tuple[str, ...]
@@ -31,7 +36,7 @@ class ResultsLogger:
     # TODO immutability
     @classmethod
     def from_schema(cls, schema: LoggerSchema) -> "ResultsLogger":
-        tree, paths, refs = cls._build_tree_from_schema(schema)
+        tree, paths, refs = cls._build_refs_from_schema(schema)
         self = cls.__new__(cls, _token=cls.__token__)
         self.__tree__ = tree
         self.__paths__ = paths
@@ -39,4 +44,24 @@ class ResultsLogger:
         return self
 
     @classmethod
-    def _build_tree_from_schema(cls, schema: LoggerSchema) -> dict: ...
+    def _build_refs_from_schema(
+        cls, 
+        prefix: tuple[str, ...], Any,
+        schema: LoggerSchema,
+    ) -> dict[tuple[str, ...], Any]:
+        # TODO any should be a reducer
+        refs: dict = {}
+
+        for field_name, field in schema.__pydantic_fields__.items():
+            path = prefix + (field_name,)
+            ann = field.annotation
+            
+            if isinstance(ann, type) and issubclass(ann, BaseModel):
+                refs.update(cls._build_refs_from_schema(path, ann))
+                continue
+            
+            reduce_protocol = field.json_schema_extra.get("reduce", ReduceProtocol.MEAN)
+            refs[path] = ReducerFactory.create(reduce_protocol)
+            # TODO we also need source paths
+
+        return refs
