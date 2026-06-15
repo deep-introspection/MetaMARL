@@ -6,6 +6,9 @@ from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulated_env_v1 import (
     FisheryRegulatedEnv as FisheryRegulatedEnvV1,
 )
+from examples.bilevel_fishery.regulated_env_shaefer import (
+    FisheryRegulatedEnv as FisheryRegulatedEnvSchaefer
+)
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 from examples.bilevel_fishery.mechanism import FisheryMechanism as FisheryMechanism
 from examples.bilevel_fishery.mechanism_v1 import FisheryMechanism as FisheryMechanismV1
@@ -36,6 +39,7 @@ REGISTRY = {
         "FisheryRegulatorEnv": FisheryRegulatorEnv,
         "FisheryRegulatedEnv": FisheryRegulatedEnv,
         "FisheryRegulatedEnvV1": FisheryRegulatedEnvV1,
+        "FisheryRegulatedEnvSchaefer": FisheryRegulatedEnvSchaefer,
         "WaterRegulatorEnv": WaterRegulatorEnv,
         "WaterRegulatedEnv": WaterRegulatedEnv,
         # Generic bilevel aliases (map to water example by default)

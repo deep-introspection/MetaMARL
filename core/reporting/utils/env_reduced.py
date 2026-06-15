@@ -68,16 +68,38 @@ def _ctx_to_metric_rows(ctx: Context) -> list[dict[str, Any]]:
     #     "info/underuse_penalty",
     #     "info/total_penalty",
     # }
+    # KEEP_METRICS = {
+    #     "info/reservoir_stage",
+    #     "info/reservoir_level_norm",
+    #     "info/streamflow_m3s",
+    #     "info/precip_mm_day",
+    #     "info/temp_c",
+    #     "info/total_usage_m3s",
+    #     "info/full_required_m3_day",
+    #     "info/deficit_mm_day",
+    #     "info/quota_penalty",
+    # }
     KEEP_METRICS = {
-        "info/reservoir_stage",
-        "info/reservoir_level_norm",
-        "info/streamflow_m3s",
-        "info/precip_mm_day",
-        "info/temp_c",
-        "info/total_usage_m3s",
-        "info/full_required_m3_day",
-        "info/deficit_mm_day",
+        "info/fish",
+        "info/fish_next",
+        "info/fish_norm",
+        "info/growth",
+        "info/growth_noise",
+        "info/harvest",
+        "info/desired_harvest",
+        "info/intrinsic_utility",
+        "info/violation_signal",
+        "info/H_attempted",
+        "info/H_realized",
+        "info/harvest_scale",
+        "info/below_target_zone",
+        "info/target_shortfall",
+        "info/B_msy",
+        "info/MSY",
+        "info/F_msy",
+        "info/quota_violation",
         "info/quota_penalty",
+        "info/stock_penalty",
     }
 
     if ctx is None or not isinstance(ctx.payload, EnvStepContext):
@@ -416,16 +438,24 @@ def _rows_to_iteration_metric_rows(
             if not values:
                 continue
 
-            clean_name = metric_name.replace("info_", "")
+            # clean_name = metric_name.replace("info_", "")
+            clean_name = metric_name.split("/")[-1]
             arr = np.asarray(values, dtype=np.float64)
 
-            if clean_name == "total_usage_m3s":
-                # Total extraction across the rollout.
-                value = float(np.sum(arr))
-                out_name = "total_usage_m3s_sum"
+            # if clean_name == "total_usage_m3s":
+            #     # Total extraction across the rollout.
+            #     value = float(np.sum(arr))
+            #     out_name = "total_usage_m3s_sum"
 
+            # else:
+            #     # Typical state / penalty / flow level over the rollout.
+            #     value = float(np.mean(arr))
+            #     out_name = f"{clean_name}_mean"
+
+            if clean_name in {"harvest", "desired_harvest", "H_attempted", "H_realized"}:
+                value = float(np.sum(arr))
+                out_name = f"{clean_name}_sum"
             else:
-                # Typical state / penalty / flow level over the rollout.
                 value = float(np.mean(arr))
                 out_name = f"{clean_name}_mean"
 
