@@ -114,7 +114,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         self.obs_map = [
             "reservoir_level_norm",
-            "usage_norm",
+            # "usage_norm",
+            "release_pressure",
             "effective_quota",
             "total_usage_norm",
         ]
@@ -145,17 +146,24 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         
         # streamflow = inflow
         streamflow_m3s_init = self._read_raven_streamflow(self.raven_streamflow_col)
+        outflow_m3s_init = self._read_raven_streamflow(self.raven_outflow_col)
         precip_mm_day_init = self._read_raven_precip(self.raven_precip_col)
         # temp_c_init = self._read_raven_temp(self.raven_precip_col)
         temp_c_init = self._estimate_temp_c(date=planting_date)
         
+        release_pressure = max(
+            0.0,
+            outflow_m3s_init
+            / max(EPS, streamflow_m3s_init)
+        )
         self.S_t = {
             "date": planting_date,
             "reservoir_stage": reservoir_stage_init,
             "reservoir_level_norm": reservoir_level_norm_init,
             "streamflow_m3s": streamflow_m3s_init,
             "precip_mm_day": precip_mm_day_init,
-            "temp_c": temp_c_init
+            "temp_c": temp_c_init,
+            "release_pressure": release_pressure,
         }
 
         return {
@@ -239,7 +247,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         return {
             agent_id: np.clip(self._action_to_float(action), 0.0, 1.0)
-            * full_required_m3_day
             for agent_id, action in A_t.items()
         }
 
@@ -252,7 +259,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         A_t: MultiAgentDict,
     ) -> SupportsFloat:
         
-        requested_m3_day = float(u_i)
+        requested_m3_day = float(u_i) * self.full_required_m3_day
         reservoir_level_norm = (
             self.S_t["reservoir_stage"] - (self.full_stage_m - self.max_depth_m)
         ) / self.max_depth_m
@@ -275,6 +282,12 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             / max(EPS, allowed_m3_day),
         )
 
+        flow_penalty = (
+            self.mechanism.risk_penalty_scale
+            * self.S_t["release_pressure"]
+            * (requested_m3_day / max(EPS, self.full_required_m3_day))
+        )
+
         # minimum_crop_need_m3_day = (
         #     CORN_WILTING_FRAC,
         #     * self.full_required_m3_day
@@ -292,7 +305,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         #     / max(EPS, minimum_crop_need_m3_day),
         # )
 
-        total_penalty = min(1.0, quota_penalty + self.S_t["flow_penalty"])
+        total_penalty = min(1.0, quota_penalty + flow_penalty)
         # quota_violation_m3_day = 0
         # quota_penalty = 0
 
@@ -314,7 +327,12 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         A_t: MultiAgentDict,
         S_t: dict[str, float],
     ) -> dict[str, float]:
-        requested_m3_day = self.intrinsic_utility(A_t=A_t)
+        
+        irrigation_frac = self.intrinsic_utility(A_t=A_t)
+        requested_m3_day = {
+            agent_id: float(frac) * self.full_required_m3_day
+            for agent_id, frac in irrigation_frac.items()
+        }
         # total accross agents
         total_usage_m3_day = sum(requested_m3_day.values())
         total_usage_m3s = total_usage_m3_day / 86400.0
@@ -333,6 +351,9 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                 eod_streamflow_m3s = self._read_raven_streamflow(self.raven_streamflow_col)
                 eod_outflow_m3s = self._read_raven_streamflow(self.raven_outflow_col)
                 eod_precip_mm_day = self._read_raven_precip(self.raven_precip_col)
+
+                eod_02GA041_streamflow_m3s = self._read_raven_streamflow("02GA041 [m3/s]")
+                eod_02GA041_streamflow_m3s_observed = self._read_raven_streamflow("02GA041 (observed) [m3/s]")
                 # eod_temp_c = self._read_raven_temp(self.raven_temp_col)
                 eod_temp_c = self._estimate_temp_c(date=next_date)
 
@@ -343,17 +364,12 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
                 # TODO review this
                 # compute flow penalty
-                storage_is_low = eod_reservoir_level_norm < self.mechanism.fixed_quota
-                flow_retention = (
+                # TODO this may need to be capped or may explode
+                release_pressure = max(
+                    0.0,
                     eod_outflow_m3s
                     / max(EPS, eod_streamflow_m3s)
                 )
-
-                flow_penalty = (
-                    max(0.0, 1.0 - flow_retention)
-                    * float(storage_is_low)
-                )
-
             except Exception:
                 logger.exception("Raven integration failed; falling back to internal dynamics")
 
@@ -366,14 +382,16 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             "precip_mm_day": eod_precip_mm_day,
             "temp_c": eod_temp_c,
             "last_usage_m3_day": total_usage_m3_day,
-            "flow_penalty": flow_penalty
+            "release_pressure": release_pressure
         }
         self._update_infos(key="reservoir_stage", values=eod_reservoir_stage)
         self._update_infos(key="reservoir_level_norm", values=eod_reservoir_level_norm)
         self._update_infos(key="streamflow_m3s", values=eod_streamflow_m3s)
         self._update_infos(key="precip_mm_day", values=eod_precip_mm_day)
         self._update_infos(key="temp_c", values=eod_temp_c)
-        self._update_infos(key="flow_penalty", values=flow_penalty)
+        self._update_infos(key="release_pressure", values=release_pressure)
+        self._update_infos(key="02GA041_streamflow_m3s", values=eod_02GA041_streamflow_m3s)
+        self._update_infos(key="02GA041_streamflow_m3s_observed", values=eod_02GA041_streamflow_m3s_observed)
 
         self.S_t = new_state
         return self.S_t
@@ -383,8 +401,9 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         total_usage_norm = float(S_t.get("last_usage_m3_day", 0.0))
 
         # TODO Q : what can we normalize streamflow_m3s with ?
-        streamflow_m3s = float(S_t.get("streamflow_m3s", 0.0))
+        # streamflow_m3s = float(S_t.get("streamflow_m3s", 0.0))
         # streamflow_norm = streamflow_m3s / max(EPS, self.streamflow_ref_m3s)
+        release_pressure = S_t["release_pressure"]
 
         effective_quota = min(
             self.mechanism.fixed_quota,
@@ -395,6 +414,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             [
                 reservoir_level_norm,
                 # streamflow_norm,
+                release_pressure,
                 effective_quota,
                 total_usage_norm,
             ],

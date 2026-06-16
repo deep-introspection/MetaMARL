@@ -46,6 +46,6 @@ REGISTRY = {
         "RegulatorEnv": WaterRegulatorEnv,
         "WaterRegulatorRavenEnv": WaterRegulatorRavenEnv,
         "RegulatedEnv": WaterRegulatedEnv,
-        "WaterRegulatedEdHsEnv": WaterRegulatedEdHsEnv
+        "WaterRegulatedEdHsEnv": WaterRegulatedEdHsEnv,
     },
 }

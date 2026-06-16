@@ -8,7 +8,7 @@ from core.optimizers.es.config import ESConfig
 from core.optimizers.appo.config import APPOptimizerConfig
 
 from examples.fresh_water.mechanism import WaterMechanismSpace
-from examples.fresh_water.regulated_env_ed_hs_v3 import WaterRegulatedEdHsEnv
+from examples.fresh_water.regulated_env_ed_hs_v4 import WaterRegulatedEdHsEnv
 from examples.fresh_water.regulator_env_raven import WaterRegulatorRavenEnv
 
 
@@ -91,19 +91,12 @@ bilevel_opt_cfg: BilevelConfig = (
             env=WaterRegulatedEdHsEnv,
             env_config={
                 "ecology_cfg": {
-                    "sus_weight": 1.0,
-                    "sus_threshold": 0.1,
-                    "inflow_rate": 1.0,
-                    "max_pull_fraction": 0.005,
+                    "max_farm_area_m2": 100_000.0,
 
                     # TODO move this to Raven helper
-                    "streamflow_init": 12.4724,
-                    "lake_elevation": 420.41,
-                    "max_depth": 11.0,
-
-                    # TODO move this to mechanism
-                    "underuse_penalty_scale": 0.2,
-                    "underuse_penalty_power": 2.0,
+                    "full_stage_m": 420.41,
+                    "max_depth_m": 11.0,
+                    "lake_area_m2": 5756935.89615,
                 },
                 "use_raven": True,
                 "raven_cwd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven",
@@ -164,7 +157,7 @@ bilevel_opt_cfg: BilevelConfig = (
                     "observation_space": spaces.Box(
                         low=-np.inf,
                         high=np.inf,
-                        shape=(3 + WaterMechanismSpace().full_dimension,
+                        shape=(4 + WaterMechanismSpace().full_dimension,
                         ),
                         dtype=np.float32,
                     ),

@@ -68,39 +68,46 @@ def _ctx_to_metric_rows(ctx: Context) -> list[dict[str, Any]]:
     #     "info/underuse_penalty",
     #     "info/total_penalty",
     # }
-    # KEEP_METRICS = {
-    #     "info/reservoir_stage",
-    #     "info/reservoir_level_norm",
-    #     "info/streamflow_m3s",
-    #     "info/precip_mm_day",
-    #     "info/temp_c",
-    #     "info/total_usage_m3s",
-    #     "info/full_required_m3_day",
-    #     "info/deficit_mm_day",
-    #     "info/quota_penalty",
-    # }
     KEEP_METRICS = {
-        "info/fish",
-        "info/fish_next",
-        "info/fish_norm",
-        "info/growth",
-        "info/growth_noise",
-        "info/harvest",
-        "info/desired_harvest",
-        "info/intrinsic_utility",
-        "info/violation_signal",
-        "info/H_attempted",
-        "info/H_realized",
-        "info/harvest_scale",
-        "info/below_target_zone",
-        "info/target_shortfall",
-        "info/B_msy",
-        "info/MSY",
-        "info/F_msy",
-        "info/quota_violation",
+        "info/reservoir_stage",
+        "info/reservoir_level_norm",
+        "info/streamflow_m3s",
+        "info/precip_mm_day",
+        "info/temp_c",
+        "info/total_usage_m3s",
+        "info/full_required_m3_day",
+        "info/deficit_mm_day",
+        "info/requested_m3_day",
+        "info/allowed_m3_day",
+        "info/quota_violation_m3",
         "info/quota_penalty",
-        "info/stock_penalty",
+        "info/violation_signal",
+        "info/release_pressure",
+        "info/02GA041_streamflow_m3s",
+        "info/02GA041_streamflow_m3s_observed",
     }
+    # KEEP_METRICS = {
+    #     "info/fish",
+    #     "info/fish_next",
+    #     "info/fish_norm",
+    #     "info/growth",
+    #     "info/growth_noise",
+    #     "info/harvest",
+    #     "info/desired_harvest",
+    #     "info/intrinsic_utility",
+    #     "info/violation_signal",
+    #     "info/H_attempted",
+    #     "info/H_realized",
+    #     "info/harvest_scale",
+    #     "info/below_target_zone",
+    #     "info/target_shortfall",
+    #     "info/B_msy",
+    #     "info/MSY",
+    #     "info/F_msy",
+    #     "info/quota_violation",
+    #     "info/quota_penalty",
+    #     "info/stock_penalty",
+    # }
 
     if ctx is None or not isinstance(ctx.payload, EnvStepContext):
         return []
@@ -438,26 +445,26 @@ def _rows_to_iteration_metric_rows(
             if not values:
                 continue
 
-            # clean_name = metric_name.replace("info_", "")
-            clean_name = metric_name.split("/")[-1]
+            clean_name = metric_name.replace("info_", "")
+            # clean_name = metric_name.split("/")[-1]
             arr = np.asarray(values, dtype=np.float64)
 
-            # if clean_name == "total_usage_m3s":
-            #     # Total extraction across the rollout.
-            #     value = float(np.sum(arr))
-            #     out_name = "total_usage_m3s_sum"
-
-            # else:
-            #     # Typical state / penalty / flow level over the rollout.
-            #     value = float(np.mean(arr))
-            #     out_name = f"{clean_name}_mean"
-
-            if clean_name in {"harvest", "desired_harvest", "H_attempted", "H_realized"}:
+            if clean_name == "total_usage_m3s":
+                # Total extraction across the rollout.
                 value = float(np.sum(arr))
-                out_name = f"{clean_name}_sum"
+                out_name = "total_usage_m3s_sum"
+
             else:
+                # Typical state / penalty / flow level over the rollout.
                 value = float(np.mean(arr))
                 out_name = f"{clean_name}_mean"
+
+            # if clean_name in {"harvest", "desired_harvest", "H_attempted", "H_realized"}:
+            #     value = float(np.sum(arr))
+            #     out_name = f"{clean_name}_sum"
+            # else:
+            #     value = float(np.mean(arr))
+            #     out_name = f"{clean_name}_mean"
 
             add(
                 phase,
@@ -468,6 +475,65 @@ def _rows_to_iteration_metric_rows(
             )
     return out
 
+def _log_02GA041_observed_vs_simulated(
+    *,
+    wandb_run,
+    prefix: str,
+    metric_tables: dict[str, wandb.Table],
+    step: int,
+) -> None:
+    sim_key = sanitize_key("info/02GA041_streamflow_m3s")
+    obs_key = sanitize_key("info/02GA041_streamflow_m3s_observed")
+
+    if sim_key not in metric_tables or obs_key not in metric_tables:
+        return
+
+    sim_table = metric_tables[sim_key]
+    obs_table = metric_tables[obs_key]
+
+    fig = go.Figure()
+
+    def add_trace(table: wandb.Table, name: str) -> None:
+        cols = list(table.columns)
+        ix = cols.index("env_step")
+        iy = cols.index("value")
+
+        xs = []
+        ys = []
+
+        for row in table.data:
+            x = to_float(row[ix])
+            y = to_float(row[iy])
+            if x is not None and y is not None:
+                xs.append(float(x))
+                ys.append(float(y))
+
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=ys,
+                mode="lines+markers",
+                name=name,
+            )
+        )
+
+    add_trace(sim_table, "02GA041 simulated")
+    add_trace(obs_table, "02GA041 observed")
+
+    fig.update_layout(
+        title="02GA041 simulated vs observed streamflow",
+        xaxis_title="env_step",
+        yaxis_title="streamflow [m3/s]",
+        hovermode="x unified",
+        template="plotly_white",
+        height=650,
+    )
+
+    wandb_run.log(
+        {f"{prefix}/plots/02GA041_simulated_vs_observed": fig},
+        step=step,
+        commit=False,
+    )
 
 def plot_env_reduced(
     *,
@@ -492,6 +558,13 @@ def plot_env_reduced(
         return
 
     metric_tables = _build_metric_tables(rows)
+
+    _log_02GA041_observed_vs_simulated(
+        wandb_run=wandb_run,
+        prefix=prefix,
+        metric_tables=metric_tables,
+        step=gs,
+    )
 
     # 1. Raw rollout plots over horizon/env_step.
     for metric_name, table in metric_tables.items():

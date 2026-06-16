@@ -14,12 +14,10 @@ class WaterMechanism(Mechanism):
     prop_quota: float
     min_stock: float
     fine_amount: float
-    ban_period: int
 
     risk_penalty_scale: float
     risk_penalty_power: float
-
-    max_ban: int = 50
+    under_irrigation_penalty_scale: float
 
     def __post_init__(self) -> None:
         # max_pull_fraction = 0.0001 -> individual farm / small water user
@@ -43,7 +41,7 @@ class WaterMechanism(Mechanism):
         assert 0.0 <= self.fine_amount <= 0.1
         assert 0.0 <= self.risk_penalty_scale <= 1.0
         assert 1.0 <= self.risk_penalty_power <= 5.0
-        assert 0 <= self.ban_period <= self.max_ban
+        assert 0.0 <= self.under_irrigation_penalty_scale <= 1.0
 
     @override(Mechanism)
     def to_vector(self) -> np.ndarray:
@@ -53,9 +51,9 @@ class WaterMechanism(Mechanism):
                 self.prop_quota,
                 self.min_stock,
                 self.fine_amount,
-                self.ban_period / self.max_ban,
                 self.risk_penalty_scale,
                 (self.risk_penalty_power - 1.0) / 4.0,  # maps [1,5] -> [0,1]
+                self.under_irrigation_penalty_scale,
             ],
             dtype=np.float32,
         )
@@ -66,9 +64,9 @@ class WaterMechanism(Mechanism):
             "prop_quota",
             "min_stock",
             "fine_amount",
-            "ban_period",
             "risk_penalty_scale",
             "risk_penalty_power",
+            "under_irrigation_penalty_scale",
         ]
 
 
@@ -78,9 +76,9 @@ class WaterMechanismSpace(MechanismSpace):
         "prop_quota",
         "min_stock",
         "fine_amount",
-        "ban_period",
         "risk_penalty_scale",
         "risk_penalty_power",
+        "under_irrigation_penalty_scale"
     ]
 
     def __init__(
@@ -91,24 +89,22 @@ class WaterMechanismSpace(MechanismSpace):
         default_prop_quota: float = 1e-5,
         default_min_stock: float = 0.15,
         default_fine_amount: float = 0.05,
-        default_ban_period: int = 3,
         default_risk_penalty_scale: float = 0.5,
         default_risk_penalty_power: float = 2.0,
-        max_ban: int = 50,
+        default_under_irrigation_penalty_scale: float = 0.25,
     ):
         super().__init__()
 
         self.use_stochastic_rounding = use_stochastic_rounding
-        self.max_ban = max_ban
 
         self.optimize_params = optimize_params or [
             "fixed_quota",
             "prop_quota",
             "min_stock",
             "fine_amount",
-            "ban_period",
             "risk_penalty_scale",
             "risk_penalty_power",
+            "under_irrigation_penalty_scale",
         ]
 
         self.dimension = len(self.optimize_params)
@@ -119,25 +115,10 @@ class WaterMechanismSpace(MechanismSpace):
             "prop_quota": default_prop_quota,
             "min_stock": default_min_stock,
             "fine_amount": default_fine_amount,
-            "ban_period": default_ban_period,
             "risk_penalty_scale": default_risk_penalty_scale,
             "risk_penalty_power": default_risk_penalty_power,
+            "under_irrigation_penalty_scale": default_under_irrigation_penalty_scale
         }
-
-    def _discretize_ban(self, ban_period_cont: float, u: np.ndarray) -> int:
-        if not self.use_stochastic_rounding:
-            return int(np.clip(round(ban_period_cont), 0, self.max_ban))
-
-        floor = int(np.floor(ban_period_cont))
-        frac = ban_period_cont - floor
-
-        h = hash(tuple(map(float, u)))
-        pseudo_random = (h % 10000) / 10000.0
-
-        if pseudo_random < frac and floor < self.max_ban:
-            return floor + 1
-
-        return floor
 
     def _denormalize_param(self, name: str, value: float, u: np.ndarray) -> float | int:
         if name == "fixed_quota":
@@ -146,13 +127,12 @@ class WaterMechanismSpace(MechanismSpace):
             return 1e-7 + value * (1e-4 - 1e-7)
         if name == "fine_amount":
             return value * 0.10   # map [0,1] -> [0,0.1]
-
         if name == "risk_penalty_scale":
             return value
-        if name == "ban_period":
-            return self._discretize_ban(value * self.max_ban, u)
-        elif name == "risk_penalty_power":
+        if name == "risk_penalty_power":
             return 1.0 + 4.0 * value
+        if name == "under_irrigation_penalty_scale":
+            return value
         return value
     
     def _denormalize(self, u: np.ndarray) -> dict:
@@ -166,14 +146,14 @@ class WaterMechanismSpace(MechanismSpace):
             return (float(value) - 0.6) / (0.95 - 0.6)
         if name == "prop_quota":
             return (float(value) - 1e-7) / (1e-4 - 1e-7)
-        if name == "ban_period":
-            return float(value) / self.max_ban
         if name == "fine_amount":
             return float(value) / 0.10
         if name == "risk_penalty_scale":
             return value
         if name == "risk_penalty_power":
             return (float(value) - 1.0) / 4.0
+        if name == "under_irrigation_penalty_scale":
+            return value
 
         return float(value)
 
@@ -185,8 +165,7 @@ class WaterMechanismSpace(MechanismSpace):
             fine_amount=self.defaults["fine_amount"],
             risk_penalty_scale=self.defaults["risk_penalty_scale"],
             risk_penalty_power=self.defaults["risk_penalty_power"],
-            ban_period=self.defaults["ban_period"],
-            max_ban=self.max_ban,
+            under_irrigation_penalty_scale=self.defaults["under_irrigation_penalty_scale"]
         )
 
     def encode(self, m: WaterMechanism) -> NDArray[np.float32]:
@@ -213,8 +192,7 @@ class WaterMechanismSpace(MechanismSpace):
             fine_amount=params["fine_amount"],
             risk_penalty_scale=params["risk_penalty_scale"],
             risk_penalty_power=params["risk_penalty_power"],
-            ban_period=params["ban_period"],
-            max_ban=self.max_ban,
+            under_irrigation_penalty_scale=params["under_irrigation_penalty_scale"]
         )
 
         return self.clip(mech)
@@ -227,8 +205,7 @@ class WaterMechanismSpace(MechanismSpace):
             fine_amount=float(np.clip(m.fine_amount, 0.0, 0.1)),
             risk_penalty_scale=float(np.clip(m.risk_penalty_scale, 0, 1)),
             risk_penalty_power=float(np.clip(m.risk_penalty_power, 1.0, 5.0)),
-            ban_period=int(np.clip(m.ban_period, 0, self.max_ban)),
-            max_ban=self.max_ban,
+            under_irrigation_penalty_scale=float(np.clip(m.under_irrigation_penalty_scale, 0, 1)),
         )
 
     def from_dict(self, cfg: dict) -> WaterMechanism:
@@ -236,4 +213,4 @@ class WaterMechanismSpace(MechanismSpace):
             cfg = {**cfg, "risk_penalty_scale": self.defaults["risk_penalty_scale"]}
         if "risk_penalty_power" not in cfg:
             cfg = {**cfg, "risk_penalty_power": self.defaults["risk_penalty_power"]}
-        return WaterMechanism(**cfg, max_ban=self.max_ban)
+        return WaterMechanism(**cfg)
