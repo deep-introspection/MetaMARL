@@ -91,7 +91,7 @@ bilevel_opt_cfg: BilevelConfig = (
             env=WaterRegulatedEdHsEnv,
             env_config={
                 "ecology_cfg": {
-                    "max_farm_area_m2": 100_000.0,
+                    "max_farm_area_m2": 1_000_000.0,
 
                     # TODO move this to Raven helper
                     "full_stage_m": 420.41,

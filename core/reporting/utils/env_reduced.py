@@ -14,6 +14,8 @@ from core.reporting.utils.env_step_context import _extract_info_series
 
 _ENV_REDUCED_ITER_TABLES: dict[tuple[int, str], wandb.Table] = {}
 
+EPS = 1e-8
+
 
 @dataclass(frozen=True)
 class ReductionSpec:
@@ -556,6 +558,185 @@ def plot_env_reduced(
 
     if not rows:
         return
+    
+    # ============================================================
+    # RAW TABLES FOR POST-HOC ANALYSIS
+    # ============================================================
+
+    import pandas as pd
+
+    # ------------------------------------------------------------
+    # 1. Long-form timestep table
+    # ------------------------------------------------------------
+    raw_env_df = pd.DataFrame(rows)
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/raw_env_steps": wandb.Table(
+                dataframe=raw_env_df
+            )
+        },
+        step=gs,
+        commit=False,
+    )
+
+    # ------------------------------------------------------------
+    # 2. Wide timestep table
+    # ------------------------------------------------------------
+    wide_rows: dict = {}
+
+    for row in rows:
+        key = (
+            row["phase"],
+            row["mechanism"],
+            row["seed"],
+            row["env_step"],
+        )
+
+        wide_rows.setdefault(
+            key,
+            {
+                "phase": row["phase"],
+                "mechanism": row["mechanism"],
+                "seed": row["seed"],
+                "env_step": row["env_step"],
+            },
+        )
+
+        wide_rows[key][row["metric"]] = row["value"]
+
+    wide_df = pd.DataFrame(
+        list(wide_rows.values())
+    )
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/raw_env_steps_wide": wandb.Table(
+                dataframe=wide_df
+            )
+        },
+        step=gs,
+        commit=False,
+    )
+
+    # ------------------------------------------------------------
+    # 3. Useful derived quantities
+    # ------------------------------------------------------------
+
+    if (
+        "info_requested_m3_day" in wide_df.columns
+        and "info_allowed_m3_day" in wide_df.columns
+    ):
+        wide_df["requested_over_allowed"] = (
+            wide_df["info_requested_m3_day"]
+            / np.maximum(
+                EPS,
+                wide_df["info_allowed_m3_day"],
+            )
+        )
+
+    if (
+        "info_streamflow_m3s" in wide_df.columns
+        and "info_total_usage_m3s" in wide_df.columns
+    ):
+        wide_df["usage_over_streamflow"] = (
+            wide_df["info_total_usage_m3s"]
+            / np.maximum(
+                EPS,
+                wide_df["info_streamflow_m3s"],
+            )
+        )
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/raw_env_steps_wide_derived":
+                wandb.Table(dataframe=wide_df)
+        },
+        step=gs,
+        commit=False,
+    )
+
+    # ------------------------------------------------------------
+    # 4. Correlation matrix
+    # ------------------------------------------------------------
+
+    exclude_cols = {
+        "phase",
+        "mechanism",
+        "seed",
+        "env_step",
+    }
+
+    numeric_cols = [
+        c
+        for c in wide_df.columns
+        if c not in exclude_cols
+    ]
+
+    corr_df = (
+        wide_df[numeric_cols]
+        .apply(pd.to_numeric, errors="coerce")
+        .corr()
+    )
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/correlation_matrix":
+                wandb.Table(
+                    dataframe=corr_df.reset_index()
+                )
+        },
+        step=gs,
+        commit=False,
+    )
+
+    # ------------------------------------------------------------
+    # 5. Distribution summary table
+    # ------------------------------------------------------------
+
+    summary_rows = []
+
+    for col in numeric_cols:
+        series = pd.to_numeric(
+            wide_df[col],
+            errors="coerce",
+        ).dropna()
+
+        if len(series) == 0:
+            continue
+
+        summary_rows.append(
+            {
+                "metric": col,
+                "count": len(series),
+                "mean": float(series.mean()),
+                "std": float(series.std()),
+                "min": float(series.min()),
+                "p05": float(series.quantile(0.05)),
+                "p25": float(series.quantile(0.25)),
+                "p50": float(series.quantile(0.50)),
+                "p75": float(series.quantile(0.75)),
+                "p95": float(series.quantile(0.95)),
+                "max": float(series.max()),
+            }
+        )
+
+    summary_df = pd.DataFrame(summary_rows)
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/distribution_summary":
+                wandb.Table(
+                    dataframe=summary_df
+                )
+        },
+        step=gs,
+        commit=False,
+    )
+
+    # ============================================================
+    # END RAW ANALYSIS TABLES
+    # ============================================================
 
     metric_tables = _build_metric_tables(rows)
 
@@ -580,6 +761,17 @@ def plot_env_reduced(
     iter_rows = _rows_to_iteration_metric_rows(
         rows,
         train_step=gs,
+    )
+
+    iter_df = pd.DataFrame(iter_rows)
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/training_metrics":
+                wandb.Table(dataframe=iter_df)
+        },
+        step=gs,
+        commit=False,
     )
 
     for row in iter_rows:

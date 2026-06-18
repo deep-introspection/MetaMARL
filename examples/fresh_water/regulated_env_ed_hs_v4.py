@@ -151,11 +151,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         # temp_c_init = self._read_raven_temp(self.raven_precip_col)
         temp_c_init = self._estimate_temp_c(date=planting_date)
         
-        release_pressure = max(
-            0.0,
-            outflow_m3s_init
-            / max(EPS, streamflow_m3s_init)
+        release_pressure = min(
+            1.0, 
+            max(0.0, outflow_m3s_init / max(EPS, streamflow_m3s_init))
         )
+
         self.S_t = {
             "date": planting_date,
             "reservoir_stage": reservoir_stage_init,
@@ -365,11 +365,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                 # TODO review this
                 # compute flow penalty
                 # TODO this may need to be capped or may explode
-                release_pressure = max(
-                    0.0,
-                    eod_outflow_m3s
-                    / max(EPS, eod_streamflow_m3s)
+                release_pressure = min(
+                    1.0,
+                    max(0.0, eod_outflow_m3s / max(EPS, eod_streamflow_m3s))
                 )
+                
             except Exception:
                 logger.exception("Raven integration failed; falling back to internal dynamics")
 
