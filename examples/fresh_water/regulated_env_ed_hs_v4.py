@@ -266,11 +266,27 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         excess_norm = max(0.0, reservoir_level_norm - self.mechanism.fixed_quota)
 
-        allowed_m3_day = (
+        base_allowed_m3_day = (
             self.mechanism.prop_quota # maximum excess storage that can be withdrawn per day (MUST BE SMALL)
             * excess_norm 
             * self.max_depth_m 
             * self.lake_area_m2
+        )
+
+        distance_to_empty = np.clip(
+            reservoir_level_norm / max(EPS, self.mechanism.fixed_quota),
+            0.0,
+            1.0
+        )
+
+        graded_floor_m3_day = (
+            0.05 + 0.95 * distance_to_empty**2 #agents keep a minimum of 5% irrigation quota
+            * self.full_required_m3_day
+        )
+
+        allowed_m3_day = max(
+            graded_floor_m3_day,
+            base_allowed_m3_day,
         )
 
         # TODO review this
