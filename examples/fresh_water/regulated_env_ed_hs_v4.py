@@ -237,6 +237,35 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         )
         self.full_required_m3_day = full_required_m3_day
 
+        crop_water_need_m3_day = (
+            etcrop_mm_day / 1000.0
+            * self.max_farm_area_m2
+        )
+
+        precip_water_m3_day = (
+            precip_mm_day / 1000.0
+            * self.max_farm_area_m2
+        )
+
+        if crop_water_need_m3_day <= EPS:
+            crop_satisfaction = {
+                agent_id: 0.0
+                for agent_id in A_t.keys()
+            }
+        else:
+            crop_satisfaction = {
+                agent_id: min(
+                    1.0,
+                    (
+                        np.clip(self._action_to_float(action), 0.0, 1.0)
+                        * full_required_m3_day
+                        + precip_water_m3_day
+                    )
+                    / crop_water_need_m3_day,
+                )
+                for agent_id, action in A_t.items()
+            }
+
         self._update_infos(key="crop_stage", values=crop_stage)
         self._update_infos(key="eto_mm_day", values=eto_mm_day)
         self._update_infos(key="etcrop_mm_day", values=etcrop_mm_day)
@@ -245,10 +274,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         self._update_infos(key="precip_mm_day", values=precip_mm_day)
         self._update_infos(key="temp_c", values=temp_c)
 
-        return {
-            agent_id: np.clip(self._action_to_float(action), 0.0, 1.0)
-            for agent_id, action in A_t.items()
-        }
+        return crop_satisfaction
 
     @override(MultiAgentRegulatedEnv)
     def violation_signal(
@@ -259,7 +285,10 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         A_t: MultiAgentDict,
     ) -> SupportsFloat:
         
-        requested_m3_day = float(u_i) * self.full_required_m3_day
+        requested_m3_day = (
+            np.clip(self._action_to_float(A_t[agent_id]), 0.0, 1.0)
+            * self.full_required_m3_day
+        )
         reservoir_level_norm = (
             self.S_t["reservoir_stage"] - (self.full_stage_m - self.max_depth_m)
         ) / self.max_depth_m
@@ -280,7 +309,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         )
 
         graded_floor_m3_day = (
-            0.05 + 0.95 * distance_to_empty**2 #agents keep a minimum of 5% irrigation quota
+            (0.05 + 0.95 * distance_to_empty**2) #agents keep a minimum of 5% irrigation quota
             * self.full_required_m3_day
         )
 
@@ -344,10 +373,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         S_t: dict[str, float],
     ) -> dict[str, float]:
         
-        irrigation_frac = self.intrinsic_utility(A_t=A_t)
+        self.intrinsic_utility(A_t=A_t)
         requested_m3_day = {
-            agent_id: float(frac) * self.full_required_m3_day
-            for agent_id, frac in irrigation_frac.items()
+            agent_id: np.clip(self._action_to_float(action), 0.0, 1.0)
+            * self.full_required_m3_day
+            for agent_id, action in A_t.items()
         }
         # total accross agents
         total_usage_m3_day = sum(requested_m3_day.values())
