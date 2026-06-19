@@ -247,24 +247,58 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             * self.max_farm_area_m2
         )
 
-        if crop_water_need_m3_day <= EPS:
-            crop_satisfaction = {
-                agent_id: 0.0
-                for agent_id in A_t.keys()
-            }
-        else:
-            crop_satisfaction = {
-                agent_id: min(
+        crop_satisfaction = {}
+
+        for agent_id, action in A_t.items():
+            irrigation_frac = np.clip(self._action_to_float(action), 0.0, 1.0)
+            requested_m3_day = irrigation_frac * full_required_m3_day
+
+            reservoir_level_norm = (
+                self.S_t["reservoir_stage"] - (self.full_stage_m - self.max_depth_m)
+            ) / self.max_depth_m
+
+            excess_norm = max(0.0, reservoir_level_norm - self.mechanism.fixed_quota)
+
+            base_allowed_m3_day = (
+                self.mechanism.prop_quota
+                * excess_norm
+                * self.max_depth_m
+                * self.lake_area_m2
+            )
+
+            distance_to_empty = np.clip(
+                reservoir_level_norm / max(EPS, self.mechanism.fixed_quota),
+                0.0,
+                1.0,
+            )
+
+            graded_floor_m3_day = (
+                0.05
+                * distance_to_empty
+                * full_required_m3_day
+            )
+
+            allowed_m3_day = max(
+                graded_floor_m3_day,
+                base_allowed_m3_day,
+            )
+
+            delivered_m3_day = min(
+                requested_m3_day,
+                allowed_m3_day,
+            )
+
+            if crop_water_need_m3_day <= EPS:
+                crop_satisfaction[agent_id] = 1.0
+            else:
+                crop_satisfaction[agent_id] = min(
                     1.0,
                     (
-                        np.clip(self._action_to_float(action), 0.0, 1.0)
-                        * full_required_m3_day
+                        delivered_m3_day
                         + precip_water_m3_day
                     )
                     / crop_water_need_m3_day,
                 )
-                for agent_id, action in A_t.items()
-            }
 
         self._update_infos(key="crop_stage", values=crop_stage)
         self._update_infos(key="eto_mm_day", values=eto_mm_day)
@@ -273,13 +307,14 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         self._update_infos(key="full_required_m3_day", values=full_required_m3_day)
         self._update_infos(key="precip_mm_day", values=precip_mm_day)
         self._update_infos(key="temp_c", values=temp_c)
+        self._update_infos(key="crop_satisfaction", values=crop_satisfaction)
 
         return crop_satisfaction
 
     @override(MultiAgentRegulatedEnv)
     def violation_signal(
         self,
-        u_i: SupportsFloat, #required_m3_day
+        u_i: SupportsFloat, #crop satisfaction
         agent_id: AgentID,
         *,
         A_t: MultiAgentDict,
@@ -309,7 +344,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         )
 
         graded_floor_m3_day = (
-            (0.05 + 0.95 * distance_to_empty**2) #agents keep a minimum of 5% irrigation quota
+            0.05 #agents keep a minimum of 5% irrigation quota
+            * distance_to_empty
             * self.full_required_m3_day
         )
 
@@ -318,13 +354,17 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             base_allowed_m3_day,
         )
 
+        delivered_m3_day = min(
+            requested_m3_day,
+            allowed_m3_day,
+        )
+
         # TODO review this
         quota_violation_m3_day = max(0.0, requested_m3_day - allowed_m3_day)
         quota_penalty = min(
             1.0,
             self.mechanism.fine_amount
-            * quota_violation_m3_day
-            / max(EPS, allowed_m3_day),
+            * (quota_violation_m3_day / max(EPS, self.full_required_m3_day)),
         )
 
         flow_penalty = (
@@ -356,9 +396,12 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         self._update_infos(key="requested_m3_day", values={agent_id: requested_m3_day})
         self._update_infos(key="allowed_m3_day", values={agent_id: allowed_m3_day})
+        self._update_infos(key="delivered_m3_day", values={agent_id: delivered_m3_day})
         self._update_infos(key="quota_violation_m3", values={agent_id: quota_violation_m3_day})
         self._update_infos(key="quota_penalty", values={agent_id: quota_penalty})
-        self._update_infos(key="quota_penalty", values={agent_id: quota_penalty})
+        self._update_infos(key="base_allowed_m3_day", values={agent_id: base_allowed_m3_day})
+        self._update_infos(key="graded_floor_m3_day", values={agent_id: graded_floor_m3_day})
+        self._update_infos(key="quota_source", values={agent_id: float(base_allowed_m3_day >= graded_floor_m3_day)})
 
         return total_penalty
 
@@ -373,14 +416,48 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         S_t: dict[str, float],
     ) -> dict[str, float]:
         
-        self.intrinsic_utility(A_t=A_t)
-        requested_m3_day = {
-            agent_id: np.clip(self._action_to_float(action), 0.0, 1.0)
-            * self.full_required_m3_day
-            for agent_id, action in A_t.items()
-        }
-        # total accross agents
-        total_usage_m3_day = sum(requested_m3_day.values())
+        delivered_m3_day = {}
+
+        for agent_id, action in A_t.items():
+            irrigation_frac = np.clip(self._action_to_float(action), 0.0, 1.0)
+            requested_m3_day = irrigation_frac * self.full_required_m3_day
+
+            reservoir_level_norm = (
+                S_t["reservoir_stage"] - (self.full_stage_m - self.max_depth_m)
+            ) / self.max_depth_m
+
+            excess_norm = max(0.0, reservoir_level_norm - self.mechanism.fixed_quota)
+
+            base_allowed_m3_day = (
+                self.mechanism.prop_quota
+                * excess_norm
+                * self.max_depth_m
+                * self.lake_area_m2
+            )
+
+            distance_to_empty = np.clip(
+                reservoir_level_norm / max(EPS, self.mechanism.fixed_quota),
+                0.0,
+                1.0,
+            )
+
+            graded_floor_m3_day = (
+                0.05
+                * distance_to_empty
+                * self.full_required_m3_day
+            )
+
+            allowed_m3_day = max(
+                graded_floor_m3_day,
+                base_allowed_m3_day,
+            )
+
+            delivered_m3_day[agent_id] = min(
+                requested_m3_day,
+                allowed_m3_day,
+            )
+
+        total_usage_m3_day = sum(delivered_m3_day.values())
         total_usage_m3s = total_usage_m3_day / 86400.0
         self._update_infos(key="total_usage_m3s", values=total_usage_m3s)
 
