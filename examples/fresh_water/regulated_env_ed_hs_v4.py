@@ -119,6 +119,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             "effective_quota",
             "total_usage_norm",
         ]
+        self.full_required_m3_day = 0.0
 
     @override(MultiAgentRegulatedEnv)
     def _reset(self):
@@ -164,6 +165,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             "precip_mm_day": precip_mm_day_init,
             "temp_c": temp_c_init,
             "release_pressure": release_pressure,
+            "last_usage_m3_day": 0.0,
         }
 
         return {
@@ -212,7 +214,39 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             11: 4.0,
             12: -2.0,
         }[date.month]
-    
+
+    # The mechanism controls the fraction of full_required_m3_day allowed.
+    # This avoids collapse to the floor when reservoir_level_norm is close
+    # to fixed_quota.
+    def _quota_stress(self, reservoir_level_norm: float) -> float:
+        return float(
+            np.clip(
+                (reservoir_level_norm - self.mechanism.fixed_quota)
+                / max(EPS, 1.0 - self.mechanism.fixed_quota),
+                0.0,
+                1.0,
+            )
+        )
+
+    # allowed_frac smoothly interpolates from min_demand_frac to max_demand_frac.
+    def _allowed_frac(self, reservoir_level_norm: float) -> float:
+        stress = self._quota_stress(reservoir_level_norm)
+
+        return float(
+            self.mechanism.min_demand_frac
+            + stress
+            * (
+                self.mechanism.max_demand_frac
+                - self.mechanism.min_demand_frac
+            )
+        )
+
+    # allowed_m3_day is now demand-scaled instead of storage-scaled.
+    def _allowed_m3_day(self, reservoir_level_norm: float) -> float:
+        return (
+            self._allowed_frac(reservoir_level_norm)
+            * self.full_required_m3_day
+        )
     @override(MultiAgentRegulatedEnv)
     def intrinsic_utility(self, A_t: dict[AgentID, ActType]) -> MultiAgentDict:
         precip_mm_day = self.S_t["precip_mm_day"]
@@ -257,32 +291,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                 self.S_t["reservoir_stage"] - (self.full_stage_m - self.max_depth_m)
             ) / self.max_depth_m
 
-            excess_norm = max(0.0, reservoir_level_norm - self.mechanism.fixed_quota)
-
-            base_allowed_m3_day = (
-                self.mechanism.prop_quota
-                * excess_norm
-                * self.max_depth_m
-                * self.lake_area_m2
-            )
-
-            distance_to_empty = np.clip(
-                reservoir_level_norm / max(EPS, self.mechanism.fixed_quota),
-                0.0,
-                1.0,
-            )
-
-            graded_floor_m3_day = (
-                0.05
-                * distance_to_empty
-                * full_required_m3_day
-            )
-
-            allowed_m3_day = max(
-                graded_floor_m3_day,
-                base_allowed_m3_day,
-            )
-
+            # Old storage-based quota replaced by demand-fraction quota.
+            allowed_m3_day = self._allowed_m3_day(reservoir_level_norm)
             delivered_m3_day = min(
                 requested_m3_day,
                 allowed_m3_day,
@@ -328,32 +338,9 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             self.S_t["reservoir_stage"] - (self.full_stage_m - self.max_depth_m)
         ) / self.max_depth_m
 
-        excess_norm = max(0.0, reservoir_level_norm - self.mechanism.fixed_quota)
-
-        base_allowed_m3_day = (
-            self.mechanism.prop_quota # maximum excess storage that can be withdrawn per day (MUST BE SMALL)
-            * excess_norm 
-            * self.max_depth_m 
-            * self.lake_area_m2
-        )
-
-        distance_to_empty = np.clip(
-            reservoir_level_norm / max(EPS, self.mechanism.fixed_quota),
-            0.0,
-            1.0
-        )
-
-        graded_floor_m3_day = (
-            0.05 #agents keep a minimum of 5% irrigation quota
-            * distance_to_empty
-            * self.full_required_m3_day
-        )
-
-        allowed_m3_day = max(
-            graded_floor_m3_day,
-            base_allowed_m3_day,
-        )
-
+        # Old storage-based quota replaced by demand-fraction quota.
+        allowed_frac = self._allowed_frac(reservoir_level_norm)
+        allowed_m3_day = allowed_frac * self.full_required_m3_day
         delivered_m3_day = min(
             requested_m3_day,
             allowed_m3_day,
@@ -367,10 +354,13 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             * (quota_violation_m3_day / max(EPS, self.full_required_m3_day)),
         )
 
+        # risk_penalty_power is now actually used.
+        # This makes high extraction fractions increasingly costly when release pressure is high.
+        requested_frac = requested_m3_day / max(EPS, self.full_required_m3_day)
         flow_penalty = (
             self.mechanism.risk_penalty_scale
             * self.S_t["release_pressure"]
-            * (requested_m3_day / max(EPS, self.full_required_m3_day))
+            * (requested_frac ** self.mechanism.risk_penalty_power)
         )
 
         # minimum_crop_need_m3_day = (
@@ -396,12 +386,14 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         self._update_infos(key="requested_m3_day", values={agent_id: requested_m3_day})
         self._update_infos(key="allowed_m3_day", values={agent_id: allowed_m3_day})
+        self._update_infos(key="requested_frac", values={agent_id: requested_frac})
         self._update_infos(key="delivered_m3_day", values={agent_id: delivered_m3_day})
         self._update_infos(key="quota_violation_m3", values={agent_id: quota_violation_m3_day})
         self._update_infos(key="quota_penalty", values={agent_id: quota_penalty})
-        self._update_infos(key="base_allowed_m3_day", values={agent_id: base_allowed_m3_day})
-        self._update_infos(key="graded_floor_m3_day", values={agent_id: graded_floor_m3_day})
-        self._update_infos(key="quota_source", values={agent_id: float(base_allowed_m3_day >= graded_floor_m3_day)})
+        self._update_infos(key="flow_penalty", values={agent_id: flow_penalty})
+        self._update_infos(key="quota_stress", values={agent_id: self._quota_stress(reservoir_level_norm)})
+        self._update_infos(key="min_demand_frac", values={agent_id: self.mechanism.min_demand_frac})
+        self._update_infos(key="max_demand_frac", values={agent_id: self.mechanism.max_demand_frac})
 
         return total_penalty
 
@@ -415,7 +407,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         A_t: MultiAgentDict,
         S_t: dict[str, float],
     ) -> dict[str, float]:
-        
+
         delivered_m3_day = {}
 
         for agent_id, action in A_t.items():
@@ -426,31 +418,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                 S_t["reservoir_stage"] - (self.full_stage_m - self.max_depth_m)
             ) / self.max_depth_m
 
-            excess_norm = max(0.0, reservoir_level_norm - self.mechanism.fixed_quota)
-
-            base_allowed_m3_day = (
-                self.mechanism.prop_quota
-                * excess_norm
-                * self.max_depth_m
-                * self.lake_area_m2
-            )
-
-            distance_to_empty = np.clip(
-                reservoir_level_norm / max(EPS, self.mechanism.fixed_quota),
-                0.0,
-                1.0,
-            )
-
-            graded_floor_m3_day = (
-                0.05
-                * distance_to_empty
-                * self.full_required_m3_day
-            )
-
-            allowed_m3_day = max(
-                graded_floor_m3_day,
-                base_allowed_m3_day,
-            )
+            # Old storage-based quota replaced by demand-fraction quota.
+            allowed_m3_day = self._allowed_m3_day(reservoir_level_norm)
 
             delivered_m3_day[agent_id] = min(
                 requested_m3_day,
@@ -528,11 +497,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         # streamflow_norm = streamflow_m3s / max(EPS, self.streamflow_ref_m3s)
         release_pressure = S_t["release_pressure"]
 
-        effective_quota = min(
-            self.mechanism.fixed_quota,
-            self.mechanism.prop_quota * reservoir_level_norm,
-        )
-
+        # effective_quota now means the current demand fraction available to agents.
+        effective_quota = self._allowed_frac(reservoir_level_norm)
         return np.array(
             [
                 reservoir_level_norm,
@@ -549,7 +515,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             return self.run_root
         
         src = os.path.abspath(self.raven_cwd)
-        
+
         cache_root = os.path.abspath(
             os.path.join(self.raven_cwd, ".cache", "prepared_runs")
         )
