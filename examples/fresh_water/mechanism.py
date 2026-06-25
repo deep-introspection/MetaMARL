@@ -35,6 +35,8 @@ class WaterMechanism(Mechanism):
     risk_penalty_power: float
     under_irrigation_penalty_scale: float
 
+    max_farm_area_m2: float
+
     def __post_init__(self) -> None:
         # fixed_quota = protected reservoir fullness threshold.
         # If reservoir_level_norm <= fixed_quota, agents receive only min_demand_frac.
@@ -43,7 +45,7 @@ class WaterMechanism(Mechanism):
 
         # CHANGED:
         # These are fractions of crop irrigation demand, not fractions of reservoir storage.
-        assert 0.0 <= self.min_demand_frac <= 0.5
+        assert 0.0 <= self.min_demand_frac <= 1.0
         assert 0.05 <= self.max_demand_frac <= 1.0
         assert self.min_demand_frac <= self.max_demand_frac
 
@@ -51,6 +53,7 @@ class WaterMechanism(Mechanism):
         assert 0.0 <= self.risk_penalty_scale <= 1.0
         assert 1.0 <= self.risk_penalty_power <= 5.0
         assert 0.0 <= self.under_irrigation_penalty_scale <= 1.0
+        assert 100_000 <= self.max_farm_area_m2 <= 20_000_000
 
     @override(Mechanism)
     def to_vector(self) -> np.ndarray:
@@ -63,6 +66,7 @@ class WaterMechanism(Mechanism):
                 self.risk_penalty_scale,
                 (self.risk_penalty_power - 1.0) / 4.0,  # maps [1,5] -> [0,1]
                 self.under_irrigation_penalty_scale,
+                self.max_farm_area_m2,
             ],
             dtype=np.float32,
         )
@@ -76,6 +80,7 @@ class WaterMechanism(Mechanism):
             "risk_penalty_scale",
             "risk_penalty_power",
             "under_irrigation_penalty_scale",
+            "max_farm_area_m2",
         ]
 
 
@@ -91,6 +96,7 @@ class WaterMechanismSpace(MechanismSpace):
         "risk_penalty_scale",
         "risk_penalty_power",
         "under_irrigation_penalty_scale",
+        "max_farm_area_m2",
     ]
 
     def __init__(
@@ -110,6 +116,7 @@ class WaterMechanismSpace(MechanismSpace):
         default_risk_penalty_scale: float = 0.5,
         default_risk_penalty_power: float = 2.0,
         default_under_irrigation_penalty_scale: float = 0.25,
+        default_max_farm_area_m2: float = 500_000
     ):
         super().__init__()
 
@@ -123,6 +130,7 @@ class WaterMechanismSpace(MechanismSpace):
             "risk_penalty_scale",
             "risk_penalty_power",
             "under_irrigation_penalty_scale",
+            "max_farm_area_m2"
         ]
 
         self.dimension = len(self.optimize_params)
@@ -136,6 +144,7 @@ class WaterMechanismSpace(MechanismSpace):
             "risk_penalty_scale": default_risk_penalty_scale,
             "risk_penalty_power": default_risk_penalty_power,
             "under_irrigation_penalty_scale": default_under_irrigation_penalty_scale,
+            "max_farm_area_m2": default_max_farm_area_m2
         }
 
     def _denormalize_param(self, name: str, value: float, u: np.ndarray) -> float | int:
@@ -164,6 +173,9 @@ class WaterMechanismSpace(MechanismSpace):
 
         if name == "under_irrigation_penalty_scale":
             return value
+        
+        if name == "max_farm_area_m2":
+            return 100_000 + value * (20_000_000 - 100_000)
 
         return value
 
@@ -205,6 +217,9 @@ class WaterMechanismSpace(MechanismSpace):
 
         if name == "under_irrigation_penalty_scale":
             return float(value)
+        
+        if name == "max_farm_area_m2":
+            return (float(value) - 100_000) / (20_000_000 - 100_000)
 
         return float(value)
 
@@ -217,6 +232,7 @@ class WaterMechanismSpace(MechanismSpace):
             risk_penalty_scale=self.defaults["risk_penalty_scale"],
             risk_penalty_power=self.defaults["risk_penalty_power"],
             under_irrigation_penalty_scale=self.defaults["under_irrigation_penalty_scale"],
+            max_farm_area_m2=self.defaults["max_farm_area_m2"]
         )
 
     def encode(self, m: WaterMechanism) -> NDArray[np.float32]:
@@ -251,12 +267,13 @@ class WaterMechanismSpace(MechanismSpace):
             risk_penalty_scale=params["risk_penalty_scale"],
             risk_penalty_power=params["risk_penalty_power"],
             under_irrigation_penalty_scale=params["under_irrigation_penalty_scale"],
+            max_farm_area_m2=params["max_farm_area_m2"]
         )
 
         return self.clip(mech)
 
     def clip(self, m: WaterMechanism) -> WaterMechanism:
-        min_demand_frac = float(np.clip(m.min_demand_frac, 0.0, 0.5))
+        min_demand_frac = float(np.clip(m.min_demand_frac, 0.0, 1.0))
         max_demand_frac = float(np.clip(m.max_demand_frac, 0.05, 1.0))
 
         # CHANGED:
@@ -273,6 +290,9 @@ class WaterMechanismSpace(MechanismSpace):
             under_irrigation_penalty_scale=float(
                 np.clip(m.under_irrigation_penalty_scale, 0.0, 1.0)
             ),
+            max_farm_area_m2=float(
+                np.clip(m.max_farm_area_m2, 100_000, 20_000_000)
+            )
         )
 
     def from_dict(self, cfg: dict) -> WaterMechanism:
@@ -298,6 +318,11 @@ class WaterMechanismSpace(MechanismSpace):
         if "under_irrigation_penalty_scale" not in cfg:
             cfg["under_irrigation_penalty_scale"] = self.defaults[
                 "under_irrigation_penalty_scale"
+            ]
+        
+        if "max_farm_area_m2" not in cfg:
+            cfg["max_farm_area_m2"] = self.defaults[
+                "max_farm_area_m2"
             ]
 
         mech = WaterMechanism(**cfg)

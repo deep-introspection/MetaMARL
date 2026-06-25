@@ -446,6 +446,9 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
                 eod_02GA041_streamflow_m3s = self._read_raven_streamflow("02GA041 [m3/s]")
                 eod_02GA041_streamflow_m3s_observed = self._read_raven_streamflow("02GA041 (observed) [m3/s]")
+                eod_02GA014_streamflow_m3s = self._read_raven_streamflow("02GA014 [m3/s]")
+                eod_02GA014_streamflow_m3s_observed = self._read_raven_streamflow("02GA014 (observed) [m3/s]")
+                
                 # eod_temp_c = self._read_raven_temp(self.raven_temp_col)
                 eod_temp_c = self._estimate_temp_c(date=next_date)
 
@@ -461,6 +464,14 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                     1.0,
                     max(0.0, eod_outflow_m3s / max(EPS, eod_streamflow_m3s))
                 )
+
+                # Residence Time
+                eod_reservoir_m3 = (
+                    eod_reservoir_stage 
+                    - (self.full_stage_m - self.max_depth_m)
+                ) / self.max_depth_m
+                q_ref_m3s = max(eod_streamflow_m3s, eod_outflow_m3s)
+                residence_time_days = eod_reservoir_m3 / max(EPS, q_ref_m3s) / 86400
                 
             except Exception:
                 logger.exception("Raven integration failed; falling back to internal dynamics")
@@ -474,16 +485,21 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             "precip_mm_day": eod_precip_mm_day,
             "temp_c": eod_temp_c,
             "last_usage_m3_day": total_usage_m3_day,
-            "release_pressure": release_pressure
+            "release_pressure": release_pressure,
+            "residence_time_days": residence_time_days
         }
         self._update_infos(key="reservoir_stage", values=eod_reservoir_stage)
         self._update_infos(key="reservoir_level_norm", values=eod_reservoir_level_norm)
         self._update_infos(key="streamflow_m3s", values=eod_streamflow_m3s)
+        self._update_infos(key="outflow_m3s", values=eod_outflow_m3s)
         self._update_infos(key="precip_mm_day", values=eod_precip_mm_day)
         self._update_infos(key="temp_c", values=eod_temp_c)
         self._update_infos(key="release_pressure", values=release_pressure)
+        self._update_infos(key="residence_time_days", values=residence_time_days)
         self._update_infos(key="02GA041_streamflow_m3s", values=eod_02GA041_streamflow_m3s)
         self._update_infos(key="02GA041_streamflow_m3s_observed", values=eod_02GA041_streamflow_m3s_observed)
+        self._update_infos(key="02GA014_streamflow_m3s", values=eod_02GA014_streamflow_m3s)
+        self._update_infos(key="02GA014_streamflow_m3s_observed", values=eod_02GA014_streamflow_m3s_observed)
 
         self.S_t = new_state
         return self.S_t
