@@ -121,6 +121,29 @@ def _ctx_to_metric_rows(ctx: Context) -> list[dict[str, Any]]:
         "info/farm_area_ha_p95",
         "info/farm_area_ha_p99",
         "info/farm_area_ha_max",
+
+        "info/fish",
+        "info/fish_next",
+        "info/fish_norm",
+        "info/fish_norm_next",
+        "info/growth",
+        "info/growth_noise",
+        "info/H_attempted",
+        "info/H_realized",
+        "info/total_usage_norm",
+        "info/full_required_harvest",
+        "info/requested_harvest",
+        "info/allowed_harvest",
+        "info/delivered_harvest",
+        "info/quota_violation",
+        "info/risk_penalty",
+        "info/quota_stress",
+        "info/min_demand_frac",
+        "info/max_demand_frac",
+        "info/B_msy",
+        "info/MSY",
+        "info/F_msy",
+        "info/intrinsic_utility",
     }
     # KEEP_METRICS = {
     #     "info/fish",
@@ -532,79 +555,51 @@ def _rows_to_iteration_metric_rows(
             #     value,
             # )
 
-            if clean_name == "total_usage_m3s":
-                # Total extraction across the rollout.
-                add(
-                    phase,
-                    mechanism,
-                    seed,
-                    "total_usage_m3s_sum",
-                    float(np.sum(arr)),
-                )
-
-                # Also useful: average extraction intensity.
-                add(
-                    phase,
-                    mechanism,
-                    seed,
-                    "total_usage_m3s_mean",
-                    float(np.mean(arr)),
-                )
+            if clean_name in {
+                "total_usage_m3s",
+                "H_realized",
+                "H_attempted",
+                "requested_harvest",
+                "allowed_harvest",
+                "delivered_harvest",
+                "requested_m3_day",
+                "allowed_m3_day",
+                "delivered_m3_day",
+            }:
+                add(phase, mechanism, seed, f"{clean_name}_sum", float(np.sum(arr)))
+                add(phase, mechanism, seed, f"{clean_name}_mean", float(np.mean(arr)))
+                add(phase, mechanism, seed, f"{clean_name}_max", float(np.max(arr)))
 
             elif clean_name in {
+                # water state variables
                 "reservoir_stage",
                 "reservoir_level_norm",
                 "streamflow_m3s",
+                "outflow_m3s",
                 "02GA041_streamflow_m3s",
                 "02GA041_streamflow_m3s_observed",
                 "02GA014_streamflow_m3s",
                 "02GA014_streamflow_m3s_observed",
+                "West_Montrose_streamflow_m3s",
+                "West_Montrose_streamflow_m3s_observed",
                 "release_pressure",
+                "residence_time_days",
+
+                # fishery state variables
+                "fish",
+                "fish_next",
+                "fish_norm",
+                "fish_norm_next",
+                "growth",
+                "total_usage_norm",
             }:
-                # Mean over the 150-day rollout.
-                add(
-                    phase,
-                    mechanism,
-                    seed,
-                    f"{clean_name}_mean",
-                    float(np.mean(arr)),
-                )
-
-                # Final recorded value after the rollout.
-                add(
-                    phase,
-                    mechanism,
-                    seed,
-                    f"{clean_name}_last",
-                    float(arr[-1]),
-                )
-
-                # Minimum value during rollout, useful for drawdown.
-                add(
-                    phase,
-                    mechanism,
-                    seed,
-                    f"{clean_name}_min",
-                    float(np.min(arr)),
-                )
-
-                # Maximum value during rollout.
-                add(
-                    phase,
-                    mechanism,
-                    seed,
-                    f"{clean_name}_max",
-                    float(np.max(arr)),
-                )
+                add(phase, mechanism, seed, f"{clean_name}_mean", float(np.mean(arr)))
+                add(phase, mechanism, seed, f"{clean_name}_last", float(arr[-1]))
+                add(phase, mechanism, seed, f"{clean_name}_min", float(np.min(arr)))
+                add(phase, mechanism, seed, f"{clean_name}_max", float(np.max(arr)))
 
             else:
-                add(
-                    phase,
-                    mechanism,
-                    seed,
-                    f"{clean_name}_mean",
-                    float(np.mean(arr)),
-                )
+                add(phase, mechanism, seed, f"{clean_name}_mean", float(np.mean(arr)))
     return out
 
 def _log_02GA041_observed_vs_simulated(

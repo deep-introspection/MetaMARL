@@ -85,16 +85,12 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         self.MSY = rp["MSY"]
         self.F_msy = rp["F_msy"]
 
+        self.full_required_harvest = 0.0
+
         self.obs_map = [
             "fish_norm",
             "effective_quota",
-            "no_fish_zone",
-            "fixed_quota",
-            "prop_quota",
-            "min_stock",
-            "fine_amount",
-            "risk_penalty_scale",
-            "risk_penalty_power",
+            "total_usage_norm",
         ]
 
     @override(MultiAgentRegulatedEnv)
@@ -103,7 +99,8 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             "fish": max(
                 EPS,
                 self.rng.lognormal(np.log(max(self.fish_init, EPS)), 0.05),
-            )
+            ),
+            "last_usage": 0.0,
         }
 
         return {
@@ -114,6 +111,196 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     @override(MultiAgentRegulatedEnv)
     def _is_truncated(self) -> bool:
         return self.horizon is not None and (self._t + 1) >= self.horizon
+    
+    def _action_to_float(self, action: ActType) -> float:
+        if hasattr(action, "item"):
+            return float(action.item())
+        return float(action)
+    
+    def _quota_stress(self, fish_norm: float) -> float:
+        return float(
+            np.clip(
+                (fish_norm - self.mechanism.fixed_quota)
+                / max(EPS, 1.0 - self.mechanism.fixed_quota),
+                0.0,
+                1.0,
+            )
+        )
+
+    def _allowed_frac(self, fish_norm: float) -> float:
+        stress = self._quota_stress(fish_norm)
+
+        return float(
+            self.mechanism.min_demand_frac
+            + stress
+            * (
+                self.mechanism.max_demand_frac
+                - self.mechanism.min_demand_frac
+            )
+        )
+
+    def _allowed_harvest(self, fish_norm: float) -> float:
+        return self._allowed_frac(fish_norm) * self.full_required_harvest
+    
+    def intrinsic_utility(
+        self,
+        A_t: dict[AgentID, ActType],
+    ) -> MultiAgentDict:
+        fish = float(self.S_t["fish"])
+        fish_norm = fish / max(self.max_fish, EPS)
+
+        self.full_required_harvest = fish / len(self.agents)
+
+        utilities = {}
+
+        for agent_id, action in A_t.items():
+            harvest_frac = np.clip(self._action_to_float(action), 0.0, 1.0)
+
+            requested_harvest = harvest_frac * self.full_required_harvest
+            allowed_harvest = self._allowed_harvest(fish_norm)
+            delivered_harvest = min(requested_harvest, allowed_harvest)
+
+            utilities[agent_id] = float(
+                delivered_harvest / max(EPS, self.full_required_harvest)
+            )
+
+        self._update_infos(key="fish_norm", values=fish_norm)
+        self._update_infos(key="full_required_harvest", values=self.full_required_harvest)
+
+        return utilities
+    
+    def violation_signal(
+        self,
+        u_i: SupportsFloat,
+        agent_id: AgentID,
+        *,
+        A_t: MultiAgentDict,
+    ) -> SupportsFloat:
+        fish = float(self.S_t["fish"])
+        fish_norm = fish / max(self.max_fish, EPS)
+
+        requested_harvest = (
+            np.clip(self._action_to_float(A_t[agent_id]), 0.0, 1.0)
+            * self.full_required_harvest
+        )
+
+        allowed_frac = self._allowed_frac(fish_norm)
+        allowed_harvest = allowed_frac * self.full_required_harvest
+
+        delivered_harvest = min(requested_harvest, allowed_harvest)
+
+        quota_violation = max(0.0, requested_harvest - allowed_harvest)
+
+        quota_penalty = min(
+            1.0,
+            self.mechanism.fine_amount
+            * quota_violation
+            / max(EPS, self.full_required_harvest),
+        )
+
+        requested_frac_norm = requested_harvest / max(EPS, self.full_required_harvest)
+
+        stock_pressure = max(0.0, 1.0 - fish_norm)
+
+        risk_penalty = (
+            self.mechanism.risk_penalty_scale
+            * stock_pressure
+            * (requested_frac_norm ** self.mechanism.risk_penalty_power)
+        )
+
+        total_penalty = min(1.0, quota_penalty + risk_penalty)
+
+        self._update_infos(key="requested_harvest", values={agent_id: requested_harvest})
+        self._update_infos(key="allowed_harvest", values={agent_id: allowed_harvest})
+        self._update_infos(key="delivered_harvest", values={agent_id: delivered_harvest})
+        self._update_infos(key="requested_frac", values={agent_id: requested_frac_norm})
+        self._update_infos(key="quota_violation", values={agent_id: quota_violation})
+        self._update_infos(key="quota_penalty", values={agent_id: quota_penalty})
+        self._update_infos(key="risk_penalty", values={agent_id: risk_penalty})
+        self._update_infos(key="quota_stress", values={agent_id: self._quota_stress(fish_norm)})
+        self._update_infos(key="min_demand_frac", values={agent_id: self.mechanism.min_demand_frac})
+        self._update_infos(key="max_demand_frac", values={agent_id: self.mechanism.max_demand_frac})
+
+        return total_penalty
+
+    def penalty(self, u_i: SupportsFloat, **kwargs) -> SupportsFloat:
+        return 1.0
+
+    def transition_kernel(
+        self,
+        *,
+        A_t: MultiAgentDict,
+        S_t: dict,
+    ) -> dict[str, float]:
+        fish = float(S_t["fish"])
+        fish_norm = fish / max(self.max_fish, EPS)
+
+        self.full_required_harvest = fish / len(self.agents)
+
+        delivered_harvest = {}
+
+        for agent_id, action in A_t.items():
+            harvest_frac = np.clip(self._action_to_float(action), 0.0, 1.0)
+
+            requested_harvest = harvest_frac * self.full_required_harvest
+            allowed_harvest = self._allowed_harvest(fish_norm)
+
+            delivered_harvest[agent_id] = min(
+                requested_harvest,
+                allowed_harvest,
+            )
+
+        H_attempted = float(sum(delivered_harvest.values()))
+
+        noise = self.sigma * self.rng.normal() * fish
+
+        fish_next, H_realized, growth = pella_tomlinson_step(
+            B=fish,
+            H=H_attempted,
+            r=self.r,
+            K=self.K,
+            p=self.p,
+            noise=noise,
+        )
+
+        new_state = {
+            "fish": fish_next,
+            "last_usage": H_realized,
+        }
+
+        self._update_infos(key="fish", values=fish)
+        self._update_infos(key="fish_next", values=fish_next)
+        self._update_infos(key="fish_norm", values=fish_norm)
+        self._update_infos(key="fish_norm_next", values=fish_next / max(self.max_fish, EPS))
+        self._update_infos(key="growth", values=growth)
+        self._update_infos(key="growth_noise", values=noise)
+        self._update_infos(key="H_attempted", values=H_attempted)
+        self._update_infos(key="H_realized", values=H_realized)
+        self._update_infos(key="total_usage_norm", values=H_realized / max(EPS, self.max_fish))
+        self._update_infos(key="B_msy", values=self.B_msy)
+        self._update_infos(key="MSY", values=self.MSY)
+        self._update_infos(key="F_msy", values=self.F_msy)
+
+        self.S_t = new_state
+        return self.S_t
+    
+    def _observation(
+        self,
+        agent_id: AgentID,
+        S_t: dict,
+    ):
+        fish_norm = float(S_t["fish"] / max(self.max_fish, EPS))
+        effective_quota = self._allowed_frac(fish_norm)
+        total_usage_norm = float(S_t.get("last_usage", 0.0) / max(EPS, self.max_fish))
+
+        return np.array(
+            [
+                fish_norm,
+                effective_quota,
+                total_usage_norm,
+            ],
+            dtype=np.float32,
+        )
 
     def _step(
         self,
@@ -129,87 +316,33 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         fish = float(S_t["fish"])
         fish_norm = fish / max(self.max_fish, EPS)
 
-        desired_harvest, H_attempted = self._compute_attempted_harvest(
-            A_t=action_dict,
-            S_t=S_t,
-        )
+        # Same parent-style logic as water:
+        # utility first, violation second, then transition
+        utilities = self.intrinsic_utility(action_dict)
 
-        noise = self.sigma * self.rng.normal() * fish
-
-        fish_next, H_realized, growth = pella_tomlinson_step(
-            B=fish,
-            H=H_attempted,
-            r=self.r,
-            K=self.K,
-            p=self.p,
-            noise=noise,
-        )
-
-        harvest_scale = H_realized / max(EPS, H_attempted)
-
-        realized_harvest = {
-            agent_id: desired_harvest.get(agent_id, 0.0) * harvest_scale
-            for agent_id in self.agents
-        }
-
-        utilities = {
-            agent_id: realized_harvest[agent_id] / max(self.max_fish, EPS)
-            for agent_id in self.agents
-        }
-
-        violations = {}
-        quota_violations = {}
-        quota_penalties = {}
-        stock_penalties = {}
-
-        for agent_id in self.agents:
-            u_i = self._desired_harvest_signal(
-                agent_id=agent_id,
+        violations = {
+            agent_id: self.violation_signal(
+                utilities[agent_id],
+                agent_id,
                 A_t=action_dict,
-                S_t=S_t,
             )
-
-            fish_norm_current = self.S_t["fish"] / max(self.max_fish, EPS)
-
-            effective_quota = min(
-                self.mechanism.fixed_quota,
-                self.mechanism.prop_quota * fish_norm_current,
-            )
-
-            quota_violation = max(0.0, float(u_i) - effective_quota)
-
-            quota_penalty = min(
-                1.0,
-                self.mechanism.fine_amount * quota_violation,
-            )
-
-            shortage_severity = max(0.0, self.mechanism.min_stock - fish_norm_current)
-
-            stock_penalty = min(
-                1.0,
-                self.mechanism.risk_penalty_scale
-                * (shortage_severity ** self.mechanism.risk_penalty_power)
-                * float(u_i > 0.0),
-            )
-
-            total_penalty = min(1.0, quota_penalty + stock_penalty)
-
-            quota_violations[agent_id] = quota_violation
-            quota_penalties[agent_id] = quota_penalty
-            stock_penalties[agent_id] = stock_penalty
-            violations[agent_id] = total_penalty
+            for agent_id in self.agents
+        }
 
         rewards = {
-            agent_id: utilities[agent_id] - violations[agent_id]
+            agent_id: float(utilities[agent_id] - violations[agent_id])
             for agent_id in self.agents
         }
 
         rewards = self._aggregate_rewards(rewards)
 
-        self.S_t = {"fish": fish_next}
+        S_next = self.transition_kernel(
+            A_t=action_dict,
+            S_t=S_t,
+        )
 
         obs = {
-            agent_id: self.observation(agent_id, self.S_t)
+            agent_id: self.observation(agent_id, S_next)
             for agent_id in self.agents
         }
 
@@ -224,195 +357,16 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         infos = {
             agent_id: {
                 "fish": fish,
-                "fish_next": fish_next,
+                "fish_next": S_next["fish"],
                 "fish_norm": fish_norm,
-                "growth": growth,
-                "growth_noise": noise,
-                "harvest": realized_harvest[agent_id],
-                "desired_harvest": desired_harvest[agent_id],
+                "fish_norm_next": S_next["fish"] / max(self.max_fish, EPS),
                 "intrinsic_utility": utilities[agent_id],
                 "violation_signal": violations[agent_id],
-                "H_attempted": H_attempted,
-                "H_realized": H_realized,
-                "harvest_scale": harvest_scale,
-                "below_target_zone": float(fish_norm < self.mechanism.target_stock),
-                "target_shortfall": max(
-                    0.0,
-                    self.mechanism.target_stock - fish_norm,
-                ),
                 "B_msy": self.B_msy,
                 "MSY": self.MSY,
                 "F_msy": self.F_msy,
-                "quota_violation": quota_violations[agent_id],
-                "quota_penalty": quota_penalties[agent_id],
-                "stock_penalty": stock_penalties[agent_id],
             }
             for agent_id in self.agents
         }
 
         return obs, rewards, terminated, truncated, infos
-
-    def intrinsic_utility(
-        self,
-        A_t: dict[AgentID, ActType],
-    ) -> MultiAgentDict:
-        desired_harvest, H_attempted = self._compute_attempted_harvest(
-            A_t=A_t,
-            S_t=self.S_t,
-        )
-
-        scale = min(1.0, float(self.S_t["fish"]) / max(EPS, H_attempted))
-
-        return {
-            agent_id: desired_harvest[agent_id] * scale / max(self.max_fish, EPS)
-            for agent_id in self.agents
-        }
-
-    def violation_signal(
-        self,
-        u_i: SupportsFloat,
-        agent_id: AgentID,
-        *,
-        A_t: MultiAgentDict,
-    ) -> SupportsFloat:
-        fish_norm = self.S_t["fish"] / max(self.max_fish, EPS)
-
-        effective_quota = min(
-            self.mechanism.fixed_quota,
-            self.mechanism.prop_quota * fish_norm,
-        )
-
-        quota_violation = max(0.0, float(u_i) - effective_quota)
-
-        quota_penalty = min(
-            1.0,
-            self.mechanism.fine_amount * quota_violation,
-        )
-
-        shortage_severity = max(0.0, self.mechanism.min_stock - fish_norm)
-
-        stock_penalty = min(
-            1.0,
-            self.mechanism.risk_penalty_scale
-            * (shortage_severity ** self.mechanism.risk_penalty_power)
-            * float(u_i > 0.0),
-        )
-
-        total_penalty = min(1.0, quota_penalty + stock_penalty)
-
-        self._update_infos(
-            key="quota_violation",
-            values={agent_id: quota_violation},
-        )
-        self._update_infos(
-            key="quota_penalty",
-            values={agent_id: quota_penalty},
-        )
-        self._update_infos(
-            key="stock_penalty",
-            values={agent_id: stock_penalty},
-        )
-
-        return total_penalty
-
-    def penalty(self, u_i: SupportsFloat, **kwargs) -> SupportsFloat:
-        return 1.0
-
-    def transition_kernel(
-        self,
-        *,
-        A_t: MultiAgentDict,
-        S_t: dict,
-    ) -> dict[str, float]:
-        desired_harvest, H_attempted = self._compute_attempted_harvest(
-            A_t=A_t,
-            S_t=S_t,
-        )
-
-        fish = float(S_t["fish"])
-        noise = self.sigma * self.rng.normal() * fish
-
-        fish_next, _, _ = pella_tomlinson_step(
-            B=fish,
-            H=H_attempted,
-            r=self.r,
-            K=self.K,
-            p=self.p,
-            noise=noise,
-        )
-
-        return {"fish": fish_next}
-
-    def _observation(
-        self,
-        agent_id: AgentID,
-        S_t: dict,
-    ):
-        fish_norm = S_t["fish"] / max(self.max_fish, EPS)
-
-        effective_quota = min(
-            self.mechanism.fixed_quota,
-            self.mechanism.prop_quota * fish_norm,
-        )
-
-        no_fish_zone = float(fish_norm < self.mechanism.min_stock)
-
-        return np.array(
-            [
-                fish_norm,
-                effective_quota,
-                no_fish_zone,
-            ],
-            dtype=np.float32,
-        )
-
-    def _desired_harvest_signal(
-        self,
-        agent_id: AgentID,
-        A_t: dict[AgentID, ActType],
-        S_t: dict,
-    ) -> float:
-        fish = float(S_t["fish"])
-        action = max(0.0, float(np.asarray(A_t[agent_id]).item()))
-
-        desired_biomass = action * fish
-
-        return desired_biomass / max(self.max_fish, EPS)
-
-    def _compute_attempted_harvest(
-        self,
-        A_t: dict[AgentID, ActType],
-        S_t: dict,
-    ) -> tuple[dict[AgentID, float], float]:
-        fish = float(S_t["fish"])
-
-        desired = {
-            agent_id: max(0.0, float(np.asarray(A_t[agent_id]).item())) * fish
-            for agent_id in self.agents
-        }
-
-        H_attempted = float(sum(desired.values()))
-
-        return desired, H_attempted
-
-    def _compute_harvest_metrics(
-        self,
-        A_t: dict[AgentID, ActType],
-    ) -> tuple[dict[AgentID, float], float, float]:
-        desired_harvest, H_attempted = self._compute_attempted_harvest(
-            A_t=A_t,
-            S_t=self.S_t,
-        )
-
-        fish = float(self.S_t["fish"])
-        available = max(fish, 0.0)
-
-        H_realized = min(H_attempted, available)
-        harvest_scale = H_realized / max(EPS, H_attempted)
-
-        realized_harvest = {
-            agent_id: desired_harvest.get(agent_id, 0.0) * harvest_scale
-            for agent_id in self.agents
-        }
-
-        return realized_harvest, H_attempted, harvest_scale
