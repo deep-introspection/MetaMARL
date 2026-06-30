@@ -93,6 +93,8 @@ def _ctx_to_metric_rows(ctx: Context) -> list[dict[str, Any]]:
         "info/02GA041_streamflow_m3s_observed",
         "info/02GA014_streamflow_m3s",
         "info/02GA014_streamflow_m3s_observed",
+        "info/West_Montrose_streamflow_m3s",
+        "info/West_Montrose_streamflow_m3s_observed",
         "info/base_allowed_m3_day",
         "info/graded_floor_m3_day",
         "info/quota_source",
@@ -725,6 +727,66 @@ def _log_02GA014_observed_vs_simulated(
         commit=False,
     )
 
+def _log_West_Montrose_observed_vs_simulated(
+    *,
+    wandb_run,
+    prefix: str,
+    metric_tables: dict[str, wandb.Table],
+    step: int,
+) -> None:
+    sim_key = sanitize_key("info/West_Montrose_streamflow_m3s")
+    obs_key = sanitize_key("info/West_Montrose_streamflow_m3s_observed")
+
+    if sim_key not in metric_tables or obs_key not in metric_tables:
+        return
+
+    sim_table = metric_tables[sim_key]
+    obs_table = metric_tables[obs_key]
+
+    fig = go.Figure()
+
+    def add_trace(table: wandb.Table, name: str) -> None:
+        cols = list(table.columns)
+        ix = cols.index("env_step")
+        iy = cols.index("value")
+
+        xs = []
+        ys = []
+
+        for row in table.data:
+            x = to_float(row[ix])
+            y = to_float(row[iy])
+            if x is not None and y is not None:
+                xs.append(float(x))
+                ys.append(float(y))
+
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=ys,
+                mode="lines+markers",
+                name=name,
+            )
+        )
+
+    add_trace(sim_table, "West_Montrose simulated")
+    add_trace(obs_table, "West_Montrose observed")
+
+    fig.update_layout(
+        title="West_Montrose simulated vs observed streamflow",
+        xaxis_title="env_step",
+        yaxis_title="streamflow [m3/s]",
+        hovermode="x unified",
+        template="plotly_white",
+        height=650,
+    )
+
+    wandb_run.log(
+        {f"{prefix}/plots/West_Montrose_simulated_vs_observed": fig},
+        step=step,
+        commit=False,
+    )
+
 def plot_env_reduced(
     *,
     wandb_run,
@@ -936,6 +998,13 @@ def plot_env_reduced(
     )
 
     _log_02GA014_observed_vs_simulated(
+        wandb_run=wandb_run,
+        prefix=prefix,
+        metric_tables=metric_tables,
+        step=gs,
+    )
+
+    _log_West_Montrose_observed_vs_simulated(
         wandb_run=wandb_run,
         prefix=prefix,
         metric_tables=metric_tables,
