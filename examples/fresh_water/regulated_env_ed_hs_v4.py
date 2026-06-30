@@ -448,7 +448,10 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                 eod_02GA041_streamflow_m3s_observed = self._read_raven_streamflow("02GA041 (observed) [m3/s]")
                 eod_02GA014_streamflow_m3s = self._read_raven_streamflow("02GA014 [m3/s]")
                 eod_02GA014_streamflow_m3s_observed = self._read_raven_streamflow("02GA014 (observed) [m3/s]")
-                
+
+                eod_West_Montrose_streamflow_m3s = self._read_raven_streamflow("West_Montrose [m3/s]")
+                eod_West_Montrose_streamflow_m3s_observed = self._read_raven_streamflow("West_Montrose (observed) [m3/s]")
+
                 # eod_temp_c = self._read_raven_temp(self.raven_temp_col)
                 eod_temp_c = self._estimate_temp_c(date=next_date)
 
@@ -500,6 +503,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         self._update_infos(key="02GA041_streamflow_m3s_observed", values=eod_02GA041_streamflow_m3s_observed)
         self._update_infos(key="02GA014_streamflow_m3s", values=eod_02GA014_streamflow_m3s)
         self._update_infos(key="02GA014_streamflow_m3s_observed", values=eod_02GA014_streamflow_m3s_observed)
+        self._update_infos(key="West_Montrose_streamflow_m3s", values=eod_West_Montrose_streamflow_m3s)
+        self._update_infos(key="West_Montrose_streamflow_m3s_observed", values=eod_West_Montrose_streamflow_m3s_observed)
 
         self.S_t = new_state
         return self.S_t
