@@ -89,6 +89,9 @@ class RegulatorEnv(BaseEnv):
 
         # Train policy for train_iters iterations
         for _ in range(self.train_iters):
+            ctx_registry = ray.get(self.world.get_ctx_registry.remote())
+            ray.get(self.world.flush_ctx.remote(ctx_registry.keys()))
+            ray.get(self.world.flush.remote(status=MechanismStatus.eval))
             self.inner.run()
 
 
@@ -99,7 +102,7 @@ class RegulatorEnv(BaseEnv):
 
         # flush consumed contexts
         ray.get(self.world.flush_ctx.remote(ctx_registry.keys()))
-        ray.get(self.world.flush.remote(job=MechanismStatus.eval))
+        ray.get(self.world.flush.remote(status=MechanismStatus.eval))
 
         return None, reward, False, False, {}
 
