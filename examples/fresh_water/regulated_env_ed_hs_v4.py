@@ -120,6 +120,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             "total_usage_norm",
         ]
         self.full_required_m3_day = 0.0
+        
+        self._baseline_ref : Optional[str] = None
 
     @override(MultiAgentRegulatedEnv)
     def _reset(self):
@@ -140,6 +142,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         # assume no usage in step 1 ?
         # Start reading at initial da
         self._run_raven(date=planting_date)
+        self.baseline_ref = self._prepare_no_extraction_baseline()
         reservoir_stage_init = self._read_raven_reservoir_stage(self.raven_stage_col)
         reservoir_level_norm_init = (
             reservoir_stage_init - (self.full_stage_m - self.max_depth_m)
@@ -491,6 +494,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             "release_pressure": release_pressure,
             "residence_time_days": residence_time_days
         }
+        # TODO this updates every time step - find way to update once at reset
+        self._update_infos(key="baseline_ref", values=self.baseline_ref)
         self._update_infos(key="reservoir_stage", values=eod_reservoir_stage)
         self._update_infos(key="reservoir_level_norm", values=eod_reservoir_level_norm)
         self._update_infos(key="streamflow_m3s", values=eod_streamflow_m3s)
@@ -644,6 +649,39 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             cwd=run_dir,
             check=False,
         )
+    
+    def _prepare_no_extraction_baseline(self) -> str:
+
+        if not self.use_raven:
+            return ""
+        
+        if self.run_root is None:
+            raise RuntimeError(
+                "Cannot prepare baseline reference before mechanism Raven run exists."
+            )
+        
+        src = Path(self.run_root)
+        baseline_key = (
+            "baseline_"
+            f"m_{self.mechanism_id}_"
+            f"seed_{self.seed}_"
+        )
+
+        cache_root = Path(self.raven_cwd).resolve() / ".cache" / "prepared_runs"
+        baseline_run_root = cache_root / baseline_key
+
+        if baseline_run_root.exists():
+            shutil.rmtree(baseline_run_root)
+
+        shutil.copytree(src, baseline_run_root)
+
+        logger.info(
+            "Copied current zero-extraction Raven run as baseline reference: %s -> %s",
+            src,
+            baseline_run_root,
+        )
+
+        return str(baseline_run_root / "3_Model_output")
 
     def _read_raven_reservoir_stage(self, column_name: str) -> Optional[float]:
         if self.run_root is None:
