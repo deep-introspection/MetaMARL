@@ -335,11 +335,11 @@ class World:
                 del self._opt_ctx_map[ctx.opt_id]
 
     # TODO fix this function. now the primary key is ctx_id
-    def flush(self, job: Optional[MechanismStatus] = None) -> None:
+    def flush(self, status: Optional[MechanismStatus] = None) -> None:
         to_delete = []
 
         for ctx_id, m_ctx in self._mechanism_registry.items():
-            if job is not None and m_ctx.job != job:
+            if status is not None and m_ctx.status != status:
                 continue
             to_delete.append(ctx_id)
 
@@ -347,5 +347,7 @@ class World:
             del self._mechanism_registry[ctx_id]
 
     def flush_ctx(self, ctx_ids: list[ContextID]):
+        if not ctx_ids:
+            return
         for cid in ctx_ids:
             self._contexts.pop(cid, None)
