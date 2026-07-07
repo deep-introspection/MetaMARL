@@ -46,6 +46,12 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
         self.raw_sustainability_threshold = self.sustainability_threshold * self.max_water
         self.trajectories: dict[int, list[dict[str, Any]]] = {}
 
+        self.economic_weight = env_cfg.get("economic_weight", 1.0)
+        self.sustainability_weight = env_cfg.get("sustainability_weight", 1.0)
+
+        target_status = env_cfg.get("aggregation_status", "train")
+        self.aggregation_status = MechanismStatus(target_status)
+
     @override(RegulatorEnv)
     def observation(self, obs: ObsType) -> ObsType:
         return 0.0
@@ -58,7 +64,12 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
         """
 
         # Must be able to get the seed and run the baseline dynamically for the no extraction
-        step_ctxs = [ctx for ctx in ctxs if isinstance(ctx.payload, EnvStepContext)]
+        step_ctxs = [
+            ctx
+            for ctx in ctxs
+            if isinstance(ctx.payload, EnvStepContext)
+            and ctx.payload.status == self.aggregation_status
+        ]
         if not step_ctxs:
             logger.warning("[Regulator] No EnvStepContext received")
             return []
@@ -71,30 +82,43 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
             s = ctx.payload
             by_run[(s.mechanism, s.seed)].append(ctx)
 
-        # TODO ensure only the latest env_step ctx are there and flushed between each train iter
+        economic_by_m: dict[int, list[float]] = defaultdict(list)
         deviation_by_m: dict[int, list[float]] = defaultdict(list)
+        seeds_by_m: dict[int, list[float]] = defaultdict(list)
 
         for (m_idx, seed), steps in by_run.items():
-            steps = sorted(steps, key=lambda c: c.payload.env_id)
-
+            steps = sorted(steps, key=lambda c: c.step)
+            rewards = []
+            for ctx in steps:
+                r = ctx.payload.reward
+                # TODO for now we average accross agents but later another solution required!
+                if isinstance(r, dict):
+                    rewards.append(float(np.mean(list(r.values()))))
+                else:
+                    rewards.append(float(r))
+            economic_score = float(np.mean(rewards))
             deviation = compute_streamflow_deviation_from_step_ctx(
                 steps[-1].payload,
                 streamflow_col="Belwood_Lake (res. inflow) [m3/s]"
             )["streamflow_deviation"]
+            economic_by_m[m_idx].append(economic_score)
             deviation_by_m[m_idx].append(deviation)
-
-        mean_deviation_by_m = {
-            m_idx: float(np.mean(values))
-            for m_idx, values in deviation_by_m.items()
-        }
+            seeds_by_m[m_idx].append(seed)
+            
 
         # TODO take into consideration economic vs susteinability reward
-        max_idx = max(mean_deviation_by_m.keys())
+        max_idx = max(economic_by_m.keys())
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)
 
-        for m_idx, deviation in mean_deviation_by_m.items():
-            # lower deviation is better, so maximize negative deviation
-            fitness[m_idx] = -deviation
+        for m_idx in economic_by_m:
+            mean_economic = float(np.mean(economic_by_m[m_idx]))
+            mean_deviation = float(np.mean(deviation_by_m[m_idx]))
+            sustainability_score = 1.0 / (1.0 + mean_deviation)
+            objective = (
+                self.economic_weight * mean_economic
+                + self.sustainability_weight * sustainability_score
+            )
+            fitness[m_idx] = objective
 
             self._publish(
                 MechanismContext(
@@ -102,8 +126,15 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
                     env_id=self.env_id,
                     seed=seed,
                     status=MechanismStatus.done,
-                    mechanism=None,
-                    metrics={"streamflow_deviation": deviation},
+                    mechanism=None, #TODO add the mechanism object
+                    metrics={
+                        "objective": objective,
+                        "economic_score": mean_economic,
+                        "streamflow_deviation": mean_deviation,
+                        "sustainability_score": sustainability_score,
+                        "economic_weight": self.economic_weight,
+                        "streamflow_weight": self.sustainability_weight,
+                    },
                 )
             )
 
