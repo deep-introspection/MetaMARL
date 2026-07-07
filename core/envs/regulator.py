@@ -87,6 +87,7 @@ class RegulatorEnv(BaseEnv):
                     )
                 )
 
+        # TODO : why eval gets repeated ?
         # Train policy for train_iters iterations
         for _ in range(self.train_iters):
             ctx_registry = ray.get(self.world.get_ctx_registry.remote())
