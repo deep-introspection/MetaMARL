@@ -141,7 +141,7 @@ bilevel_opt_cfg: BilevelConfig = (
             evaluation_interval=1,
             evaluation_duration=1,
             evaluation_duration_unit="episodes",
-            evaluation_num_env_runners=1,
+            evaluation_num_env_runners=0,
             evaluation_parallel_to_training=False,
             evaluation_config={
                 "explore": False,
