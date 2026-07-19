@@ -26,6 +26,15 @@ class RayRuntimeConfig:
 
     ray_debug: bool = True
 
+    # local_mode=True runs everything in a single process (needed for the Ray
+    # debugger / breakpoints). It was previously hard-coded True, but on Ray
+    # 2.53 that crashes at init when the driver runs inside an editable-installed
+    # package: Ray auto-captures the repo as `working_dir`, which local mode
+    # cannot upload ("... is not a valid URI"). Default is now False (real
+    # actors; Ray ships the package to workers). Set True only for step-through
+    # debugging, and run from a directory outside the repo if you do.
+    local_mode: bool = False
+
     def _apply_env_vars(self):
         if self.device == "cpu":
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -74,7 +83,7 @@ class RayRuntimeConfig:
             ignore_reinit_error=True,
             logging_level=self.logging_level,
             runtime_env=self.runtime_env,
-            local_mode=True,  # Turn on for debugging only (DO NOT TURN OFF)
+            local_mode=self.local_mode,  # see RayRuntimeConfig.local_mode
             log_to_driver=False,
             include_dashboard=False,
             _system_config={
