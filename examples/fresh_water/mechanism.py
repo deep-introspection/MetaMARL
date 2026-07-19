@@ -122,6 +122,15 @@ class WaterMechanismSpace(MechanismSpace):
 
         self.use_stochastic_rounding = use_stochastic_rounding
 
+        # NOTE: under_irrigation_penalty_scale and max_farm_area_m2 are
+        # deliberately NOT optimized by the outer ES:
+        #   - under_irrigation_penalty_scale is only referenced by commented-out
+        #     code in the env, so it has no effect on fitness (inert).
+        #   - max_farm_area_m2 is a world/farm property, not a regulation lever;
+        #     the env reads its value from ecology_cfg, not from the mechanism.
+        # Leaving them here made the ES waste search variance on flat directions
+        # (pure gradient noise). They stay in ALL_PARAMS / defaults as fixed
+        # passthrough values so the mechanism vector and obs are unchanged.
         self.optimize_params = optimize_params or [
             "fixed_quota",
             "min_demand_frac",
@@ -129,8 +138,6 @@ class WaterMechanismSpace(MechanismSpace):
             "fine_amount",
             "risk_penalty_scale",
             "risk_penalty_power",
-            "under_irrigation_penalty_scale",
-            "max_farm_area_m2"
         ]
 
         self.dimension = len(self.optimize_params)
