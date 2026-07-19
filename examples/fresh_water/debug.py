@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import ray
 from gymnasium import spaces
@@ -98,9 +100,17 @@ bilevel_opt_cfg: BilevelConfig = (
                     "max_depth_m": 11.0,
                     "lake_area_m2": 5756935.89615,
                 },
-                "use_raven": True,
-                "raven_cwd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven",
-                "raven_cmd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven/2_Raven/Raven.exe",
+                # Portable Raven config. Point RAVEN_CWD at your local Raven
+                # model directory and RAVEN_CMD at the Raven binary. Defaults to
+                # a repo-relative model dir; if it (or the binary) is missing the
+                # env auto-disables Raven and runs on the fallback (see
+                # WaterRegulatedEdHsEnv). Set USE_RAVEN=0 to force fallback.
+                "use_raven": os.environ.get("USE_RAVEN", "1") == "1",
+                "raven_cwd": os.environ.get(
+                    "RAVEN_CWD",
+                    os.path.join(os.path.dirname(__file__), "raven"),
+                ),
+                "raven_cmd": os.environ.get("RAVEN_CMD", "raven-hydro"),
                 "raven_freq": 1,
                 "seed": 0,
             },

@@ -117,6 +117,19 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         self.fallback_precip_mm_day = ecology_cfg.get("fallback_precip_mm_day", 2.5)
         self._raven_fallback_warned = False
 
+        # Auto-detect Raven availability. If requested but the model directory
+        # or the binary is missing, disable it cleanly (the env then runs on the
+        # fallback) instead of crashing / spamming exceptions on every step.
+        if self.use_raven and not self._raven_available():
+            logger.warning(
+                "[WaterRegulatedEdHsEnv] use_raven=True but Raven is unavailable "
+                "(model dir '%s' or binary '%s' missing) — disabling Raven and "
+                "using the non-physical fallback.",
+                self.raven_cwd,
+                self.raven_cmd,
+            )
+            self.use_raven = False
+
         self.withdrawal_history_m3s: list[tuple[datetime, float]] = []
 
         self.key = (
@@ -208,6 +221,15 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             agent_id: self.observation(agent_id, self.S_t)
             for agent_id in self.agents
         }
+
+    def _raven_available(self) -> bool:
+        """True if both the Raven model directory and binary are reachable."""
+        has_model = os.path.isdir(self.raven_cwd)
+        has_binary = (
+            os.path.isfile(self.raven_cmd)
+            or shutil.which(self.raven_cmd) is not None
+        )
+        return has_model and has_binary
 
     def _warn_raven_fallback(self) -> None:
         """Warn once that the env is running without Raven (non-physical stub)."""
