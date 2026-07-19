@@ -59,6 +59,9 @@ class ESOptimizer(Optimizer):
         self.convergence_eps = config.convergence_eps
         self.converged_once = False
 
+        # Incumbent used by the 1/5 success rule (see _update_parameters).
+        self._prev_best_fitness: float | None = None
+
     @property
     def batch_capacity(self) -> int:
         return self._batch_capacity
@@ -138,12 +141,12 @@ class ESOptimizer(Optimizer):
         fitness_scores: list[float],
     ) -> None:
         eps = 1e-8
-        fitness = np.asarray(fitness_scores, dtype=np.float32)
+        raw_fitness = np.asarray(fitness_scores, dtype=np.float32)
 
-        # Fitness whitening
-        f_mean = np.mean(fitness)
-        f_std = np.std(fitness) + eps
-        fitness = (fitness - f_mean) / f_std
+        # Fitness whitening (used for the gradient estimate ONLY).
+        f_mean = np.mean(raw_fitness)
+        f_std = np.std(raw_fitness) + eps
+        fitness = (raw_fitness - f_mean) / f_std
 
         # Logit transform
         eps_bound = 1e-6
@@ -182,18 +185,24 @@ class ESOptimizer(Optimizer):
         new_mean_logit = mean_logit + self.mean_lr * gradient
         self.mean = (1.0 / (1.0 + np.exp(-new_mean_logit))).astype(np.float32)
 
-        # Sigma update: 1/5 success rule
-        success_rate = np.mean(fitness > 0)
+        # Sigma update: 1/5 success rule.
+        # The success rate MUST be computed on the RAW fitness against a fixed
+        # incumbent, not on the whitened fitness. Whitened fitness has zero mean
+        # by construction, so `fitness > 0` is ~0.5 every generation, which pins
+        # sigma and blocks convergence. Comparing raw fitness to the previous
+        # generation's best drives success_rate -> 0 near an optimum, so sigma
+        # anneals down and the search distribution collapses (i.e. converges).
+        if self._prev_best_fitness is None:
+            success_rate = 0.5  # neutral on the first generation
+        else:
+            success_rate = float(np.mean(raw_fitness > self._prev_best_fitness))
+        self._prev_best_fitness = float(np.max(raw_fitness))
+
         target = 0.2
-
         sigma_multiplier = math.exp(self.sigma_lr * (success_rate - target))
-
         self.sigma = float(
             np.clip(self.sigma * sigma_multiplier, self.min_sigma, self.max_sigma)
         )
-        # Soft anchor toward mid sigma to prevent saturation
-        sigma_mid = 0.5 * (self.min_sigma + self.max_sigma)
-        self.sigma = 0.97 * self.sigma + 0.03 * sigma_mid
 
         # Track best
         best_idx = int(np.argmax(fitness_scores))
@@ -203,8 +212,6 @@ class ESOptimizer(Optimizer):
             self.best_fitness = best_fitness
             self.best_candidate = population[best_idx].copy()
             self.best_mechanism_idx = best_idx
-
-        self.generation += 1
 
     def run(self) -> None:
         logger.info(
