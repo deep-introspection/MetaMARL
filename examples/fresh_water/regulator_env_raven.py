@@ -221,26 +221,38 @@ def compute_streamflow_deviation_from_step_ctx(
 ) -> dict[str, float]:
     first_agent_info = next(iter(payload.info.values()))
 
-    baseline_output_dir = first_agent_info["baseline_ref"]
+    baseline_output_dir = first_agent_info.get("baseline_ref", "")
 
-    baseline_path = Path(baseline_output_dir)
+    # Without a Raven baseline (e.g. use_raven=False), streamflow deviation is
+    # undefined. Return 0.0 so the outer optimizer can still run (stub mode);
+    # the fitness stays finite instead of crashing the ES loop.
+    if not baseline_output_dir or not Path(baseline_output_dir).exists():
+        logger.warning(
+            "No Raven baseline available; streamflow_deviation defaults to 0.0"
+        )
+        deviation = 0.0
+    else:
+        try:
+            baseline_path = Path(baseline_output_dir)
+            prepared_runs_dir = baseline_path.parents[1]
+            baseline_run_name = baseline_path.parents[0].name
+            mechanism_run_name = baseline_run_name.replace("baseline_", "", 1)
+            mechanism_output_dir = (
+                prepared_runs_dir / mechanism_run_name / "3_Model_output"
+            )
+            deviation = compute_streamflow_deviation(
+                mechanism_output_dir=str(mechanism_output_dir),
+                baseline_output_dir=baseline_output_dir,
+                streamflow_col=streamflow_col,
+            )
+        except Exception:
+            logger.exception(
+                "streamflow deviation computation failed; defaulting to 0.0"
+            )
+            deviation = 0.0
 
-    prepared_runs_dir = baseline_path.parents[1]
-    baseline_run_name = baseline_path.parents[0].name
-
-    mechanism_run_name = baseline_run_name.replace("baseline_", "", 1)
-
-    mechanism_output_dir = (
-        prepared_runs_dir
-        / mechanism_run_name
-        / "3_Model_output"
-    )
-
-    deviation = compute_streamflow_deviation(
-        mechanism_output_dir=str(mechanism_output_dir),
-        baseline_output_dir=baseline_output_dir,
-        streamflow_col=streamflow_col,
-    )
+    if not np.isfinite(deviation):
+        deviation = 0.0
 
     return {
         "env_id": payload.env_id,

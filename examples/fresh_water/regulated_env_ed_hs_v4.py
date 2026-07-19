@@ -104,6 +104,19 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         self.raven_precip_col = raven_precip_col
         # self.raven_temp_col = raven_precip_col
 
+        # --- Non-Raven fallback (STUB, not a hydrological model) ---
+        # Used only when use_raven is False or Raven output is unavailable.
+        # Initial conditions come from config; dynamics then simply persist
+        # (carry-forward). This exists so the pipeline is runnable without a
+        # Raven binary. Any real / physically meaningful run REQUIRES Raven.
+        self.fallback_reservoir_stage_m = ecology_cfg.get(
+            "fallback_reservoir_stage_m", self.full_stage_m
+        )
+        self.fallback_streamflow_m3s = ecology_cfg.get("fallback_streamflow_m3s", 12.4724)
+        self.fallback_outflow_m3s = ecology_cfg.get("fallback_outflow_m3s", 6.2362)
+        self.fallback_precip_mm_day = ecology_cfg.get("fallback_precip_mm_day", 2.5)
+        self._raven_fallback_warned = False
+
         self.withdrawal_history_m3s: list[tuple[datetime, float]] = []
 
         self.key = (
@@ -138,25 +151,45 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         self._planting_day = planting_date.day
         self._planting_month = planting_date.month
 
-        # Run raven to get initial inflow and outflow, precip, temp etc.
-        # assume no usage in step 1 ?
-        # Start reading at initial da
-        self._run_raven(date=planting_date)
-        self.baseline_ref = self._prepare_no_extraction_baseline()
-        reservoir_stage_init = self._read_raven_reservoir_stage(self.raven_stage_col)
+        # Best-effort Raven warm-up. On failure or absence we fall back to the
+        # config initial conditions (see __init__). This block must never crash.
+        self.baseline_ref = ""
+        reservoir_stage_init = None
+        streamflow_m3s_init = None
+        outflow_m3s_init = None
+        precip_mm_day_init = None
+        try:
+            self._run_raven(date=planting_date)
+            self.baseline_ref = self._prepare_no_extraction_baseline()
+            reservoir_stage_init = self._read_raven_reservoir_stage(self.raven_stage_col)
+            # streamflow = inflow
+            streamflow_m3s_init = self._read_raven_streamflow(self.raven_streamflow_col)
+            outflow_m3s_init = self._read_raven_streamflow(self.raven_outflow_col)
+            precip_mm_day_init = self._read_raven_precip(self.raven_precip_col)
+        except Exception:
+            logger.exception(
+                "Raven warm-up failed at reset; using fallback initial state"
+            )
+
+        if reservoir_stage_init is None:
+            self._warn_raven_fallback()
+            reservoir_stage_init = self.fallback_reservoir_stage_m
+        if streamflow_m3s_init is None:
+            streamflow_m3s_init = self.fallback_streamflow_m3s
+        if outflow_m3s_init is None:
+            outflow_m3s_init = self.fallback_outflow_m3s
+        if precip_mm_day_init is None:
+            precip_mm_day_init = self.fallback_precip_mm_day
+
         reservoir_level_norm_init = (
             reservoir_stage_init - (self.full_stage_m - self.max_depth_m)
         ) / self.max_depth_m
-        
-        # streamflow = inflow
-        streamflow_m3s_init = self._read_raven_streamflow(self.raven_streamflow_col)
-        outflow_m3s_init = self._read_raven_streamflow(self.raven_outflow_col)
-        precip_mm_day_init = self._read_raven_precip(self.raven_precip_col)
+
         # temp_c_init = self._read_raven_temp(self.raven_precip_col)
         temp_c_init = self._estimate_temp_c(date=planting_date)
-        
+
         release_pressure = min(
-            1.0, 
+            1.0,
             max(0.0, outflow_m3s_init / max(EPS, streamflow_m3s_init))
         )
 
@@ -175,6 +208,16 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             agent_id: self.observation(agent_id, self.S_t)
             for agent_id in self.agents
         }
+
+    def _warn_raven_fallback(self) -> None:
+        """Warn once that the env is running without Raven (non-physical stub)."""
+        if not self._raven_fallback_warned:
+            logger.warning(
+                "[WaterRegulatedEdHsEnv] Raven unavailable — running on a "
+                "NON-PHYSICAL fallback (carry-forward dynamics). Results are not "
+                "hydrologically meaningful. Configure Raven for real runs."
+            )
+            self._raven_fallback_warned = True
 
     @override(MultiAgentRegulatedEnv)
     def _is_truncated(self) -> bool:
@@ -436,16 +479,47 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         old_date: datetime = S_t["date"]
         next_date = old_date + timedelta(days=1)
 
+        # Carry-forward defaults (STUB, not physics): every state variable is
+        # bound here first, so the code below never hits an unbound variable if
+        # the Raven block is skipped or fails. Valid Raven reads overwrite them.
+        eod_reservoir_stage = S_t["reservoir_stage"]
+        eod_reservoir_level_norm = S_t["reservoir_level_norm"]
+        eod_streamflow_m3s = S_t["streamflow_m3s"]
+        eod_outflow_m3s = S_t.get("outflow_m3s", self.fallback_outflow_m3s)
+        eod_precip_mm_day = S_t["precip_mm_day"]
+        eod_temp_c = self._estimate_temp_c(date=next_date)
+        release_pressure = S_t.get("release_pressure", 0.0)
+        residence_time_days = S_t.get("residence_time_days", 0.0)
+        eod_02GA041_streamflow_m3s = None
+        eod_02GA041_streamflow_m3s_observed = None
+        eod_02GA014_streamflow_m3s = None
+        eod_02GA014_streamflow_m3s_observed = None
+        eod_West_Montrose_streamflow_m3s = None
+        eod_West_Montrose_streamflow_m3s_observed = None
+
         if self.use_raven and self.raven_freq > 0 and (self._t % self.raven_freq == 0):
             try:
                 self.withdrawal_history_m3s.append((next_date, total_usage_m3s))
                 self._run_raven(date=next_date)
 
                 # based on the current usage get the stage at the end of day (midnight)
-                eod_reservoir_stage = self._read_raven_reservoir_stage(self.raven_stage_col)
-                eod_streamflow_m3s = self._read_raven_streamflow(self.raven_streamflow_col)
-                eod_outflow_m3s = self._read_raven_streamflow(self.raven_outflow_col)
-                eod_precip_mm_day = self._read_raven_precip(self.raven_precip_col)
+                raven_reservoir_stage = self._read_raven_reservoir_stage(self.raven_stage_col)
+                raven_streamflow_m3s = self._read_raven_streamflow(self.raven_streamflow_col)
+                raven_outflow_m3s = self._read_raven_streamflow(self.raven_outflow_col)
+                raven_precip_mm_day = self._read_raven_precip(self.raven_precip_col)
+
+                # Only overwrite carry-forward defaults with valid (non-None) reads.
+                if raven_reservoir_stage is not None:
+                    eod_reservoir_stage = float(raven_reservoir_stage)
+                    eod_reservoir_level_norm = (
+                        eod_reservoir_stage - (self.full_stage_m - self.max_depth_m)
+                    ) / self.max_depth_m
+                if raven_streamflow_m3s is not None:
+                    eod_streamflow_m3s = raven_streamflow_m3s
+                if raven_outflow_m3s is not None:
+                    eod_outflow_m3s = raven_outflow_m3s
+                if raven_precip_mm_day is not None:
+                    eod_precip_mm_day = raven_precip_mm_day
 
                 eod_02GA041_streamflow_m3s = self._read_raven_streamflow("02GA041 [m3/s]")
                 eod_02GA041_streamflow_m3s_observed = self._read_raven_streamflow("02GA041 (observed) [m3/s]")
@@ -458,11 +532,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                 # eod_temp_c = self._read_raven_temp(self.raven_temp_col)
                 eod_temp_c = self._estimate_temp_c(date=next_date)
 
-                if eod_reservoir_stage is not None:
-                    eod_reservoir_level_norm = (
-                        float(eod_reservoir_stage) - (self.full_stage_m - self.max_depth_m)
-                    ) / self.max_depth_m
-
                 # TODO review this
                 # compute flow penalty
                 # TODO this may need to be capped or may explode
@@ -473,14 +542,17 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
                 # Residence Time
                 eod_reservoir_m3 = (
-                    eod_reservoir_stage 
+                    eod_reservoir_stage
                     - (self.full_stage_m - self.max_depth_m)
                 ) / self.max_depth_m
                 q_ref_m3s = max(eod_streamflow_m3s, eod_outflow_m3s)
                 residence_time_days = eod_reservoir_m3 / max(EPS, q_ref_m3s) / 86400
-                
+
             except Exception:
-                logger.exception("Raven integration failed; falling back to internal dynamics")
+                logger.exception("Raven integration failed; using carry-forward state")
+                self._warn_raven_fallback()
+        elif not self.use_raven:
+            self._warn_raven_fallback()
 
 
         new_state = {
