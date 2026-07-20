@@ -12,7 +12,7 @@ class ESConfig(OptimizerConfig):
         # Add default or from default
         # ES training hyperparameters
         self.dimension: int = None
-        self.sigma: int = 0.15
+        self.sigma: float = 0.15
         self.mean_lr: float = 0.1
         self.sigma_lr: float = 0.05
         self.min_sigma: float = 1e-3

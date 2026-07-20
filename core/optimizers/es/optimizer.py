@@ -4,14 +4,22 @@ import logging
 import math
 from typing import TYPE_CHECKING
 
+import ray
+from ray.actor import ActorHandle
+
 import numpy as np
+
+from core.mechanism.space import MechanismSpace
 
 logger = logging.getLogger(__name__)
 
+from core.envs.base import BaseEnv
 from core.optimizers.base import Optimizer
 
 if TYPE_CHECKING:
     from core.optimizers.es.config import ESConfig
+    from core.reporting.wandb import WandbReporter
+    from core.world.base import World
 
 
 # TODO move this into constants
@@ -19,9 +27,11 @@ EPS = 1e-8
 
 
 class ESOptimizer(Optimizer):
-    def __init__(self, config: ESConfig):
+    def __init__(
+            self, 
+            config: ESConfig,
+            ):
         super().__init__(config)
-
         # --- hyperparameters --
         self.dimension = config.dimension
         self.mean_lr = config.mean_lr
@@ -54,10 +64,14 @@ class ESOptimizer(Optimizer):
         self.population_history: list[tuple[np.ndarray, np.ndarray]] = []
 
         # TODO move this to generalized optimizer
-        self.no_improve_steps = 0
-        self.convergence_patience = config.convergence_patience
-        self.convergence_eps = config.convergence_eps
-        self.converged_once = False
+        # self.no_improve_steps = 0
+        # self.convergence_patience = config.convergence_patience
+        # self.convergence_eps = config.convergence_eps
+        # self.converged_once = False
+
+    def _on_env_init(self, env: BaseEnv) -> None:
+        mechanism_space: MechanismSpace = env.m_space
+        self.parameter_names = list(mechanism_space.optimize_params)
 
     @property
     def batch_capacity(self) -> int:
@@ -204,8 +218,6 @@ class ESOptimizer(Optimizer):
             self.best_candidate = population[best_idx].copy()
             self.best_mechanism_idx = best_idx
 
-        self.generation += 1
-
     def run(self) -> None:
         logger.info(
             "[ES] Generation started | gen=%d | sigma=%.5f | mean_norm=%.4f",
@@ -216,6 +228,9 @@ class ESOptimizer(Optimizer):
 
         if self.env is None:
             raise RuntimeError("ESOptimizer requires a RegulatorEnv")
+
+        pre_update_mean = self.mean.copy()
+        pre_update_sigma = float(self.sigma)
 
         population = self._sample_population()
         _, fitness, _, _, _ = self.env.step(population)
@@ -235,34 +250,49 @@ class ESOptimizer(Optimizer):
         # Store population history for visualization
         self.population_history.append((population.copy(), fitness.copy()))
 
-        best = float(fitness.max())
         var = float(fitness.var())
 
-        improved = best > self.best_fitness + self.convergence_eps
-        best_idx = int(fitness.argmax())
+        # improved = best > self.best_fitness + self.convergence_eps
+        # best_idx = int(fitness.argmax())
 
-        if improved:
-            self.best_fitness = best
-            self.best_candidate = population[best_idx].copy()
-            self.best_mechanism_idx = best_idx
-            self.no_improve_steps = 0
-        else:
-            self.no_improve_steps += 1
+        # if improved:
+        #     self.best_fitness = best
+        #     self.best_candidate = population[best_idx].copy()
+        #     self.best_mechanism_idx = best_idx
+        #     self.no_improve_steps = 0
+        # else:
+        #     self.no_improve_steps += 1
+
 
         self._update_parameters(population, fitness)
         self.generation += 1
 
-        converged = self.no_improve_steps >= self.convergence_patience
-
-        if converged and not self.converged_once:
-            logger.info(
-                "[ES] CONVERGENCE REACHED | "
-                f"gen={self.generation} | "
-                f"best_fitness={self.best_fitness:.4f} | "
-                f"sigma={self.sigma:.4f} | "
-                f"var={var:.4f}"
+        # Plotting
+        ray.get(
+            self.reporting.plot_es_population.remote(
+                generation=self.generation + 1,
+                population=population,
+                fitness=fitness,
+                parameter_names=self.parameter_names,
+                mean=pre_update_mean,
+                sigma=pre_update_sigma,
+                best_fitness_global=self.best_fitness,
+                best_candidate_global=self.best_candidate,
+                prefix="es",
             )
-            self.converged_once = True
+        )
+
+        # converged = self.no_improve_steps >= self.convergence_patience
+
+        # if converged and not self.converged_once:
+        #     logger.info(
+        #         "[ES] CONVERGENCE REACHED | "
+        #         f"gen={self.generation} | "
+        #         f"best_fitness={self.best_fitness:.4f} | "
+        #         f"sigma={self.sigma:.4f} | "
+        #         f"var={var:.4f}"
+        #     )
+        #     self.converged_once = True
 
         self.metrics.log_dict(
             {
@@ -271,7 +301,7 @@ class ESOptimizer(Optimizer):
                 "es/mean_fitness": float(fitness.mean()),
                 "es/fitness_var": var,
                 "es/sigma": self.sigma,
-                "es/no_improve_steps": self.no_improve_steps,
+                # "es/no_improve_steps": self.no_improve_steps,
             }
         )
         logger.info(
@@ -281,7 +311,7 @@ class ESOptimizer(Optimizer):
             f"mean={fitness.mean():.4f}±{fitness.std():.4f} | "
             f"var={var:.4f} | "
             f"sigma={self.sigma:.4f} | "
-            f"no_improve={self.no_improve_steps}"
+            # f"no_improve={self.no_improve_steps}"
         )
 
         # Get best trajectory from env if available
@@ -290,7 +320,7 @@ class ESOptimizer(Optimizer):
             best_trajectory = self.env.trajectories.get(self.best_mechanism_idx)
 
         return {
-            "converged": converged,
+            # "converged": converged,
             "best_fitness": self.best_fitness,
             "best_trajectory": best_trajectory,
             "population_history": self.population_history,
