@@ -39,8 +39,10 @@ class FitnessContext(ContextSchema):
         """
         Construct fitness context from evaluation metrics.
         """
-
-        objective = float(mean_reward - sustainability_weight * sustainability_penalty)
+        # TODO 
+        # objective = mean_reward - sustainability_weight * (1.0 - mean_fish)
+        objective = mean_reward
+        # objective = mean_fish
 
         return cls(
             objective_score=objective,

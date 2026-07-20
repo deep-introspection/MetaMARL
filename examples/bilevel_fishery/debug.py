@@ -72,7 +72,7 @@ bilevel_opt_cfg: BilevelConfig = (
             # default_max_farm_area_m2=500_000.0,
         )
     )
-    .training(outer_iters=100)
+    .training(outer_iters=1000)
     .ray(
         device="cpu",
         num_cpus=4,
@@ -104,10 +104,11 @@ bilevel_opt_cfg: BilevelConfig = (
                 "ecology_cfg": {
                     "sus_weight": 1.0,
                     "sus_threshold": 0.1,
+                    "K": 5_000, # HAS to match environmnet K
                 },
             },
-            horizon=20,
-            train_iters=20,
+            horizon=100,
+            train_iters=100,
         )
         .debugging(
             seed=42,
@@ -132,17 +133,17 @@ bilevel_opt_cfg: BilevelConfig = (
                 "ecology_cfg": {
                     # Pella-Tomlinson / Schaefer single-stock dynamics
                     "r": 0.3,
-                    "K": 500_000,
+                    "K": 5_000,
                     "p": 1.0,
                     "sigma": 0.05,
-                    "B0": 250_000,
+                    "B0": 2_500,
 
                     # Optional compatibility alias used by reset if present
-                    "fish_init": 250_000,
+                    "fish_init": 2_500,
                 },
                 "seed": 0,
             },
-            horizon=150,
+            horizon=100,
             disable_env_checking=False,
         )
         .env_runners(
@@ -150,7 +151,7 @@ bilevel_opt_cfg: BilevelConfig = (
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
             num_envs_per_env_runner=1,
-            rollout_fragment_length=150,
+            rollout_fragment_length=100,
             batch_mode="truncate_episodes",
         )
         .learners(
@@ -169,8 +170,8 @@ bilevel_opt_cfg: BilevelConfig = (
             timeout_s_aggregator_manager=10,
             gamma=0.99,
             lr=0.001,
-            train_batch_size_per_learner=150,
-            minibatch_size=150,
+            train_batch_size_per_learner=100,
+            minibatch_size=100,
             num_epochs=1,
             entropy_coeff=0.001,
             grad_clip=40.0,
@@ -179,18 +180,18 @@ bilevel_opt_cfg: BilevelConfig = (
             evaluation_interval=1,
             evaluation_duration=1,
             evaluation_duration_unit="episodes",
-            evaluation_num_env_runners=1,
+            evaluation_num_env_runners=0,
             evaluation_parallel_to_training=False,
             evaluation_config={
                 "explore": False,
-                "rollout_fragment_length": 150,
+                "rollout_fragment_length": 100,
                 "batch_mode": "complete_episodes",
             },
         )
         .agents(
             {
                 "utilizer": {
-                    "count": 500,
+                    "count":5,
                     "policy": "fisher_policy",
                     "observation_space": spaces.Box(
                         low=-np.inf,

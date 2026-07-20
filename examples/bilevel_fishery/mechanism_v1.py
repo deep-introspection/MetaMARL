@@ -7,6 +7,7 @@ from core.annotations import override
 from core.mechanism.base import Mechanism
 from core.mechanism.space import MechanismSpace
 
+EPS = 1e-8
 
 @dataclass(frozen=True)
 class FisheryMechanism(Mechanism):
@@ -20,6 +21,7 @@ class FisheryMechanism(Mechanism):
     def __post_init__(self) -> None:
         assert 0.0 <= self.fixed_quota <= 1.0
         assert 0.0 <= self.min_demand_frac <= 1.0
+        # TODO rename max demand frac to range
         assert 0.0 <= self.max_demand_frac <= 1.0
         assert self.min_demand_frac <= self.max_demand_frac
         assert 0.0 <= self.fine_amount <= 1.0
@@ -28,11 +30,20 @@ class FisheryMechanism(Mechanism):
 
     @override(Mechanism)
     def to_vector(self) -> np.ndarray:
+        remaining_range = 1.0 - self.min_demand_frac
+
+        if remaining_range <= EPS:
+            max_demand_range = 0.0
+        else:
+            max_demand_range = (
+                self.max_demand_frac - self.min_demand_frac
+            ) / remaining_range
+
         return np.array(
             [
                 self.fixed_quota,
                 self.min_demand_frac,
-                self.max_demand_frac,
+                max_demand_range,
                 self.fine_amount,
                 self.risk_penalty_scale,
                 (self.risk_penalty_power - 1.0) / 4.0,
@@ -133,25 +144,63 @@ class FisheryMechanismSpace(MechanismSpace):
 
         return result
 
-    def encode(self, m: FisheryMechanism) -> NDArray[np.float32]:
+    def encode(
+        self,
+        m: FisheryMechanism,
+    ) -> NDArray[np.float32]:
+        """
+        Convert a physical mechanism into the normalized ES representation.
+
+        For max_demand_frac, encode its relative position in the interval
+        [min_demand_frac, 1.0].
+        """
         values = []
 
         for name in self.optimize_params:
+            if name == "max_demand_frac":
+                remaining_range = 1.0 - m.min_demand_frac
+
+                if remaining_range <= EPS:
+                    normalized_value = 0.0
+                else:
+                    normalized_value = (
+                        m.max_demand_frac
+                        - m.min_demand_frac
+                    ) / remaining_range
+
+                values.append(
+                    float(np.clip(normalized_value, 0.0, 1.0))
+                )
+                continue
+
             raw = getattr(m, name)
-            values.append(self._normalize_param(name, raw))
+            normalized_value = self._normalize_param(name, raw)
+
+            values.append(
+                float(np.clip(normalized_value, 0.0, 1.0))
+            )
 
         return np.array(values, dtype=np.float32)
 
-    def decode(self, x: NDArray[np.float32]) -> Mechanism:
+    def decode(self, x: NDArray[np.float32]) -> FisheryMechanism:
         u = np.clip(self._validate(x), 0.0, 1.0)
 
         params = dict(self.defaults)
-        params.update(self._denormalize(u))
+        decoded_values = self._denormalize(u)
 
-        params["max_demand_frac"] = max(
-            params["max_demand_frac"],
-            params["min_demand_frac"],
-        )
+        for name, value in decoded_values.items():
+            if name != "max_demand_frac":
+                params[name] = value
+
+        # The optimizer's max coordinate is a relative range coordinate.
+        if "max_demand_frac" in decoded_values:
+            min_demand_frac = float(params["min_demand_frac"])
+            max_range = float(decoded_values["max_demand_frac"])
+
+            params["max_demand_frac"] = (
+                min_demand_frac
+                + max_range * (1.0 - min_demand_frac)
+            )
 
         mech = FisheryMechanism(
             fixed_quota=params["fixed_quota"],
