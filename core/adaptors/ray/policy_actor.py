@@ -69,7 +69,8 @@ class PolicyActor:
     def reset(self):
         """Reset to initial weights."""
         # TODO verify reset is using the same seed 
-        self.algo.set_weights(self._init_weights)
+        # self.algo.set_weights(self._init_weights)
+        self.algo = self.algo_config.build_algo()
 
     def stop(self):
         self.algo.stop()
