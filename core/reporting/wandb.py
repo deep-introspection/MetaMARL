@@ -4,8 +4,10 @@ from typing import Any, Optional
 
 import ray
 import wandb
+import numpy as np
 
 from core.world.context import Context
+from core.reporting.utils.es_population import plot_es_population as plot_es_population_util
 from core.reporting.utils.ray_new_api_stack import plot_training_results_new_stack
 from core.reporting.utils.env_step_context import plot_env_step_context
 from core.reporting.utils.env_reduced import plot_env_reduced, ReductionSpec
@@ -121,7 +123,7 @@ class WandbReporter:
             log_return_multiline_plot=log_return_multiline_plot,
             log_learner_multiline_plots=log_learner_multiline_plots and not is_eval,
             log_mechanism_shaded_plots=log_mechanism_shaded_plots,
-            log_raw_rllib_episode_metrics=log_raw_rllib_episode_metrics,
+            log_raw_rllib_episode_metrics=True,
         )
 
     def plot_env_step(
@@ -153,5 +155,48 @@ class WandbReporter:
             outer_iter=outer_iter,
             training_episode=training_episode,
             reducers=reducers,
+            prefix=prefix,
+        )
+
+    def plot_es_population(
+        self,
+        *,
+        generation: int,
+        population: np.ndarray,
+        fitness: np.ndarray,
+        parameter_names: list[str],
+        mean: np.ndarray | None = None,
+        sigma: float | None = None,
+        best_fitness_global: float | None = None,
+        best_candidate_global: np.ndarray | None = None,
+        prefix: str = "es",
+    ) -> None:
+        """
+        Plot one outer-optimizer generation.
+
+        All arguments are serializable and may safely be sent to this Ray actor.
+        The raw wandb.Run remains owned exclusively by WandbReporter.
+        """
+        definition_key = f"es_step::{prefix}"
+
+        if definition_key not in self._defined_prefixes:
+            generation_key = f"{prefix}/generation"
+            self._run.define_metric(generation_key)
+            self._run.define_metric(
+                f"{prefix}/*",
+                step_metric=generation_key,
+            )
+            self._defined_prefixes.add(definition_key)
+
+        plot_es_population_util(
+            wandb_run=self._run,
+            generation=generation,
+            population=population,
+            fitness=fitness,
+            parameter_names=parameter_names,
+            mean=mean,
+            sigma=sigma,
+            best_fitness_global=best_fitness_global,
+            best_candidate_global=best_candidate_global,
             prefix=prefix,
         )
