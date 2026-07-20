@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING, Optional, Self, Type, Union
 import numpy as np
 import ray
 from gymnasium import Space
+from ray.actor import ActorHandle
 from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 
 from core.envs.base import BaseEnv
+from core.reporting.wandb import WandbReporter
 from core.types import EnvConfigDict, EnvType
 from core.world.base import World
 
@@ -135,8 +137,9 @@ class OptimizerConfig(_Config, ABC):
     def build_optimizer(
         self,
         *,
-        world: Optional[World] = None,
+        world: Optional[ActorHandle[World]] = None,
         inner_opt: Optional[Optimizer] = None,
+        reporting: Optional[ActorHandle[WandbReporter]] = None,
         **kwargs,
     ) -> Optimizer:
         """Builds an Optimizer from this OptimizerConfig (or a copy thereof)."""
@@ -145,7 +148,10 @@ class OptimizerConfig(_Config, ABC):
             raise ValueError("OptimizerConfig has no opt_class")
 
         # TODO remove this in the future and create registry for world and optimizer. keep for now as safety guard
-        opt = cfg.opt_class(config=cfg)
+        opt: Optimizer = cfg.opt_class(config=cfg)
+
+        opt.world = world
+        opt.reporting = reporting
 
         # register optimizer in world to link contexts to optimizers
         if world is not None:

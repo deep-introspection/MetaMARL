@@ -40,13 +40,9 @@ class RayOptimizer(Optimizer):
         self,
         # algo: Algorithm,
         config: RayOptimizerConfig,
-        world: ActorHandle[World],
-        reporting: ActorHandle[WandbReporter],
     ):
         super().__init__(config)
         # self.algo = algo
-        self.world = world  # TODO replace by envFactory
-        self.reporting = reporting
         # self.eval_episodes = config.eval_episodes
         # TODO fallback if rollout_fragment_length not in eval_cfg
         self.eval_episodes = (
@@ -63,6 +59,7 @@ class RayOptimizer(Optimizer):
         # Track training metrics for plotting
         self._training_rewards: list[float] = []
         self._training_losses: list[float] = []
+        self._inner_iter: int = 0
         self._es_round: int = 0
 
         # TODO remove this - temporary for testing
@@ -107,7 +104,18 @@ class RayOptimizer(Optimizer):
     def run(self) -> None:
         logger.info("[PPO] Training step started")
         result = ray.get(self.policy_actor.train.remote())
-        step = int(to_float(result.get("training_iteration")) or 0)
+        # step = int(to_float(result.get("training_iteration")) or 0)
+
+        result = ray.get(self.policy_actor.train.remote())
+
+        # Local inner-loop iteration. This resets for each outer ES round.
+        self._inner_iter += 1
+        step = self._inner_iter
+
+        # RLlib's own lifetime training counter, retained only for debugging.
+        rllib_training_iteration = int(
+            to_float(result.get("training_iteration")) or 0
+        )
 
         # TODO make this more dynamic NEW_STACK
         # TODO move this to world
@@ -158,8 +166,13 @@ class RayOptimizer(Optimizer):
         self._training_losses.append(policy_loss)
 
         logger.info(
-            "[PPO] Training step completed | iter=%d | ep_return=%.4f | env_steps_iter=%d | env_steps_lifetime=%d | policy_loss=%s",
+            "[PPO] Training step completed | "
+            "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
+            "ep_return=%.4f | env_steps_iter=%d | "
+            "env_steps_lifetime=%d | policy_loss=%s",
+            self._es_round,
             step,
+            rllib_training_iteration,
             ep_return,
             steps_iter,
             steps_life,
@@ -178,6 +191,7 @@ class RayOptimizer(Optimizer):
         logger.info("[PPO] Resetting policy weights")
         self._training_rewards = []
         self._training_losses = []
+        self._inner_iter = 0
         self._es_round += 1
         ray.get(self.policy_actor.reset.remote())
 

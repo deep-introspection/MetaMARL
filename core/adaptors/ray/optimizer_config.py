@@ -433,10 +433,9 @@ class RayOptimizerConfig(OptimizerConfig):
 
         cfg = self.copy(copy_frozen=True)
         # TODO do not give world to ray optimizer. temp solution until environment factory
-        opt = RayOptimizer(config=cfg, world=world, reporting=reporting)
-
-        # TODO refactor to env Factory later
+        opt = RayOptimizer(config=cfg)
         opt.world = world
+        opt.reporting = reporting
 
         # register optimizer in world to link contexts to optimizers
         if world is not None:

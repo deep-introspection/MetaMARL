@@ -2,11 +2,14 @@ from abc import ABC, abstractmethod
 from logging import Logger
 from typing import Any, Callable, Optional
 
+from ray.actor import ActorHandle
 from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 
 from core.envs.base import BaseEnv
 from core.optimizers.config import OptimizerConfig
+from core.reporting.wandb import WandbReporter
 from core.types import OptimizerID
+from core.world.base import World
 
 
 class Optimizer(ABC):
@@ -34,6 +37,8 @@ class Optimizer(ABC):
     def __init__(
         self,
         config: Optional[OptimizerConfig] = None,
+        world: Optional[ActorHandle[World]] = None,
+        reporting: Optional[ActorHandle[WandbReporter]] = None,
         # TODO
         # logger_creator: Optional[Callable[[], Logger]] = None,
         **kwargs,
@@ -42,12 +47,15 @@ class Optimizer(ABC):
 
         self.config: OptimizerConfig = config
 
+        self.world = world  # TODO replace by envFactory
+        self.reporting = reporting
+
         # Assigned by World or Orchestrator
         self.opt_id: OptimizerID | None = None
 
         # Optional environment (may be None for meta-optimizers)
         # TODO review
-        self.env: BaseEnv | None = config.env
+        self._env: BaseEnv | None = config.env
 
         # Optional metrics hook
         self.metrics: MetricsLogger = MetricsLogger(
@@ -60,6 +68,38 @@ class Optimizer(ABC):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(id={self.opt_id})"
+
+    # TODO setup accessors and mutators
+    # @property
+    # def world(self) -> ActorHandle[World]:
+    #     return self._world
+
+    # @world.setter
+    # def world(self, world: ActorHandle[World]) -> None:
+    #     self._world = world
+
+    # @property
+    # def reporting(self) -> ActorHandle[WandbReporter]:
+    #     return self._reporting
+
+    # @reporting.setter
+    # def world(self, reporting: ActorHandle[WandbReporter]) -> None:
+    #     self._reporting = reporting
+    
+    @property
+    def env(self) -> BaseEnv | None:
+        return self._env
+    
+    @env.setter
+    def env(self, value: BaseEnv | None) -> None:
+        self._env = value
+
+        if value is not None:
+            self._on_env_init(value)
+
+    def _on_env_init(self, env: BaseEnv) -> None:
+        """Hook called after a runtime env is attached"""
+        pass
 
     @property
     def id(self) -> OptimizerID:
