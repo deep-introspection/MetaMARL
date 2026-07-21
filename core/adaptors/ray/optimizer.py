@@ -106,8 +106,6 @@ class RayOptimizer(Optimizer):
         result = ray.get(self.policy_actor.train.remote())
         # step = int(to_float(result.get("training_iteration")) or 0)
 
-        result = ray.get(self.policy_actor.train.remote())
-
         # Local inner-loop iteration. This resets for each outer ES round.
         self._inner_iter += 1
         step = self._inner_iter
