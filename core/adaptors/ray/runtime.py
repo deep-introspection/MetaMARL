@@ -35,7 +35,9 @@ class RayRuntimeConfig:
     # driver-side and surface via the root logger regardless.
     log_to_driver: bool = False
 
-    ray_debug: bool = True
+    # RAY_DEBUG=1 attaches the Ray distributed debugger to every worker — pure
+    # overhead for normal runs. Off by default; turn on only when step-debugging.
+    ray_debug: bool = False
 
     # Per-process math-thread caps. VECLIB_MAXIMUM_THREADS is the one that
     # limits Apple Accelerate (numpy's BLAS on macOS), which ignores
@@ -119,6 +121,20 @@ class RayRuntimeConfig:
         env_vars = dict(runtime_env.get("env_vars", {}))
         for key, val in self._thread_env_vars().items():
             env_vars.setdefault(key, val)
+
+        # Give workers the repo on their import path so they can import `core`
+        # and (non-installed) `examples.*` WITHOUT Ray uploading a working_dir.
+        # On a single machine the repo is on the shared filesystem, so a
+        # working_dir upload is pure waste — and launching via `uv run` makes Ray
+        # auto-capture + upload the whole cwd (incl. the ~1.2 GB .venv), which
+        # thrashes /tmp/ray and macOS launchservicesd. Launch with the venv
+        # python directly (e.g. `.venv/bin/python ...`), not `uv run`.
+        repo_root = os.getcwd()
+        existing_pp = env_vars.get("PYTHONPATH")
+        env_vars["PYTHONPATH"] = (
+            f"{repo_root}{os.pathsep}{existing_pp}" if existing_pp else repo_root
+        )
+
         runtime_env["env_vars"] = env_vars
 
         ray.init(
