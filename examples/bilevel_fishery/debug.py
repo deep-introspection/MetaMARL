@@ -150,7 +150,11 @@ bilevel_opt_cfg: BilevelConfig = (
             num_env_runners=0,
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
-            num_envs_per_env_runner=1,
+            # ES population size = num_envs_per_env_runner // len(inner seeds).
+            # With 1 inner seed -> population 16 (8 antithetic pairs). Must stay
+            # even while break_symmetry=False, and be a multiple of the inner
+            # seed count so each (mechanism, seed) pair maps to one vectorized env.
+            num_envs_per_env_runner=16,
             rollout_fragment_length=100,
             batch_mode="truncate_episodes",
         )
