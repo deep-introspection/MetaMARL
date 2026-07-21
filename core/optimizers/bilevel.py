@@ -88,6 +88,8 @@ class BilevelConfig(OptimizerConfig):
         omp_threads: int = 1,
         logging_level: str = "ERROR",
         runtime_env: Optional[dict] = None,
+        local_mode: bool = False,
+        log_to_driver: bool = False,
         **kwargs,
     ) -> Self:
         self.ray_cfg = RayRuntimeConfig(
@@ -97,6 +99,8 @@ class BilevelConfig(OptimizerConfig):
             omp_threads=omp_threads,
             logging_level=logging_level,
             runtime_env=runtime_env,
+            local_mode=local_mode,
+            log_to_driver=log_to_driver,
             init_kwargs=kwargs,
         )
         return self

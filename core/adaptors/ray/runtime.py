@@ -24,6 +24,17 @@ class RayRuntimeConfig:
     runtime_env: Optional[Dict[str, Any]] = None
     init_kwargs: Dict[str, Any] = field(default_factory=dict)
 
+    # local_mode runs everything in a single process — handy for step-through
+    # debugging, but on Ray >= 2.5 it CANNOT upload an auto-captured working_dir,
+    # so launching from inside the editable-installed repo raises
+    # "... is not a valid URI". Keep False for normal runs; set True only for
+    # debugging AND launch from outside the repo.
+    local_mode: bool = False
+    # Forward worker stdout/stderr to the driver. Kept False by default to avoid
+    # noisy Ray/actor logs; the app's own [Bilevel]/[ES]/[PPO] logs are emitted
+    # driver-side and surface via the root logger regardless.
+    log_to_driver: bool = False
+
     ray_debug: bool = True
 
     def _apply_env_vars(self):
@@ -74,8 +85,8 @@ class RayRuntimeConfig:
             ignore_reinit_error=True,
             logging_level=self.logging_level,
             runtime_env=self.runtime_env,
-            local_mode=True,  # Turn on for debugging only (DO NOT TURN OFF)
-            log_to_driver=False,
+            local_mode=self.local_mode,
+            log_to_driver=self.log_to_driver,
             include_dashboard=False,
             _system_config={
                 "metrics_report_interval_ms": 0,
