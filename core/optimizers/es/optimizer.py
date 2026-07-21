@@ -267,12 +267,18 @@ class ESOptimizer(Optimizer):
         self._update_parameters(population, fitness)
         self.generation += 1
 
-        # Plotting
+        # Plotting.
+        # plot_es_population was written for population=1 and validates
+        # population.shape[0] == 1. With population > 1 we feed it the
+        # generation's best candidate so it keeps plotting the incumbent's
+        # trajectory instead of crashing. TODO: extend the reporter to
+        # visualise the full population (shape [P, dim]).
+        best_idx = int(np.argmax(fitness))
         ray.get(
             self.reporting.plot_es_population.remote(
                 generation=self.generation + 1,
-                population=population,
-                fitness=fitness,
+                population=population[best_idx : best_idx + 1],
+                fitness=fitness[best_idx : best_idx + 1],
                 parameter_names=self.parameter_names,
                 mean=pre_update_mean,
                 sigma=pre_update_sigma,
