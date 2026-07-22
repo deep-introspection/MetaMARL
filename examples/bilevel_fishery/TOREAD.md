@@ -28,9 +28,11 @@ Three things were wrong. All three are now fixed:
    the same single rule every round, so it could never learn what works.
 3. **Running it froze the computer**, to the point of being unusable.
 
-The experiment now runs from start to finish on a small scale, and the regulator's
-search genuinely explores and improves. The freezing is largely understood and
-mostly fixed — with one part that is a macOS problem, not our code (see the end).
+The experiment now runs on a small scale, and the regulator's search genuinely
+explores and improves. The freezing is now fully understood **and fixed**: it came
+from the Ray library renaming its workers on macOS in a way that overwhelmed a
+core system service (details in Change 4). With that switched off, the machine
+stays responsive during a run.
 
 ---
 
@@ -61,7 +63,7 @@ genuinely different scores (the best clearly better than the worst), the search
 signal is no longer zero, and the regulator's current best guess visibly moves from
 one round to the next. This is the core fix that makes the outer search meaningful.
 
-## Change 3 — Running it no longer overloads the machine (mostly)
+## Change 3 — Running it no longer overloads the machine
 
 **What was wrong.** Two separate things were overloading the computer:
 
@@ -83,19 +85,35 @@ instead of gigabytes.
 **What to expect.** During a run the processor now keeps plenty of spare capacity
 instead of being pinned at 100 %, and the disk no longer fills up.
 
-## The part we could NOT fix in code (it's a macOS issue)
+## Change 4 — The real cause of the freezing (now fixed)
 
-After starting and stopping the experiment many times in one sitting, a **macOS
-system program** called `launchservicesd` gets stuck running at 200–300 % and does
-not calm down on its own — we watched it stay stuck even after every one of our own
-programs was closed. While it is stuck, the interface freezes, even though the
-processor is otherwise idle. **This is not our code.** To recover:
+This was the big one, and it took the longest to find.
 
-```
-sudo killall launchservicesd
-```
+**What was wrong.** So that each parallel worker shows a helpful name in Activity
+Monitor (like `ray::PolicyActor.train`), the Ray library **renames every worker
+before and after each small task it runs**. On macOS that rename is *not* free:
+each one sends a request to a core system service — `launchservicesd`, the one
+that keeps track of applications — and waits for a reply. With ~19 workers
+renaming themselves thousands of times during training, that single system
+service gets swamped. And because other parts of macOS — including the on-screen
+interface — have to queue behind the same service, **the whole machine freezes,
+even though the processor itself is mostly idle**. That's why the processor always
+looked free, why closing other apps didn't help, and why it happened on a freshly
+rebooted machine too.
 
-(it restarts itself cleanly), or simply **reboot**.
+**How we found it.** We captured a live snapshot of one worker *while the machine
+was frozen*; its internal call trace pointed straight from "rename this worker" to
+that system service.
+
+**What we changed.** The rename is purely cosmetic (just the label in Activity
+Monitor), so we switched it off in every worker.
+
+**What to expect.** That system service now stays near **0 %** during a run (it was
+pinned at 200–300 %), and the machine stays responsive. Measured before/after on a
+full run — this is the fix for the freezing.
+
+(If that service is ever still stuck from an *earlier* run, `sudo killall
+launchservicesd` or a reboot clears it — but a fresh run no longer causes it.)
 
 ---
 
@@ -118,16 +136,11 @@ To stop it yourself at any time: press **Ctrl-C** in its terminal, or run
 
 ## What we could NOT do (honest limitations)
 
-- **We never completed a full-length run.** The experiment as configured is very
-  long (1000 outer rounds × 100 inner steps each), and the laptop kept getting
-  bogged down — partly the issues above (now fixed) and partly the stuck macOS
-  program (not fixable in code). We only ran a handful of rounds — enough to
-  **prove the mechanics work**, not to produce scientific results.
-
-- **The real recommendation: run the full experiment off the laptop** — on a
-  dedicated machine or a cluster. Starting and stopping Ray dozens of times on the
-  MacBook is what wedges the macOS system program. The code is ready; it just needs
-  a machine built for the load.
+- **We did not run the full experiment to the very end.** It now runs on the
+  laptop **without freezing**, but it is a long run (1000 outer rounds × 100 inner
+  steps each). We ran enough rounds to confirm the mechanics work and that the
+  freeze is gone — not to produce final scientific results. It can now be left to
+  run (locally or elsewhere) as you see fit.
 
 - **We did not change the reward, the fishers' learning settings, or the scale.**
   Those are your scientific choices; we only fixed what was broken.

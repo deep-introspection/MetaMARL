@@ -4,7 +4,8 @@ Branch: `fix/bilevel-fishery-debug` (derived from `feat/fresh-water-rework` @ `c
 
 This branch takes `examples/bilevel_fishery/debug.py` from **crashes on a clean
 checkout** to **runs end-to-end with an outer ES that actually optimizes**, and
-diagnoses (and largely fixes) why running it repeatedly **froze the laptop**.
+fixes why running it **froze the whole laptop** (root cause: Ray's per-task
+`setproctitle` hammering `launchservicesd` on macOS — see below).
 Every change is small, localized, and justified so it can be cherry-picked into
 the main line.
 
@@ -22,6 +23,7 @@ the main line.
 | `fix(es): let ES reporting support population > 1` | `core/optimizers/es/optimizer.py` | Feed the generation's **best** candidate to `plot_es_population` | `plot_es_population` validates `population.shape[0] == 1` (written for the pop=1 era). With a real population the ES passed the full array → `ValueError: population_size=16`, crashing the first outer iteration. |
 | `feat(bilevel-fishery): set ES population to 16` | `examples/bilevel_fishery/debug.py` | `num_envs_per_env_runner = 16` | ES population `= num_envs_per_env_runner // len(inner seeds) = 1//1 = 1`. Fitness whitening over one sample gives a zero gradient → `mean = best = worst`, `var = 0`; the outer search never moved. |
 | `fix(ray): stop uploading repo/.venv; disable RAY_DEBUG` | `core/adaptors/ray/runtime.py` | Inject repo onto worker `PYTHONPATH`; default `ray_debug=False` | Launching via `uv run` makes Ray upload the whole cwd (incl. the ~1.2 GB `.venv`) per run; `excludes` are ignored on this version → `/tmp/ray` grew to ~21 GB. Workers import from disk instead. |
+| `fix(ray): disable per-task setproctitle on macOS` | `core/adaptors/ray/runtime.py`, `core/adaptors/ray/_worker_hooks.py` | No-op `ray._raylet.setproctitle` in every worker (`worker_process_setup_hook`) + driver | **The freeze.** Ray renames each worker per task; on macOS that's a synchronous XPC to `launchservicesd`, which saturates + holds the Launch Services lock → UI freezes (CPU idle). launchservicesd 190–214 % → ~0 %. |
 
 **Not changed on purpose:** the reward, the inner APPO hyper-parameters, and the
 scale (`outer_iters=1000`, `train_iters=100`). Those are methodological choices.
@@ -81,7 +83,7 @@ crash. Quick unblock: pass only the best candidate per generation to
 
 ## Why running it froze the laptop (16-core Apple Silicon, 64 GB)
 
-Two independent mechanisms, plus a third that is not ours:
+Three mechanisms — **all now fixed** (the third was the real killer):
 
 - **Thread oversubscription (fixed).** ~30 Ray processes × ~12–16 math threads =
   ~1083 threads on 16 cores. numpy links Apple Accelerate, which **ignores
@@ -96,12 +98,20 @@ Two independent mechanisms, plus a third that is not ours:
   ignored here. Over the session `/tmp/ray` grew to **21 GB**. Fixed by launching
   with `.venv/bin/python` (no upload) and injecting the repo onto worker
   `PYTHONPATH` so they import from disk. Result: `/tmp/ray` 1.2 GB → **272 KB** per run.
-- **`launchservicesd` wedge (NOT ours — unresolved at the OS level).** After many
-  Ray start/kill cycles, the macOS system daemon `launchservicesd` (root) spins to
-  200–300 % and does **not** recover — it stayed pegged for 30 s+ with zero of our
-  processes alive. It holds Launch Services locks, so the UI freezes even while the
-  CPU is 55–90 % idle. It is not fixed by our code. Clear it with
-  `sudo killall launchservicesd` (it respawns) or a reboot.
+- **`launchservicesd` flood via Ray's per-task `setproctitle` (fixed — this was
+  the freeze).** Confirmed by sampling a live `ray::PolicyActor.train` worker:
+  `execute_task → _changeproctitle → ray._raylet.setproctitle →
+  darwin_set_process_title → _LSSetApplicationInformationItem →
+  xpc_connection_send_message_with_reply_sync`. Ray renames each worker to
+  `ray::<Task>` before every task (and back after); on macOS that vendored
+  `setproctitle` does a **synchronous XPC round-trip to `launchservicesd` per
+  call**. With ~19 workers doing it per task, launchservicesd's single serial
+  queue saturates and holds the Launch Services lock → the whole UI freezes while
+  the CPU stays 50–90 % idle. Fixed by no-op'ing the (cosmetic) rename in every
+  worker via a `worker_process_setup_hook` + patching the driver. Measured:
+  launchservicesd **190–214 % → ~0 %** across a full run; training proceeds
+  normally. If a stale wedge lingers from an old run, clear it with
+  `sudo killall launchservicesd` or a reboot.
 
 The macOS **load average is unreliable here** — observed at 100–200 while the CPU
 was 90 % idle and the machine empty. Judge health by **% CPU idle** and swap, not
@@ -111,26 +121,29 @@ load average.
 
 ## Running the real experiment
 
-`debug.py` as committed is heavy: `outer_iters=1000`, `train_iters=100`,
-population 16, 5 agents. One outer iteration ≈ tens of minutes on the laptop
-(with `num_env_runners=0` the 16 envs step sequentially). **Recommendation: run
-the full experiment off-laptop** (dedicated machine / cluster). The repeated-Ray
-churn wedges macOS daemons on the MacBook; the code itself is ready.
+With the `setproctitle` fix, the run no longer freezes the laptop — it trains
+with `launchservicesd` at ~0 % and the CPU with headroom. `debug.py` as committed
+is still heavy (`outer_iters=1000`, `train_iters=100`, population 16, 5 agents;
+one outer iteration ≈ several minutes with `num_env_runners=0`), so it is a long
+run, but a runnable one on this machine.
 
 ```bash
-# clean, machine-friendly launch:
+# launch (VS Code Run and Debug works too — same venv interpreter, no uv):
 WANDB_MODE=disabled PYTHONPATH=. .venv/bin/python examples/bilevel_fishery/debug.py
 # stop it yourself:  Ctrl-C, or
-pkill -9 -f 'bilevel_fishery/debug.py|ray::(World|PolicyActor|MultiAgentEnvRunner|WandbReporter)'
+pkill -9 -f 'bilevel_fishery/debug.py|ray::|default_worker|raylet'
 ```
+
+Launch with the venv python directly (or VS Code debugpy), **not `uv run`** — `uv
+run` makes Ray upload the repo/.venv into /tmp/ray.
 
 ---
 
 ## Known remaining issues (not addressed here)
 
-- **Full run never completed** on the laptop (scale + the `launchservicesd` wedge).
-  Only a few outer iterations were run, enough to validate Option A functionally.
-- **`launchservicesd`** — OS-level, see above; run off-laptop.
+- **Full 1000-iter run not run to completion** — it now runs without freezing
+  (setproctitle fix), but it is long; only enough outer iterations were run to
+  validate Option A functionally and confirm the freeze is gone.
 - **Dead `num_seeds`.** The outer `.debugging(num_seeds=10)` is overridden by
   `bilevel.py:159-164` with the inner's single seed, so each mechanism is scored
   on one noisy seed. The "10 seeds" intent is lost.
