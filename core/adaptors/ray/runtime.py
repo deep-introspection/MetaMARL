@@ -137,6 +137,21 @@ class RayRuntimeConfig:
 
         runtime_env["env_vars"] = env_vars
 
+        # Disable Ray's per-task worker rename (setproctitle). On macOS it does a
+        # synchronous XPC round-trip to launchservicesd on every task; with many
+        # workers that saturates the Launch Services queue and freezes the whole
+        # UI (CPU stays idle). The rename is cosmetic (Activity Monitor only).
+        # Runs once per worker at start-up, before any task.
+        runtime_env.setdefault(
+            "worker_process_setup_hook",
+            "core.adaptors.ray._worker_hooks.silence_setproctitle",
+        )
+        # Same for the driver process (workers get it via the hook above).
+        try:
+            ray._raylet.setproctitle = lambda *args, **kwargs: None
+        except Exception:
+            pass
+
         ray.init(
             ignore_reinit_error=True,
             logging_level=self.logging_level,
