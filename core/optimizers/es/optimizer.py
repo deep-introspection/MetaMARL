@@ -152,12 +152,40 @@ class ESOptimizer(Optimizer):
         fitness_scores: list[float],
     ) -> None:
         eps = 1e-8
-        fitness = np.asarray(fitness_scores, dtype=np.float32)
+        fitness_scores = np.asarray(
+            fitness_scores,
+            dtype=np.float32,
+        ).reshape(-1)
+        fitness = fitness_scores.copy()
 
-        # Fitness whitening
-        f_mean = np.mean(fitness)
-        f_std = np.std(fitness) + eps
-        fitness = (fitness - f_mean) / f_std
+        if fitness_scores.size == 1:
+            current_fitness = float(fitness_scores[0])
+
+            if self.fitness_baseline is None:
+                self.fitness_baseline = current_fitness
+
+                if current_fitness > self.best_fitness:
+                    self.best_fitness = current_fitness
+                    self.best_candidate = population[0].copy()
+                    self.best_mechanism_idx = 0
+                return
+
+            # Compare this mechanism with the running baseline.
+            advantage = current_fitness - self.fitness_baseline
+            fitness = np.asarray([advantage], dtype=np.float32)
+
+            # Update the baseline after calculating the advantage.
+            baseline_alpha = 0.1
+            self.fitness_baseline = (
+                (1.0 - baseline_alpha) * self.fitness_baseline
+                + baseline_alpha * current_fitness
+            )
+
+        else:
+            # Fitness whitening
+            f_mean = np.mean(fitness)
+            f_std = np.std(fitness) + eps
+            fitness = (fitness - f_mean) / f_std
 
         # Logit transform
         eps_bound = 1e-6
@@ -175,9 +203,13 @@ class ESOptimizer(Optimizer):
         half = N // 2
 
         # Detect if strict antithetic symmetry holds
-        strict_antithetic = self._batch_capacity % 2 == 0
+        strict_antithetic = (
+            not self.break_symmetry
+            and N % 2 == 0
+            and half > 0
+        )
 
-        if self.break_symmetry and strict_antithetic and half > 0:
+        if strict_antithetic:
             f_pos = fitness[:half]
             f_neg = fitness[half : 2 * half]
             eps_pos = eps_est[:half]
@@ -264,13 +296,30 @@ class ESOptimizer(Optimizer):
         #     self.no_improve_steps += 1
 
 
+        logger.info(
+            "[ES] BEFORE UPDATE | "
+            f"gen={self.generation} | "
+            f"mean={pre_update_mean.tolist()} | "
+            f"sigma={pre_update_sigma:.5f} | "
+            f"population={population.tolist()} | "
+            f"fitness={fitness.tolist()}"
+        )
+
         self._update_parameters(population, fitness)
+
+        logger.info(
+            "[ES] AFTER UPDATE | "
+            f"gen={self.generation} | "
+            f"mean={self.mean.tolist()} | "
+            f"sigma={self.sigma:.5f} | "
+            f"best={self.best_fitness:.5f}"
+        )
         self.generation += 1
 
         # Plotting
         ray.get(
             self.reporting.plot_es_population.remote(
-                generation=self.generation + 1,
+                generation=self.generation,
                 population=population,
                 fitness=fitness,
                 parameter_names=self.parameter_names,

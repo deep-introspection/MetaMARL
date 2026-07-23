@@ -33,6 +33,7 @@ class BaseEnv(Env):
         self._opt_id = opt_id
         self.horizon = horizon
         self.seed = seed
+        self.rng = np.random.default_rng(seed)
         self._t = 0
         self.env_id = None
         self.mode = MechanismStatus(mode)
@@ -108,14 +109,14 @@ class BaseEnv(Env):
     def reset(self, *, seed: Optional[int] = None, options=None):
         # Option to pass seed directly to env --> sequential
         # TODO what are the options used for ?
-        
+
         if seed is not None and self.seed is not None and seed != self.seed:
             pass # do not mutate seed after construction
-
-        effective_seed = self.seed if self.seed is not None else seed
-        
-        self._pre_reset(seed=effective_seed)
-        self.rng = np.random.default_rng(effective_seed)
+        # if seed is not None and and seed != self.seed;
+        #     self.seed = seed
+        #     self.rng = np.random.default_rng(seed)
+        self._t = 0        
+        self._pre_reset(seed=self.seed)
         obs = self._reset()
         self._publish(
             EnvStepContext(

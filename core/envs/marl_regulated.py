@@ -72,12 +72,14 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         if seed is not None and self.seed is not None and seed != self.seed:
             pass # do not mutate seed after construction
 
+        # if seed is not None and seed != self.seed: 
+        #     self.seed = seed
+        #     self.rng = np.random.default_rng(seed)
         self._t = 0
 
         effective_seed = self.seed if self.seed is not None else seed
         
         self._pre_reset(seed=effective_seed)
-        self.rng = np.random.default_rng(effective_seed)
         obs = self._reset()
         self._infos = {agent_id: {} for agent_id in self.agents}
         return obs, self._infos
