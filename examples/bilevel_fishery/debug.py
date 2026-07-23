@@ -30,7 +30,7 @@ bilevel_opt_cfg: BilevelConfig = (
     .mechanism(
         # TODO adding defaults
         space=FisheryMechanismSpace(
-            optimize_params=[],
+            optimize_params=["min_demand_frac"],
             # default_fixed_quota=0.7812058329582214,
             # default_min_demand_frac=0.1059612140059471,
             # default_max_demand_frac=0.5705976366996766,
@@ -51,7 +51,7 @@ bilevel_opt_cfg: BilevelConfig = (
             # extremely restrictive quota
             default_fixed_quota=0.90,
             default_min_demand_frac=0.05,
-            default_max_demand_frac=0.25,
+            default_max_demand_frac=1.0,
 
             default_fine_amount=0.10, 
             default_risk_penalty_scale=1.0,
@@ -92,11 +92,11 @@ bilevel_opt_cfg: BilevelConfig = (
     .outer(
         ESConfig()
         .training(
-            sigma=0.5,
-            mean_lr=0.2,
-            sigma_lr=0.05,
+            sigma=0.15,
+            mean_lr=0.10,
+            sigma_lr=0.02,
             min_sigma=0.01,
-            max_sigma=0.6,
+            max_sigma=0.25,
         )
         .environment(
             env=FisheryRegulatorEnv,
@@ -108,7 +108,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 },
             },
             horizon=100,
-            train_iters=100,
+            train_iters=50,
         )
         .debugging(
             seed=42,
