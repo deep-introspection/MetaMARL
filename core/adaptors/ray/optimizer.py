@@ -62,6 +62,11 @@ class RayOptimizer(Optimizer):
         self._inner_iter: int = 0
         self._es_round: int = 0
 
+        # Number of inner iterations per ES generation, set by the regulator.
+        # Used to throttle env_reduced plotting to once per generation (last
+        # inner iter). None -> plot every iteration (legacy behaviour).
+        self._train_iters_hint: int | None = None
+
         # TODO remove this - temporary for testing
         self._env_reducers: list[ReductionSpec] = (
             getattr(config, "env_reducers", None) or []
@@ -138,7 +143,19 @@ class RayOptimizer(Optimizer):
             )
 
         # TODO reduced env episode plotting
-        if self._env_reducers:
+        #
+        # Throttle: only plot on the last inner iteration of the generation.
+        # plot_env_reduced re-renders an accumulating per-metric table on every
+        # call, which is O(train_iters^2) over a generation and dominates the
+        # per-iteration wall time (see PERF_FINDINGS.md). Plotting once per
+        # generation (on the trained policy) keeps the trajectory view while
+        # removing the quadratic cost. If the hint is unset, keep legacy
+        # per-iteration behaviour.
+        _plot_env_now = self._env_reducers and (
+            self._train_iters_hint is None
+            or self._inner_iter >= self._train_iters_hint
+        )
+        if _plot_env_now:
             latest_env_ctxs = ray.get(
                 self.world.get_new_env_step_contexts.remote(opt_id=self.opt_id)
             )

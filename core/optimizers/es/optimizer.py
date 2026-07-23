@@ -63,6 +63,9 @@ class ESOptimizer(Optimizer):
         self.best_mechanism_idx: int | None = None
         self.population_history: list[tuple[np.ndarray, np.ndarray]] = []
 
+        # Incumbent for the 1/5 success rule (see _update_parameters).
+        self._prev_best_fitness: float | None = None
+
         # TODO move this to generalized optimizer
         # self.no_improve_steps = 0
         # self.convergence_patience = config.convergence_patience
@@ -152,12 +155,12 @@ class ESOptimizer(Optimizer):
         fitness_scores: list[float],
     ) -> None:
         eps = 1e-8
-        fitness = np.asarray(fitness_scores, dtype=np.float32)
+        raw_fitness = np.asarray(fitness_scores, dtype=np.float32)
 
-        # Fitness whitening
-        f_mean = np.mean(fitness)
-        f_std = np.std(fitness) + eps
-        fitness = (fitness - f_mean) / f_std
+        # Fitness whitening (used for the gradient estimate ONLY).
+        f_mean = np.mean(raw_fitness)
+        f_std = np.std(raw_fitness) + eps
+        fitness = (raw_fitness - f_mean) / f_std
 
         # Logit transform
         eps_bound = 1e-6
@@ -196,18 +199,25 @@ class ESOptimizer(Optimizer):
         new_mean_logit = mean_logit + self.mean_lr * gradient
         self.mean = (1.0 / (1.0 + np.exp(-new_mean_logit))).astype(np.float32)
 
-        # Sigma update: 1/5 success rule
-        success_rate = np.mean(fitness > 0)
+        # Sigma update: 1/5 success rule.
+        # Success rate MUST be computed on RAW fitness vs a fixed incumbent, not
+        # on the whitened fitness (zero-mean by construction -> `fitness > 0` is
+        # ~0.5 every generation, which pins sigma and blocks convergence).
+        # Comparing raw fitness to the previous generation's best drives
+        # success_rate -> 0 near an optimum, so sigma anneals down and the search
+        # distribution collapses (i.e. converges). Whitening is kept for the
+        # gradient estimate only.
+        if self._prev_best_fitness is None:
+            success_rate = 0.5  # neutral on the first generation
+        else:
+            success_rate = float(np.mean(raw_fitness > self._prev_best_fitness))
+        self._prev_best_fitness = float(np.max(raw_fitness))
+
         target = 0.2
-
         sigma_multiplier = math.exp(self.sigma_lr * (success_rate - target))
-
         self.sigma = float(
             np.clip(self.sigma * sigma_multiplier, self.min_sigma, self.max_sigma)
         )
-        # Soft anchor toward mid sigma to prevent saturation
-        sigma_mid = 0.5 * (self.min_sigma + self.max_sigma)
-        self.sigma = 0.97 * self.sigma + 0.03 * sigma_mid
 
         # Track best
         best_idx = int(np.argmax(fitness_scores))
@@ -228,9 +238,6 @@ class ESOptimizer(Optimizer):
 
         if self.env is None:
             raise RuntimeError("ESOptimizer requires a RegulatorEnv")
-
-        pre_update_mean = self.mean.copy()
-        pre_update_sigma = float(self.sigma)
 
         population = self._sample_population()
         _, fitness, _, _, _ = self.env.step(population)
@@ -267,15 +274,25 @@ class ESOptimizer(Optimizer):
         self._update_parameters(population, fitness)
         self.generation += 1
 
-        # Plotting
+        # Plotting.
+        # plot_es_population was written for population=1 and validates
+        # population.shape[0] == 1. With population > 1 we feed it the
+        # generation's best candidate so it keeps plotting the incumbent's
+        # trajectory instead of crashing. TODO: extend the reporter to
+        # visualise the full population (shape [P, dim]).
+        best_idx = int(np.argmax(fitness))
         ray.get(
             self.reporting.plot_es_population.remote(
-                generation=self.generation + 1,
-                population=population,
-                fitness=fitness,
+                # Match the console/metrics generation (was +1 -> off by one) and
+                # report the CURRENT (post-update) search centre + sigma, not the
+                # pre-update values (which lagged a generation and made
+                # es/search_mean look frozen at the initial 0.5).
+                generation=self.generation,
+                population=population[best_idx : best_idx + 1],
+                fitness=fitness[best_idx : best_idx + 1],
                 parameter_names=self.parameter_names,
-                mean=pre_update_mean,
-                sigma=pre_update_sigma,
+                mean=self.mean,
+                sigma=self.sigma,
                 best_fitness_global=self.best_fitness,
                 best_candidate_global=self.best_candidate,
                 prefix="es",

@@ -87,6 +87,12 @@ class RegulatorEnv(BaseEnv):
                     )
                 )
 
+        # Let the inner optimizer know the generation length so it can throttle
+        # per-iteration env_reduced plotting to once per generation (last inner
+        # iter) instead of every iteration (see PERF_FINDINGS.md).
+        if hasattr(self.inner, "_train_iters_hint"):
+            self.inner._train_iters_hint = self.train_iters
+
         # TODO : why eval gets repeated ?
         # Train policy for train_iters iterations
         for _ in range(self.train_iters):
