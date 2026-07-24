@@ -49,6 +49,11 @@ class FisheryRegulatorEnv(RegulatorEnv):
         target_status = ecology_cfg.get("aggregation_status", "eval")
         self.aggregation_status = MechanismStatus(target_status)
 
+        # tail averaging
+        self.fitness_tail_steps = int(
+            ecology_cfg.get("fitness_tail_steps", 50)
+        )
+
     @override(RegulatorEnv)
     def observation(self, obs: ObsType) -> ObsType:
         return 0.0
@@ -166,28 +171,39 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     }
                 )
 
+            tail_steps = min(
+                self.fitness_tail_steps,
+                num_steps,
+            )
+
+            tail_start = num_steps - tail_steps
+
+            tail_rewards = rewards[tail_start:]
+            tail_fish = fish[tail_start:]
+            tail_fines = fines[tail_start:]
+
             self.trajectories.setdefault(idx, {})[seed] = trajectory
 
             sustainability_penalties = np.maximum(
                 0.0,
-                (self.sustainability_threshold - fish)
+                (self.sustainability_threshold - tail_fish)
                 / max(1e-6, self.sustainability_threshold),
             )
 
             metrics_by_mechanism[idx].append(
                 {
                     "seed": seed,
-                    "mean_reward": float(rewards.mean()),
-                    "reward_std": float(rewards.std()),
+                    "mean_reward": float(tail_rewards.mean()),
+                    "reward_std": float(tail_rewards.std()),
                     "collapse_rate": float(
-                        (fish < self.sustainability_threshold).mean()
+                        (tail_fish < self.sustainability_threshold).mean()
                     ),
                     "sustainability_penalty": float(
                         sustainability_penalties.mean()
                     ),
-                    "min_fish": float(fish.min()),
-                    "mean_fish": float(fish.mean()),
-                    "mean_fines": float(fines.mean()),
+                    "min_fish": float(tail_fish.min()),
+                    "mean_fish": float(tail_fish.mean()),
+                    "mean_fines": float(tail_fish.mean()),
                 }
             )
 
