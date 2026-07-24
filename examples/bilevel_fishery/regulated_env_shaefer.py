@@ -7,6 +7,7 @@ from ray.rllib.utils.typing import AgentID, MultiAgentDict
 
 from core.annotations import override
 from core.envs.marl_regulated import MultiAgentRegulatedEnv
+from core.utils import sigmoid
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,6 +81,10 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         self.max_fish = self.K
         self.fish_init = ecology_cfg.get("fish_init", ecology_cfg.get("B0", self.K))
 
+        self.quota_transition_width = ecology_cfg.get("quota_transition_width", 0.03)
+        self.harvest_transition_width = ecology_cfg.get("harvest_transition_width", 0.02)
+        self.violation_transition_width = ecology_cfg.get("violation_transition_width", 0.005)
+
         rp = reference_points(self.r, self.K, self.p)
         self.B_msy = rp["B_msy"]
         self.MSY = rp["MSY"]
@@ -118,14 +123,12 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         return float(action)
     
     def _quota_stress(self, fish_norm: float) -> float:
-        return float(
-            np.clip(
-                (fish_norm - self.mechanism.fixed_quota)
-                / max(EPS, 1.0 - self.mechanism.fixed_quota),
-                0.0,
-                1.0,
-            )
-        )
+        fish_norm = float(np.clip(fish_norm, 0.0, 1.0))
+        width = max(self.quota_transition_width, EPS)
+        lower = sigmoid((0.0 - self.mechanism.fixed_quota) / width)
+        upper = sigmoid((1.0 - self.mechanism.fixed_quota) / width)
+        current = sigmoid((fish_norm - self.mechanism.fixed_quota) / width)
+        return (current - lower) / max(upper - lower, EPS)
 
     def _allowed_frac(self, fish_norm: float) -> float:
         stress = self._quota_stress(fish_norm)
@@ -241,7 +244,6 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
         for agent_id, action in A_t.items():
             harvest_frac = np.clip(self._action_to_float(action), 0.0, 1.0)
-
             requested_harvest = harvest_frac * self.full_required_harvest
             allowed_harvest = self._allowed_harvest(fish_norm)
 
