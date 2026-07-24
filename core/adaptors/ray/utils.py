@@ -1,4 +1,7 @@
+import hashlib
+
 import numpy as np
+import torch
 from core.utils import to_float
 
 
@@ -38,3 +41,27 @@ def get_policy_loss_if_present(result: dict) -> float:
             if v is not None:
                 losses.append(v)
     return float(np.mean(losses)) if losses else float("nan")
+
+def hash_weights(weights) -> str:
+    h = hashlib.sha256()
+
+    def update(obj, prefix=""):
+        if isinstance(obj, dict):
+            for key in sorted(obj):
+                update(obj[key], f"{prefix}/{key}")
+
+        elif isinstance(obj, torch.Tensor):
+            array = obj.detach().cpu().contiguous().numpy()
+            h.update(prefix.encode())
+            h.update(array.tobytes())
+
+        elif isinstance(obj, np.ndarray):
+            h.update(prefix.encode())
+            h.update(np.ascontiguousarray(obj).tobytes())
+
+        else:
+            h.update(prefix.encode())
+            h.update(repr(obj).encode())
+
+    update(weights)
+    return h.hexdigest()
