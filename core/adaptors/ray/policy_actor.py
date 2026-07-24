@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import numpy as np
 import ray
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 from ray.rllib.utils.typing import ResultDict
+from core.adaptors.ray.utils import hash_weights
 
+logger = logging.getLogger(__name__)
 
 @ray.remote(num_cpus=1)
 class PolicyActor:
@@ -71,6 +74,14 @@ class PolicyActor:
         # TODO verify reset is using the same seed 
         # self.algo.set_weights(self._init_weights)
         self.algo = self.algo_config.build_algo()
+        # TODO tie the init_weights with seeding
+        self.algo.set_weights(self._init_weights)
+
+        weights = self.algo.get_weights()
+        logger.info(
+            "[PPO] Initial policy weight hash: %s",
+            hash_weights(weights),
+        )
 
     def stop(self):
         self.algo.stop()
