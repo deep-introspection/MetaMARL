@@ -15,6 +15,7 @@ class ESConfig(OptimizerConfig):
         self.sigma: float = 0.15
         self.mean_lr: float = 0.1
         self.sigma_lr: float = 0.05
+        self.sigma_decay: float = 0.99
         self.min_sigma: float = 1e-3
         self.max_sigma: float = 0.5
         self.break_symmetry: bool = False
@@ -27,9 +28,10 @@ class ESConfig(OptimizerConfig):
     def training(
         self,
         *,
-        sigma: Optional[int] = None,
+        sigma: Optional[float] = None,
         mean_lr: Optional[float] = None,
         sigma_lr: Optional[float] = None,
+        sigma_decay: Optional[float] = None,
         min_sigma: Optional[float] = None,
         max_sigma: Optional[float] = None,
         generation: Optional[int] = None,
@@ -63,6 +65,8 @@ class ESConfig(OptimizerConfig):
             self.mean_lr = mean_lr
         if sigma_lr is not None:
             self.sigma_lr = sigma_lr
+        if sigma_decay is not None:
+            self.sigma_decay = sigma_decay
         if min_sigma is not None:
             self.min_sigma = min_sigma
         if max_sigma is not None:
