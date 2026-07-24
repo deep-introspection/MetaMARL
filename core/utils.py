@@ -106,3 +106,19 @@ def smooth_cap_01(x: float) -> float:
     """Smooth saturation of a non-negative value into [0, 1)."""
     x = float(x)
     return float(1.0 - np.exp(-x))
+
+def smooth_positive_zero_at_origin(
+    x: float,
+    width: float,
+) -> float:
+    """
+    Smooth approximation of max(x, 0) with value 0 at x=0.
+    """
+    width = max(float(width), EPS)
+
+    value = width * (
+        np.logaddexp(0.0, float(x) / width)
+        - np.log(2.0)
+    )
+
+    return float(max(0.0, value))

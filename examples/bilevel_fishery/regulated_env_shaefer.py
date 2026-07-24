@@ -7,7 +7,7 @@ from ray.rllib.utils.typing import AgentID, MultiAgentDict
 
 from core.annotations import override
 from core.envs.marl_regulated import MultiAgentRegulatedEnv
-from core.utils import sigmoid
+from core.utils import sigmoid, smooth_positive_zero_at_origin
 
 logging.basicConfig(
     level=logging.INFO,
@@ -192,16 +192,26 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
         delivered_harvest = min(requested_harvest, allowed_harvest)
 
-        quota_violation = max(0.0, requested_harvest - allowed_harvest)
+        requested_frac_norm = (
+            requested_harvest
+            / max(EPS, self.full_required_harvest)
+        )
+
+        violation_frac = smooth_positive_zero_at_origin(
+            requested_frac_norm - allowed_frac,
+            self.violation_transition_width,
+        )
+
+        quota_violation = (
+            violation_frac
+            * self.full_required_harvest
+        )
 
         quota_penalty = min(
             1.0,
             self.mechanism.fine_amount
-            * quota_violation
-            / max(EPS, self.full_required_harvest),
+            * violation_frac,
         )
-
-        requested_frac_norm = requested_harvest / max(EPS, self.full_required_harvest)
 
         stock_pressure = max(0.0, 1.0 - fish_norm)
 
