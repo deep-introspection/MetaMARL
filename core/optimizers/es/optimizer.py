@@ -38,6 +38,7 @@ class ESOptimizer(Optimizer):
 
         # TODO sigma anneal
         self.sigma_lr = config.sigma_lr
+        self.sigma_decay = config.sigma_decay
         self.min_sigma = config.min_sigma
         self.max_sigma = config.max_sigma
         self.break_symmetry = config.break_symmetry
@@ -228,18 +229,14 @@ class ESOptimizer(Optimizer):
         new_mean_logit = mean_logit + self.mean_lr * gradient
         self.mean = (1.0 / (1.0 + np.exp(-new_mean_logit))).astype(np.float32)
 
-        # Sigma update: 1/5 success rule
-        success_rate = np.mean(fitness > 0)
-        target = 0.2
-
-        sigma_multiplier = math.exp(self.sigma_lr * (success_rate - target))
-
+        # Deterministic sigma annealing.
         self.sigma = float(
-            np.clip(self.sigma * sigma_multiplier, self.min_sigma, self.max_sigma)
+            np.clip(
+                self.sigma * self.sigma_decay,
+                self.min_sigma,
+                self.max_sigma,
+            )
         )
-        # Soft anchor toward mid sigma to prevent saturation
-        sigma_mid = 0.5 * (self.min_sigma + self.max_sigma)
-        self.sigma = 0.97 * self.sigma + 0.03 * sigma_mid
 
         # Track best
         best_idx = int(np.argmax(fitness_scores))
@@ -265,6 +262,10 @@ class ESOptimizer(Optimizer):
         pre_update_sigma = float(self.sigma)
 
         population = self._sample_population()
+        # population = np.asarray(
+        #     [[0.52, 0.05, 1.0, 0.10, 1.0, 2.0]],
+        #     dtype=np.float32,
+        # )
         _, fitness, _, _, _ = self.env.step(population)
         fitness = np.asarray(fitness, dtype=np.float32)
 
