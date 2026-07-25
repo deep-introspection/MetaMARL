@@ -69,16 +69,50 @@ class PolicyActor:
                 actions.append(a)
             return np.asarray(actions)
 
+    def _stop_algo(self):
+        """Stop the Algorithm INCLUDING its local APPO learner thread.
+
+        Algorithm.stop() calls LearnerGroup.shutdown(), but shutdown() only
+        terminates REMOTE learner backends; with num_learners=0 the learner is
+        local and its _LearnerThread (a busy polling loop) survives forever.
+        Each per-generation rebuild then leaks one such thread, GIL contention
+        grows, and train-iteration time climbs linearly (measured 0.24 s ->
+        6.5 s over 121 generations without any stop(); still +1 thread/gen
+        with stop() alone). Flagging thread.stopped exits its run() loop.
+        """
+        learner = getattr(self.algo.learner_group, "_learner", None)
+        thread = getattr(learner, "_learner_thread", None)
+        if thread is not None:
+            thread.stopped = True
+            # Setting `stopped` is not enough: the batch-wait loops
+            # (CircularBuffer.sample() and the deque path in
+            # _LearnerThread.step()) spin on an empty buffer at 10 kHz WITHOUT
+            # re-checking `stopped`, so a stopped thread never leaves the
+            # wait. Feed one dummy entry to unblock it: step() re-checks
+            # `stopped` right after the dequeue and returns before touching
+            # the batch.
+            try:
+                in_queue = thread._in_queue
+                if hasattr(in_queue, "add"):
+                    in_queue.add(object())
+                else:
+                    in_queue.append(object())
+            except Exception:
+                logger.warning(
+                    "[PPO] could not unblock _LearnerThread", exc_info=True
+                )
+            thread.join(timeout=5.0)
+            if thread.is_alive():
+                logger.warning(
+                    "[PPO] _LearnerThread still alive after join timeout"
+                )
+        self.algo.stop()
+
     def reset(self):
         """Reset to initial weights."""
         # TODO verify reset is using the same seed
         # self.algo.set_weights(self._init_weights)
-        # Stop the old Algorithm before rebuilding: without stop(), each APPO
-        # instance leaks ~4 live background threads (learner/aggregator), the
-        # GIL contention grows every generation, and per-iteration train time
-        # climbs linearly (measured 0.24 s -> 6.5 s over 121 generations,
-        # 537 threads in this actor vs ~44 baseline).
-        self.algo.stop()
+        self._stop_algo()
         self.algo = self.algo_config.build_algo()
         # TODO tie the init_weights with seeding
         self.algo.set_weights(self._init_weights)
@@ -90,4 +124,4 @@ class PolicyActor:
         )
 
     def stop(self):
-        self.algo.stop()
+        self._stop_algo()
