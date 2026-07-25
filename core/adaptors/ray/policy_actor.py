@@ -71,8 +71,14 @@ class PolicyActor:
 
     def reset(self):
         """Reset to initial weights."""
-        # TODO verify reset is using the same seed 
+        # TODO verify reset is using the same seed
         # self.algo.set_weights(self._init_weights)
+        # Stop the old Algorithm before rebuilding: without stop(), each APPO
+        # instance leaks ~4 live background threads (learner/aggregator), the
+        # GIL contention grows every generation, and per-iteration train time
+        # climbs linearly (measured 0.24 s -> 6.5 s over 121 generations,
+        # 537 threads in this actor vs ~44 baseline).
+        self.algo.stop()
         self.algo = self.algo_config.build_algo()
         # TODO tie the init_weights with seeding
         self.algo.set_weights(self._init_weights)
