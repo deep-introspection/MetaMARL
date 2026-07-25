@@ -110,3 +110,4 @@ CLAUDE.md
 
 # GeoJSONs directory (project-specific large files)
 geojsons/
+.wandb_nadine.env
