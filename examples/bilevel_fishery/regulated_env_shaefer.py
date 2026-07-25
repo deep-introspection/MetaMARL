@@ -341,8 +341,24 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             for agent_id in self.agents
         }
 
+        collapse_threshold = self.B_msy / max(self.max_fish, EPS)
+        collapse_penalty = 0.1 / (
+            1.0
+            + np.exp(
+                np.clip(
+                    (fish_norm - collapse_threshold) / 0.05,
+                    -60.0,
+                    60.0,
+                )
+            )
+        )
+
         rewards = {
-            agent_id: float(utilities[agent_id] - violations[agent_id])
+            agent_id: float(
+                utilities[agent_id]
+                - violations[agent_id]
+                - collapse_penalty
+            )
             for agent_id in self.agents
         }
 
