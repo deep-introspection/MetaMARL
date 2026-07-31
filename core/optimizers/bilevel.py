@@ -162,6 +162,13 @@ class BilevelConfig(OptimizerConfig):
             )
             # inner_cfg.seed = None
 
+        if inner_cfg.eval_seeds is not None:
+            outer_cfg._merge_env_config(
+                {
+                    "eval_seeds": inner_cfg.eval_seeds,
+                }
+            )
+
         outer_cfg = outer_cfg._merge_env_config(
             {
                 "mechanism_space": self.mechanism_space,

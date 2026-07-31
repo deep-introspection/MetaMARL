@@ -61,7 +61,7 @@ class RegulatedEnv(BaseEnv):
                 new_ctx = ray.get(
                     self.world.get_mechanism_by_id.remote(
                         mechanism_id = self.mechanism_id, 
-                        seed=self.seed,
+                        seed=self.policy_seed,
                         mode=self.mode
                     )
                 )

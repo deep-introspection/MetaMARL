@@ -25,6 +25,7 @@ class BaseEnv(Env):
         horizon: Optional[int] = None,
         mechanism_space: MechanismSpace = None,
         seed: Optional[int] = None,
+        policy_seed: Optional[int] = None,
         mode: Optional[str] = "train",
         **kwargs
     ) -> None:
@@ -33,6 +34,7 @@ class BaseEnv(Env):
         self._opt_id = opt_id
         self.horizon = horizon
         self.seed = seed
+        self.policy_seed = policy_seed
         self.rng = np.random.default_rng(seed)
         self._t = 0
         self.env_id = None

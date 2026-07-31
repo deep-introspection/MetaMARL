@@ -175,8 +175,11 @@ class World:
     # Use the contextID as mechanismID
     def get_mechanism_by_id(self, mechanism_id: int, seed: int, mode: MechanismStatus) -> MechanismContext:
         required_status = {
-            MechanismStatus.train : MechanismStatus.published,
-            MechanismStatus.eval : MechanismStatus.train
+            MechanismStatus.train : {MechanismStatus.published},
+            MechanismStatus.eval : {
+                MechanismStatus.train,
+                MechanismStatus.eval,
+            },
         }
         target_prev_status = required_status.get(mode)
         
@@ -184,7 +187,7 @@ class World:
             if (
                 mechanism_id == m_ctx.index and 
                 seed == m_ctx.seed and 
-                m_ctx.status == target_prev_status
+                m_ctx.status in target_prev_status
             ):
                 m_ctx.status = mode
                 return m_ctx

@@ -49,7 +49,6 @@ class RayOptimizer(Optimizer):
             config.rllib_cfg.evaluation_duration
             // config.rllib_cfg.evaluation_config.get("rollout_fragment_length")
         )
-        self.eval_base_seed = config.eval_base_seed
         # self.rollout_fragment_length = config.rollout_fragment_length
 
         from core.adaptors.ray.policy_actor import PolicyActor

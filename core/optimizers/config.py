@@ -52,6 +52,7 @@ class OptimizerConfig(_Config, ABC):
 
         # --- eval ---
         self.evaluation_config: Optional["OptimizerConfig"] = None
+        self.eval_seeds: Optional[list[int]] = None
 
         # TODO
         # --- reporting ---
