@@ -82,8 +82,8 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         self.fish_init = ecology_cfg.get("fish_init", ecology_cfg.get("B0", self.K))
 
         self.quota_transition_width = ecology_cfg.get("quota_transition_width", 0.03)
-        self.harvest_transition_width = ecology_cfg.get("harvest_transition_width", 0.02)
-        self.violation_transition_width = ecology_cfg.get("violation_transition_width", 0.005)
+        self.harvest_transition_width = ecology_cfg.get("harvest_transition_width", 0.005)
+        self.violation_transition_width = ecology_cfg.get("violation_transition_width", 0.03)
 
         rp = reference_points(self.r, self.K, self.p)
         self.B_msy = rp["B_msy"]
@@ -161,7 +161,12 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
             requested_harvest = harvest_frac * self.full_required_harvest
             allowed_harvest = self._allowed_harvest(fish_norm)
-            delivered_harvest = min(requested_harvest, allowed_harvest)
+            delivered_harvest = requested_harvest - (
+                smooth_positive_zero_at_origin(
+                    requested_harvest - allowed_harvest,
+                    self.harvest_transition_width * self.full_required_harvest,
+                )
+            )
 
             utilities[agent_id] = float(
                 delivered_harvest / max(EPS, self.full_required_harvest)
@@ -257,9 +262,11 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             requested_harvest = harvest_frac * self.full_required_harvest
             allowed_harvest = self._allowed_harvest(fish_norm)
 
-            delivered_harvest[agent_id] = min(
-                requested_harvest,
-                allowed_harvest,
+            delivered_harvest[agent_id] = requested_harvest - (
+                smooth_positive_zero_at_origin(
+                    requested_harvest - allowed_harvest,
+                    self.harvest_transition_width * self.full_required_harvest,
+                )
             )
 
         H_attempted = float(sum(delivered_harvest.values()))
