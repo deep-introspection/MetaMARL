@@ -18,51 +18,49 @@ def _validate_inputs(
     population: np.ndarray,
     fitness: np.ndarray,
     parameter_names: Sequence[str],
-) -> tuple[np.ndarray, float]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    Validate one evaluated mechanism and its scalar fitness.
+    Validate one evaluated ES population and its fitness values.
 
     Expected shapes
     ---------------
     population:
-        [1, mechanism_dimension]
+        [population_size, mechanism_dimension]
 
     fitness:
-        [1] or a scalar
+        [population_size]
 
-    The single row in ``population`` is one complete mechanism, and
-    ``fitness`` is the single scalar objective value assigned to it.
+    Row ``i`` of the population must correspond to fitness value ``i``.
     """
     population = np.asarray(population, dtype=np.float64)
     fitness_array = np.asarray(fitness, dtype=np.float64).reshape(-1)
 
     if population.ndim != 2:
         raise ValueError(
-            "ES population must have shape [1, mechanism_dimension], "
+            "ES population must have shape "
+            "[population_size, mechanism_dimension], "
             f"got shape={population.shape}"
         )
 
-    if population.shape[0] != 1:
-        raise ValueError(
-            "This reporter expects exactly one evaluated mechanism per "
-            "outer optimization iteration, "
-            f"got population_size={population.shape[0]}"
-        )
+    population_size, mechanism_dimension = population.shape
 
-    if population.shape[1] == 0:
+    if population_size == 0:
+        raise ValueError("ES population cannot be empty")
+
+    if mechanism_dimension == 0:
         raise ValueError("ES mechanism dimension cannot be zero")
 
-    if fitness_array.size != 1:
+    if fitness_array.size != population_size:
         raise ValueError(
-            "This reporter expects exactly one scalar fitness value per "
-            "evaluated mechanism, "
-            f"got fitness shape={fitness_array.shape}"
+            "Each evaluated mechanism must have one corresponding fitness: "
+            f"population_size={population_size}, "
+            f"fitness_count={fitness_array.size}"
         )
 
-    if population.shape[1] != len(parameter_names):
+    if mechanism_dimension != len(parameter_names):
         raise ValueError(
             "Parameter-name count does not match ES dimension: "
-            f"dimension={population.shape[1]}, "
+            f"dimension={mechanism_dimension}, "
             f"parameter_names={len(parameter_names)}"
         )
 
@@ -75,7 +73,7 @@ def _validate_inputs(
     if not np.all(np.isfinite(fitness_array)):
         raise ValueError("ES fitness contains NaN or infinite values")
 
-    return population, float(fitness_array[0])
+    return population, fitness_array
 
 
 def _validate_optional_vector(
@@ -112,14 +110,14 @@ def _get_or_create_history_table(
     """
     Return the accumulated mechanism history table for this W&B run.
 
-    Every row represents one completed outer optimization iteration:
-    one complete mechanism and its single scalar fitness.
+    Every row represents one evaluated mechanism from one outer generation.
     """
     cache_key = (id(wandb_run), prefix)
     table = _ES_HISTORY_TABLES.get(cache_key)
 
     expected_columns = [
         "generation",
+        "mechanism_idx",
         "fitness",
         "sigma",
         *parameter_names,
@@ -132,7 +130,7 @@ def _get_or_create_history_table(
 
     if list(table.columns) != expected_columns:
         raise ValueError(
-            "ES parameter names changed during the W&B run. "
+            "ES history-table columns changed during the W&B run. "
             f"Existing columns={list(table.columns)}, "
             f"requested columns={expected_columns}"
         )
@@ -144,32 +142,102 @@ def _make_fitness_over_generations_figure(
     history_table: wandb.Table,
 ) -> go.Figure:
     """
-    Plot the scalar mechanism fitness over outer optimization iterations.
-
-    Each history-table row contributes exactly one point.
+    Plot candidate, mean, and best fitness over outer generations.
     """
     columns = list(history_table.columns)
     generation_col = columns.index("generation")
+    mechanism_idx_col = columns.index("mechanism_idx")
     fitness_col = columns.index("fitness")
 
     ordered_rows = sorted(
         history_table.data,
-        key=lambda row: int(row[generation_col]),
+        key=lambda row: (
+            int(row[generation_col]),
+            int(row[mechanism_idx_col]),
+        ),
     )
 
-    generations = [int(row[generation_col]) for row in ordered_rows]
-    fitness_values = [float(row[fitness_col]) for row in ordered_rows]
+    fitness_by_generation: dict[int, list[float]] = {}
+
+    candidate_generations: list[int] = []
+    candidate_indices: list[int] = []
+    candidate_fitness: list[float] = []
+
+    for row in ordered_rows:
+        generation = int(row[generation_col])
+        mechanism_idx = int(row[mechanism_idx_col])
+        mechanism_fitness = float(row[fitness_col])
+
+        fitness_by_generation.setdefault(generation, []).append(
+            mechanism_fitness
+        )
+
+        candidate_generations.append(generation)
+        candidate_indices.append(mechanism_idx)
+        candidate_fitness.append(mechanism_fitness)
+
+    generations = sorted(fitness_by_generation)
+
+    mean_fitness = [
+        float(np.mean(fitness_by_generation[generation]))
+        for generation in generations
+    ]
+
+    best_fitness = [
+        float(np.max(fitness_by_generation[generation]))
+        for generation in generations
+    ]
+
+    candidate_customdata = np.asarray(
+        candidate_indices,
+        dtype=np.int64,
+    ).reshape(-1, 1)
 
     figure = go.Figure()
+
+    figure.add_trace(
+        go.Scatter(
+            x=candidate_generations,
+            y=candidate_fitness,
+            mode="markers",
+            name="Candidates",
+            customdata=candidate_customdata,
+            marker={
+                "size": 8,
+                "opacity": 0.35,
+            },
+            hovertemplate=(
+                "outer iteration=%{x}"
+                "<br>mechanism idx=%{customdata[0]}"
+                "<br>fitness=%{y:.6f}"
+                "<extra></extra>"
+            ),
+        )
+    )
+
     figure.add_trace(
         go.Scatter(
             x=generations,
-            y=fitness_values,
+            y=mean_fitness,
             mode="lines+markers",
-            name="Mechanism fitness",
+            name="Generation mean",
             hovertemplate=(
                 "outer iteration=%{x}"
-                "<br>fitness=%{y:.6f}"
+                "<br>mean fitness=%{y:.6f}"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    figure.add_trace(
+        go.Scatter(
+            x=generations,
+            y=best_fitness,
+            mode="lines+markers",
+            name="Generation best",
+            hovertemplate=(
+                "outer iteration=%{x}"
+                "<br>best fitness=%{y:.6f}"
                 "<extra></extra>"
             ),
         )
@@ -180,9 +248,10 @@ def _make_fitness_over_generations_figure(
         xaxis_title="outer optimization iteration",
         yaxis_title="objective fitness",
         template="plotly_white",
-        hovermode="x unified",
+        hovermode="closest",
         height=600,
     )
+
     figure.update_xaxes(rangeslider_visible=False)
 
     return figure
@@ -224,41 +293,72 @@ def _make_parameter_fitness_figure(
     """
     Plot accumulated fitness versus one mechanism parameter.
 
-    Every point represents one complete mechanism evaluated by the outer
-    optimizer. The plot accumulates points across all completed iterations.
+    Every point represents one evaluated mechanism. Point colour represents
+    its outer generation.
     """
     columns = list(history_table.columns)
     generation_col = columns.index("generation")
+    mechanism_idx_col = columns.index("mechanism_idx")
     fitness_col = columns.index("fitness")
     parameter_col = columns.index(parameter_name)
 
     parameter_values: list[float] = []
     fitness_values: list[float] = []
-    hover_data: list[list[int]] = []
+    generations: list[int] = []
+    mechanism_indices: list[int] = []
 
-    for row in history_table.data:
-        generation = int(row[generation_col])
-        mechanism_fitness = float(row[fitness_col])
-        parameter_value = float(row[parameter_col])
+    ordered_rows = sorted(
+        history_table.data,
+        key=lambda row: (
+            int(row[generation_col]),
+            int(row[mechanism_idx_col]),
+        ),
+    )
 
-        parameter_values.append(parameter_value)
-        fitness_values.append(mechanism_fitness)
-        hover_data.append([generation])
+    for row in ordered_rows:
+        generations.append(int(row[generation_col]))
+        mechanism_indices.append(int(row[mechanism_idx_col]))
+        fitness_values.append(float(row[fitness_col]))
+        parameter_values.append(float(row[parameter_col]))
+
+    generation_min = min(generations)
+    generation_max = max(generations)
+
+    customdata = np.column_stack(
+        [
+            np.asarray(generations, dtype=np.int64),
+            np.asarray(mechanism_indices, dtype=np.int64),
+        ]
+    )
 
     figure = go.Figure()
+
     figure.add_trace(
         go.Scatter(
             x=parameter_values,
             y=fitness_values,
             mode="markers",
             name="Evaluated mechanisms",
-            customdata=hover_data,
+            customdata=customdata,
             marker={
                 "size": 11,
-                "opacity": 0.8,
+                "opacity": 0.85,
+                "color": generations,
+                "colorscale": "Viridis",
+                "cmin": generation_min,
+                "cmax": generation_max,
+                "showscale": True,
+                "colorbar": {
+                    "title": {
+                        "text": "Outer<br>iteration",
+                    },
+                    "thickness": 18,
+                    "len": 0.85,
+                },
             },
             hovertemplate=(
                 "outer iteration=%{customdata[0]}"
+                "<br>mechanism idx=%{customdata[1]}"
                 "<br>parameter=%{x:.6f}"
                 "<br>fitness=%{y:.6f}"
                 "<extra></extra>"
@@ -279,7 +379,7 @@ def _make_parameter_fitness_figure(
         height=650,
         margin={
             "l": 70,
-            "r": 25,
+            "r": 95,
             "t": 70,
             "b": 70,
         },
@@ -299,6 +399,158 @@ def _make_parameter_fitness_figure(
 
     return figure
 
+def _make_parallel_coordinates_figure(
+    *,
+    history_table: wandb.Table,
+    parameter_names: Sequence[str],
+) -> go.Figure:
+    """
+    Create a cumulative parallel-coordinates plot.
+
+    Each line represents one evaluated mechanism.
+    Each vertical axis represents one mechanism parameter.
+    Line colour represents the mechanism's fitness.
+    """
+    columns = list(history_table.columns)
+
+    generation_col = columns.index("generation")
+    mechanism_idx_col = columns.index("mechanism_idx")
+    fitness_col = columns.index("fitness")
+
+    parameter_cols = {
+        parameter_name: columns.index(parameter_name)
+        for parameter_name in parameter_names
+    }
+
+    # Keep the mechanisms ordered by outer iteration.
+    ordered_rows = sorted(
+        history_table.data,
+        key=lambda row: (
+            int(row[generation_col]),
+            int(row[mechanism_idx_col]),
+        ),
+    )
+
+    fitness_values = np.asarray(
+        [float(row[fitness_col]) for row in ordered_rows],
+        dtype=np.float64,
+    )
+
+    if fitness_values.size == 0:
+        return go.Figure()
+
+    fitness_min = float(np.min(fitness_values))
+    fitness_max = float(np.max(fitness_values))
+
+    # Plotly requires a non-zero colour range.
+    if fitness_min == fitness_max:
+        colour_padding = max(
+            1e-6,
+            abs(fitness_min) * 0.01,
+        )
+        colour_min = fitness_min - colour_padding
+        colour_max = fitness_max + colour_padding
+    else:
+        colour_min = fitness_min
+        colour_max = fitness_max
+
+    dimensions: list[dict[str, Any]] = []
+
+    for parameter_name in parameter_names:
+        parameter_col = parameter_cols[parameter_name]
+
+        parameter_values = np.asarray(
+            [
+                float(row[parameter_col])
+                for row in ordered_rows
+            ],
+            dtype=np.float64,
+        )
+
+        parameter_min = float(np.min(parameter_values))
+        parameter_max = float(np.max(parameter_values))
+
+        # Ensure the axis remains visible when all values are identical.
+        if parameter_min == parameter_max:
+            axis_padding = max(
+                1e-6,
+                abs(parameter_min) * 0.01,
+            )
+            axis_range = [
+                parameter_min - axis_padding,
+                parameter_max + axis_padding,
+            ]
+        else:
+            axis_range = [
+                parameter_min,
+                parameter_max,
+            ]
+
+        dimensions.append(
+            {
+                "label": parameter_name,
+                "values": parameter_values,
+                "range": axis_range,
+            }
+        )
+
+    # Add fitness as the final vertical axis.
+    dimensions.append(
+        {
+            "label": "fitness",
+            "values": fitness_values,
+            "range": [colour_min, colour_max],
+        }
+    )
+
+    figure = go.Figure(
+        data=[
+            go.Parcoords(
+                line={
+                    "color": fitness_values,
+                    "colorscale": "Viridis",
+                    "cmin": colour_min,
+                    "cmax": colour_max,
+                    "showscale": True,
+                    "colorbar": {
+                        "title": {
+                            "text": "Fitness<br>(higher is better)",
+                        },
+                        "thickness": 18,
+                        "len": 0.85,
+                    },
+                },
+                dimensions=dimensions,
+                labelfont={
+                    "size": 13,
+                },
+                tickfont={
+                    "size": 11,
+                },
+                rangefont={
+                    "size": 10,
+                },
+            )
+        ]
+    )
+
+    figure.update_layout(
+        title={
+            "text": "Parallel coordinates of evaluated mechanisms",
+            "x": 0.5,
+            "xanchor": "center",
+        },
+        template="plotly_white",
+        height=750,
+        margin={
+            "l": 90,
+            "r": 120,
+            "t": 100,
+            "b": 70,
+        },
+    )
+
+    return figure
 
 def plot_es_population(
     *,
@@ -360,15 +612,14 @@ def plot_es_population(
     if wandb_run is None:
         return
 
-    population, mechanism_fitness = _validate_inputs(
+    population, fitness_array = _validate_inputs(
         population=population,
         fitness=fitness,
         parameter_names=parameter_names,
     )
 
     generation = int(generation)
-    mechanism_dimension = population.shape[1]
-    mechanism = population[0]
+    population_size, mechanism_dimension = population.shape
 
     mean_array = _validate_optional_vector(
         value=mean,
@@ -384,11 +635,15 @@ def plot_es_population(
 
     if sigma is not None:
         sigma = float(sigma)
+
         if not np.isfinite(sigma):
-            raise ValueError("ES sigma contains NaN or an infinite value")
+            raise ValueError(
+                "ES sigma contains NaN or an infinite value"
+            )
 
     if best_fitness_global is not None:
         best_fitness_global = float(best_fitness_global)
+
         if not np.isfinite(best_fitness_global):
             raise ValueError(
                 "Global-best fitness contains NaN or an infinite value"
@@ -400,19 +655,39 @@ def plot_es_population(
         parameter_names=parameter_names,
     )
 
-    history_table.add_data(
-        generation,
-        mechanism_fitness,
-        sigma,
-        *mechanism.astype(float).tolist(),
+    # The regulator returns fitness indexed by mechanism index, so:
+    #
+    # population[mechanism_idx] corresponds to fitness_array[mechanism_idx].
+    for mechanism_idx in range(population_size):
+        history_table.add_data(
+            generation,
+            mechanism_idx,
+            float(fitness_array[mechanism_idx]),
+            sigma,
+            *population[mechanism_idx].astype(float).tolist(),
+        )
+
+    generation_mean_fitness = float(np.mean(fitness_array))
+    generation_best_position = int(np.argmax(fitness_array))
+    generation_best_fitness = float(
+        fitness_array[generation_best_position]
     )
 
     payload: dict[str, Any] = {
         f"{prefix}/generation": generation,
-        f"{prefix}/fitness": mechanism_fitness,
+        f"{prefix}/population_size": population_size,
+        f"{prefix}/fitness_mean": generation_mean_fitness,
+        f"{prefix}/fitness_best": generation_best_fitness,
+        f"{prefix}/best_mechanism_idx": generation_best_position,
         f"{prefix}/tables/all_generations": history_table,
-        f"{prefix}/plots/fitness_over_generations": (
+        f"{prefix}/plots/fitness_over_generations": wandb.Plotly(
             _make_fitness_over_generations_figure(history_table)
+        ),
+        f"{prefix}/plots/parallel_coordinates": wandb.Plotly(
+            _make_parallel_coordinates_figure(
+                history_table=history_table,
+                parameter_names=parameter_names,
+            )
         ),
     }
 
@@ -420,16 +695,20 @@ def plot_es_population(
         payload[f"{prefix}/sigma"] = sigma
 
     if best_fitness_global is not None:
-        payload[f"{prefix}/best_fitness_global"] = best_fitness_global
+        payload[
+            f"{prefix}/best_fitness_global"
+        ] = best_fitness_global
 
     for parameter_idx, parameter_name in enumerate(parameter_names):
         clean_name = sanitize_key(parameter_name)
 
         payload[
             f"{prefix}/plots/fitness_vs_parameter/{clean_name}"
-        ] = _make_parameter_fitness_figure(
-            history_table=history_table,
-            parameter_name=parameter_name,
+        ] = wandb.Plotly(
+            _make_parameter_fitness_figure(
+                history_table=history_table,
+                parameter_name=parameter_name,
+            )
         )
 
         if mean_array is not None:
@@ -441,6 +720,16 @@ def plot_es_population(
             payload[f"{prefix}/global_best/{clean_name}"] = float(
                 global_best_array[parameter_idx]
             )
+
+        # Log the best candidate from this generation separately.
+        payload[
+            f"{prefix}/generation_best/{clean_name}"
+        ] = float(
+            population[
+                generation_best_position,
+                parameter_idx,
+            ]
+        )
 
     # One atomic W&B log operation for the completed outer iteration.
     wandb_run.log(
