@@ -94,8 +94,16 @@ class FisheryRegulatorEnv(RegulatorEnv):
         # --- group by mechanism index and seed ---
         by_run: dict[tuple[int, int | None], list[Context]] = defaultdict(list)
 
+        # deduplicate
+        seen_steps: set[tuple[int | None, int | None, int]] = set()
+
+
         for ctx in step_ctxs:
             s = ctx.payload
+            key = (s.mechanism, s.seed, ctx.step)
+            if key in seen_steps:
+                continue
+            seen_steps.add(key)
             by_run[(s.mechanism, s.seed)].append(ctx)
 
         # logger.info(
@@ -104,6 +112,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
         #     f"indices={sorted(by_index.keys())}"
         # )
 
+        # TODO when running parallel eval, async may duplicate runs ! should not statistically change the result
         metrics_by_mechanism: dict[int, list[dict[str, Any]]] = defaultdict(list)
         self.trajectories = {}
 
