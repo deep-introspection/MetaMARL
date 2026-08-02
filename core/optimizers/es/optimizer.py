@@ -1,78 +1,135 @@
 from __future__ import annotations
 
 import logging
-import math
-from typing import TYPE_CHECKING
-
-import ray
-from ray.actor import ActorHandle
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-
-from core.mechanism.space import MechanismSpace
-
-logger = logging.getLogger(__name__)
+import ray
 
 from core.envs.base import BaseEnv
+from core.mechanism.space import MechanismSpace
 from core.optimizers.base import Optimizer
 
 if TYPE_CHECKING:
     from core.optimizers.es.config import ESConfig
-    from core.reporting.wandb import WandbReporter
-    from core.world.base import World
 
 
-# TODO move this into constants
+logger = logging.getLogger(__name__)
+
 EPS = 1e-8
+
+# Ignore changes smaller than this relative scale when deciding whether
+# population-level performance improved or deteriorated.
+SIGMA_PERFORMANCE_REL_TOL = 1e-3
 
 
 class ESOptimizer(Optimizer):
     def __init__(
-            self, 
-            config: ESConfig,
-            ):
+        self,
+        config: ESConfig,
+    ) -> None:
         super().__init__(config)
-        # --- hyperparameters --
+
+        # --- Hyperparameters ---
         self.dimension = config.dimension
         self.mean_lr = config.mean_lr
 
-        # TODO sigma anneal
-        self.sigma_lr = config.sigma_lr
-        self.sigma_decay = config.sigma_decay
-        self.min_sigma = config.min_sigma
-        self.max_sigma = config.max_sigma
+        self.sigma_lr = float(config.sigma_lr)
+        self.sigma_decay = float(config.sigma_decay)
+        self.min_sigma = float(config.min_sigma)
+        self.max_sigma = float(config.max_sigma)
         self.break_symmetry = config.break_symmetry
 
-        # --- runtime state ---
-        # Initialize search distribution from initial_mean or center of unit cube
+        if self.dimension <= 0:
+            raise ValueError("dimension must be positive")
+
+        if self.mean_lr <= 0.0:
+            raise ValueError("mean_lr must be positive")
+
+        if self.sigma_lr < 0.0:
+            raise ValueError("sigma_lr must be non-negative")
+
+        if not 0.0 < self.sigma_decay <= 1.0:
+            raise ValueError(
+                "sigma_decay must be in (0, 1]. "
+                "Use 1.0 to disable sigma adaptation."
+            )
+
+        if self.min_sigma <= 0.0:
+            raise ValueError("min_sigma must be positive")
+
+        if self.max_sigma < self.min_sigma:
+            raise ValueError("max_sigma must be >= min_sigma")
+
+        # --- Runtime state ---
         if config.initial_mean is not None:
-            self.mean = np.array(config.initial_mean, dtype=np.float32)
+            initial_mean = np.asarray(
+                config.initial_mean,
+                dtype=np.float32,
+            )
+
+            if initial_mean.shape != (self.dimension,):
+                raise ValueError(
+                    "initial_mean must have shape "
+                    f"({self.dimension},), got {initial_mean.shape}"
+                )
+
+            if not np.all(np.isfinite(initial_mean)):
+                raise ValueError("initial_mean must contain finite values")
+
+            if np.any(initial_mean < 0.0) or np.any(initial_mean > 1.0):
+                raise ValueError("initial_mean values must be in [0, 1]")
+
+            self.mean = initial_mean.copy()
         else:
             self.mean = np.full(
-                shape=config.dimension, fill_value=0.5, dtype=np.float32
+                shape=self.dimension,
+                fill_value=0.5,
+                dtype=np.float32,
             )
-        self.sigma = float(config.sigma)
 
-        # Random number generator
+        self.sigma = float(
+            np.clip(
+                config.sigma,
+                self.min_sigma,
+                self.max_sigma,
+            )
+        )
+
+        # Random number generator.
         self.rng = np.random.default_rng(config.base_seed)
 
-        # History tracking
+        # History tracking.
         self.generation = 0
-        self.fitness_baseline = None
+        self.fitness_baseline: float | None = None
         self.best_fitness = -float("inf")
         self.best_candidate = self.mean.copy()
         self.best_mechanism_idx: int | None = None
-        self.population_history: list[tuple[np.ndarray, np.ndarray]] = []
+        self.population_history: list[
+            tuple[np.ndarray, np.ndarray]
+        ] = []
 
-        # TODO move this to generalized optimizer
-        # self.no_improve_steps = 0
-        # self.convergence_patience = config.convergence_patience
-        # self.convergence_eps = config.convergence_eps
-        # self.converged_once = False
+        # This is explicitly the average fitness of the sampled population,
+        # not the fitness of the distribution mean.
+        self.previous_population_mean_fitness: float | None = None
+
+        self.parameter_names = [
+            f"parameter_{i}"
+            for i in range(self.dimension)
+        ]
 
     def _on_env_init(self, env: BaseEnv) -> None:
         mechanism_space: MechanismSpace = env.m_space
-        self.parameter_names = list(mechanism_space.optimize_params)
+        self.parameter_names = list(
+            mechanism_space.optimize_params
+        )
+
+        if len(self.parameter_names) != self.dimension:
+            raise ValueError(
+                "The mechanism-space parameter count does not match "
+                f"ES dimension: {len(self.parameter_names)} != "
+                f"{self.dimension}"
+            )
 
     @property
     def batch_capacity(self) -> int:
@@ -83,241 +140,508 @@ class ESOptimizer(Optimizer):
         if value <= 0:
             raise ValueError("population_size must be positive")
 
-        if value == 1:
-            self._batch_capacity = value
-            return
+        if value < 2:
+            raise ValueError(
+                "ES requires at least two candidates."
+            )
 
         if not self.break_symmetry and value % 2 != 0:
             raise ValueError(
                 f"Antithetic ES requires even batch size, got {value}. "
-                "Either increase num_envs_per_env_runner or enable break_symmetry."
+                "Either increase num_envs_per_env_runner or enable "
+                "break_symmetry."
             )
+
         self._batch_capacity = value
 
-    # TODO refactor this to Env_Runner sampler
-    def _sample_population(self) -> np.ndarray:
-        """Sample population for current generation using antithetic sampling.
+    @staticmethod
+    def _sigmoid(values: np.ndarray) -> np.ndarray:
+        """Numerically stable sigmoid."""
+        values = np.asarray(values, dtype=np.float64)
 
-        Uses logit reparametrization to avoid boundary clipping and
-        antithetic sampling to reduce variance.
+        output = np.empty_like(values, dtype=np.float64)
+        positive = values >= 0.0
+        negative = ~positive
+
+        output[positive] = (
+            1.0 / (1.0 + np.exp(-values[positive]))
+        )
+
+        exp_values = np.exp(values[negative])
+        output[negative] = (
+            exp_values / (1.0 + exp_values)
+        )
+
+        return output
+
+    @staticmethod
+    def _logit(values: np.ndarray) -> np.ndarray:
+        """Convert values in [0, 1] to finite logit coordinates."""
+        eps_bound = 1e-6
+        clipped = np.clip(
+            np.asarray(values, dtype=np.float64),
+            eps_bound,
+            1.0 - eps_bound,
+        )
+        return np.log(clipped / (1.0 - clipped))
+
+    def _sample_population(self) -> np.ndarray:
+        """Sample a population using antithetic logit-space noise.
 
         Returns:
-            Population matrix of shape (population_size, dimension)
+            Population with shape
+            ``(batch_capacity, dimension)`` and values in ``(0, 1)``.
         """
-        # Ensure even population size for antithetic sampling
         half_pop = self._batch_capacity // 2
         remaining = self._batch_capacity - (2 * half_pop)
 
-        # Sample noise for half the population
         noise_half = self.rng.standard_normal(
-            (half_pop, self.dimension), dtype=np.float32
+            (half_pop, self.dimension),
+            dtype=np.float32,
         )
 
-        # Create antithetic pairs (mirrored noise)
         if half_pop > 0:
-            noise_matrix = np.vstack([noise_half, -noise_half])
+            noise_matrix = np.vstack(
+                [noise_half, -noise_half]
+            )
         else:
-            noise_matrix = np.empty((0, self.dimension), dtype=np.float32)
+            noise_matrix = np.empty(
+                (0, self.dimension),
+                dtype=np.float32,
+            )
 
-        # Add remaining samples if population size is odd
         if remaining > 0:
             extra_noise = self.rng.standard_normal(
-                (remaining, self.dimension), dtype=np.float32
+                (remaining, self.dimension),
+                dtype=np.float32,
             )
-            noise_matrix = np.vstack([noise_matrix, extra_noise])
+            noise_matrix = np.vstack(
+                [noise_matrix, extra_noise]
+            )
 
-        if self.break_symmetry and self._batch_capacity % 2 == 0 and half_pop > 0:
+        # When requested, replace one mirrored sample with an independent
+        # sample so the population is no longer strictly antithetic.
+        if (
+            self.break_symmetry
+            and self._batch_capacity % 2 == 0
+            and half_pop > 0
+        ):
             noise_matrix[-1] = self.rng.standard_normal(
-                (self.dimension,), dtype=np.float32
+                self.dimension,
+                dtype=np.float32,
             )
 
-        # Transform mean to logit space for unbounded optimization
-        # logit(p) = log(p/(1-p)), inverse_logit(x) = 1/(1+exp(-x))
-        eps_bound = 1e-6
-        mean_clipped = np.clip(self.mean, eps_bound, 1.0 - eps_bound)
-        mean_logit = np.log(mean_clipped / (1.0 - mean_clipped))
-
-        # Add noise in logit space
-        population_logit = mean_logit[None, :] + self.sigma * noise_matrix
-
-        # Transform back to probability space using sigmoid
-        population = 1.0 / (1.0 + np.exp(-population_logit))
+        mean_logit = self._logit(self.mean)
+        population_logit = (
+            mean_logit[None, :]
+            + self.sigma * noise_matrix
+        )
+        population = self._sigmoid(population_logit)
 
         return population.astype(np.float32)
 
-    # TODO refactor this into Learner
-    # TODO review this and make sure faster compute
-    def _update_parameters(
+    def _update_sigma(
         self,
-        population: np.ndarray,
-        fitness_scores: list[float],
-    ) -> None:
-        eps = 1e-8
-        fitness_scores = np.asarray(
-            fitness_scores,
-            dtype=np.float32,
-        ).reshape(-1)
-        fitness = fitness_scores.copy()
+        generation_mean_fitness: float,
+    ) -> str:
+        """Adapt sigma from population-level performance changes.
 
-        if fitness_scores.size == 1:
-            current_fitness = float(fitness_scores[0])
+        The old implementation only allowed sigma to decrease, and
+        ``sigma_lr`` was unused. This version applies a symmetric,
+        multiplicative update:
 
-            if self.fitness_baseline is None:
-                self.fitness_baseline = current_fitness
+        * improved population mean -> contract sigma;
+        * deteriorated population mean -> expand sigma;
+        * change within tolerance -> keep sigma unchanged.
 
-                if current_fitness > self.best_fitness:
-                    self.best_fitness = current_fitness
-                    self.best_candidate = population[0].copy()
-                    self.best_mechanism_idx = 0
-                return
+        ``sigma_lr`` controls the strength of the update. For example,
+        with ``sigma_decay=0.99``:
 
-            # Compare this mechanism with the running baseline.
-            advantage = current_fitness - self.fitness_baseline
-            fitness = np.asarray([advantage], dtype=np.float32)
+        * ``sigma_lr=1.0`` applies the full factor 0.99;
+        * ``sigma_lr=0.5`` applies sqrt(0.99);
+        * ``sigma_lr=0.0`` disables adaptation.
 
-            # Update the baseline after calculating the advantage.
-            baseline_alpha = 0.1
-            self.fitness_baseline = (
-                (1.0 - baseline_alpha) * self.fitness_baseline
-                + baseline_alpha * current_fitness
+        Returns:
+            One of ``"initialized"``, ``"contracted"``, ``"expanded"``,
+            or ``"held"``.
+        """
+        previous = self.previous_population_mean_fitness
+
+        if previous is None:
+            self.previous_population_mean_fitness = (
+                generation_mean_fitness
             )
+            return "initialized"
 
-        else:
-            # Fitness whitening
-            f_mean = np.mean(fitness)
-            f_std = np.std(fitness) + eps
-            fitness = (fitness - f_mean) / f_std
+        tolerance = (
+            SIGMA_PERFORMANCE_REL_TOL
+            * max(
+                1.0,
+                abs(previous),
+                abs(generation_mean_fitness),
+            )
+        )
+        improvement = generation_mean_fitness - previous
 
-        # Logit transform
-        eps_bound = 1e-6
-        mean_clipped = np.clip(self.mean, eps_bound, 1 - eps_bound)
-        mean_logit = np.log(mean_clipped / (1 - mean_clipped))
-
-        pop_clipped = np.clip(population, eps_bound, 1 - eps_bound)
-        pop_logit = np.log(pop_clipped / (1 - pop_clipped))
-
-        # Approximate antithetic noise
-        eps_est = (pop_logit - mean_logit[None, :]) / (self.sigma + eps)
-
-        # Mirrored gradient
-        N = len(fitness)
-        half = N // 2
-
-        # Detect if strict antithetic symmetry holds
-        strict_antithetic = (
-            not self.break_symmetry
-            and N % 2 == 0
-            and half > 0
+        # Convert the full decay factor into a learning-rate-controlled
+        # multiplicative step. This is symmetric in log space.
+        adaptation_factor = (
+            self.sigma_decay ** self.sigma_lr
         )
 
-        if strict_antithetic:
-            f_pos = fitness[:half]
-            f_neg = fitness[half : 2 * half]
-            eps_pos = eps_est[:half]
+        old_sigma = self.sigma
 
-            gradient = np.mean((f_pos - f_neg)[:, None] * eps_pos, axis=0)
+        if improvement > tolerance:
+            # Better population-level performance: exploit more.
+            proposed_sigma = (
+                self.sigma * adaptation_factor
+            )
+            action = "contracted"
+
+        elif improvement < -tolerance:
+            # Worse population-level performance: restore exploration.
+            proposed_sigma = (
+                self.sigma / adaptation_factor
+                if adaptation_factor > 0.0
+                else self.max_sigma
+            )
+            action = "expanded"
+
         else:
-            # Fall back to full ES estimator when symmetry is broken
-            gradient = np.mean(fitness[:, None] * eps_est, axis=0)
+            proposed_sigma = self.sigma
+            action = "held"
 
-        # Gradient clipping
-        grad_norm = np.linalg.norm(gradient)
-        if grad_norm > 5.0:
-            gradient *= 5.0 / (grad_norm + eps)
-
-        # Mean update
-        new_mean_logit = mean_logit + self.mean_lr * gradient
-        self.mean = (1.0 / (1.0 + np.exp(-new_mean_logit))).astype(np.float32)
-
-        # Deterministic sigma annealing.
         self.sigma = float(
             np.clip(
-                self.sigma * self.sigma_decay,
+                proposed_sigma,
                 self.min_sigma,
                 self.max_sigma,
             )
         )
+        self.previous_population_mean_fitness = (
+            generation_mean_fitness
+        )
 
-        # Track best
-        best_idx = int(np.argmax(fitness_scores))
-        best_fitness = float(fitness_scores[best_idx])
+        logger.info(
+            "[ES] SIGMA UPDATE | "
+            "action=%s | previous_population_mean_fitness=%.6f | "
+            "current_population_mean_fitness=%.6f | "
+            "improvement=%+.6f | tolerance=%.6f | "
+            "sigma=%.6f->%.6f | sigma_lr=%.6f | "
+            "sigma_decay=%.6f",
+            action,
+            previous,
+            generation_mean_fitness,
+            improvement,
+            tolerance,
+            old_sigma,
+            self.sigma,
+            self.sigma_lr,
+            self.sigma_decay,
+        )
+
+        return action
+
+    def _update_parameters(
+        self,
+        population: np.ndarray,
+        fitness_scores: list[float] | np.ndarray,
+    ) -> None:
+        population = np.asarray(
+            population,
+            dtype=np.float32,
+        )
+        fitness_scores_array = np.asarray(
+            fitness_scores,
+            dtype=np.float32,
+        ).reshape(-1)
+
+        if population.ndim != 2:
+            raise ValueError(
+                "population must be a 2D array"
+            )
+
+        if population.shape != (
+            fitness_scores_array.size,
+            self.dimension,
+        ):
+            raise ValueError(
+                "population shape and fitness count do not match: "
+                f"{population.shape} versus "
+                f"{fitness_scores_array.size} fitness values"
+            )
+
+        if fitness_scores_array.size == 0:
+            raise ValueError(
+                "fitness_scores must not be empty"
+            )
+
+        if not np.all(np.isfinite(fitness_scores_array)):
+            raise ValueError(
+                "fitness_scores must all be finite"
+            )
+
+        generation_mean_fitness = float(
+            np.mean(fitness_scores_array)
+        )
+        normalized_fitness = (
+            fitness_scores_array.copy()
+        )
+
+        if fitness_scores_array.size == 1:
+            current_fitness = float(
+                fitness_scores_array[0]
+            )
+
+            if self.fitness_baseline is None:
+                self.fitness_baseline = current_fitness
+                self.previous_population_mean_fitness = (
+                    current_fitness
+                )
+
+                if current_fitness > self.best_fitness:
+                    self.best_fitness = current_fitness
+                    self.best_candidate = (
+                        population[0].copy()
+                    )
+                    self.best_mechanism_idx = 0
+
+                return
+
+            advantage = (
+                current_fitness
+                - self.fitness_baseline
+            )
+            normalized_fitness = np.asarray(
+                [advantage],
+                dtype=np.float32,
+            )
+
+            baseline_alpha = 0.1
+            self.fitness_baseline = (
+                (1.0 - baseline_alpha)
+                * self.fitness_baseline
+                + baseline_alpha
+                * current_fitness
+            )
+
+        else:
+            fitness_mean = float(
+                np.mean(normalized_fitness)
+            )
+            fitness_std = float(
+                np.std(normalized_fitness)
+            )
+
+            if fitness_std <= EPS:
+                # A flat population contains no directional information.
+                normalized_fitness = np.zeros_like(
+                    normalized_fitness
+                )
+            else:
+                normalized_fitness = (
+                    normalized_fitness
+                    - fitness_mean
+                ) / (fitness_std + EPS)
+
+        mean_logit = self._logit(self.mean)
+        population_logit = self._logit(
+            population
+        )
+
+        # Reconstruct the standardized perturbations used to generate
+        # the candidates.
+        eps_est = (
+            population_logit
+            - mean_logit[None, :]
+        ) / (self.sigma + EPS)
+
+        population_size = len(
+            normalized_fitness
+        )
+        half = population_size // 2
+
+        strict_antithetic = (
+            not self.break_symmetry
+            and population_size % 2 == 0
+            and half > 0
+        )
+
+        if strict_antithetic:
+            fitness_positive = (
+                normalized_fitness[:half]
+            )
+            fitness_negative = (
+                normalized_fitness[
+                    half : 2 * half
+                ]
+            )
+            epsilon_positive = eps_est[:half]
+
+            gradient = np.mean(
+                (
+                    fitness_positive
+                    - fitness_negative
+                )[:, None]
+                * epsilon_positive,
+                axis=0,
+            ) / (2.0 * self.sigma + EPS)
+
+        else:
+            gradient = np.mean(
+                normalized_fitness[:, None]
+                * eps_est,
+                axis=0,
+            ) / (self.sigma + EPS)
+
+        gradient = np.asarray(
+            gradient,
+            dtype=np.float64,
+        )
+
+        grad_norm = float(
+            np.linalg.norm(gradient)
+        )
+        if grad_norm > 5.0:
+            gradient *= (
+                5.0 / (grad_norm + EPS)
+            )
+
+        logger.info(
+            "[ES] PARAMETER GRADIENTS | %s",
+            {
+                name: float(gradient[index])
+                for index, name in enumerate(
+                    self.parameter_names
+                )
+            },
+        )
+
+        # Mean update.
+        new_mean_logit = (
+            mean_logit
+            + self.mean_lr * gradient
+        )
+        self.mean = self._sigmoid(
+            new_mean_logit
+        ).astype(np.float32)
+
+        # Sigma update. This now uses sigma_lr and can expand after a
+        # deterioration instead of monotonically shrinking.
+        self._update_sigma(
+            generation_mean_fitness
+        )
+
+        # Track the best raw candidate fitness.
+        best_idx = int(
+            np.argmax(fitness_scores_array)
+        )
+        best_fitness = float(
+            fitness_scores_array[best_idx]
+        )
 
         if best_fitness > self.best_fitness:
             self.best_fitness = best_fitness
-            self.best_candidate = population[best_idx].copy()
+            self.best_candidate = (
+                population[best_idx].copy()
+            )
             self.best_mechanism_idx = best_idx
 
-    def run(self) -> None:
+    def run(self) -> dict[str, Any]:
         logger.info(
-            "[ES] Generation started | gen=%d | sigma=%.5f | mean_norm=%.4f",
+            "[ES] Generation started | "
+            "gen=%d | sigma=%.5f | mean_norm=%.4f",
             self.generation,
             self.sigma,
             float(np.linalg.norm(self.mean)),
         )
 
         if self.env is None:
-            raise RuntimeError("ESOptimizer requires a RegulatorEnv")
+            raise RuntimeError(
+                "ESOptimizer requires a RegulatorEnv"
+            )
 
         pre_update_mean = self.mean.copy()
         pre_update_sigma = float(self.sigma)
 
         population = self._sample_population()
-        # population = np.asarray(
-        #     [[0.52, 0.05, 1.0, 0.10, 1.0, 2.0]],
-        #     dtype=np.float32,
-        # )
-        _, fitness, _, _, _ = self.env.step(population)
-        fitness = np.asarray(fitness, dtype=np.float32)
 
-        if not any(np.isfinite(f) for f in fitness):
-            logger.error("[Regulator] No valid fitness produced for ANY mechanism")
+        _, fitness, _, _, _ = self.env.step(
+            population
+        )
+        fitness = np.asarray(
+            fitness,
+            dtype=np.float32,
+        ).reshape(-1)
 
-        # TODO check why certain episodes return empty fitness
         if fitness.size == 0:
-            logger.warning("[ES] No fitness returned — skipping update")
-            return {"converged": False, "best_fitness": self.best_fitness}
+            logger.warning(
+                "[ES] No fitness returned; skipping update"
+            )
+            return {
+                "converged": False,
+                "best_fitness": self.best_fitness,
+                "best_trajectory": None,
+                "population_history": (
+                    self.population_history
+                ),
+            }
 
         if not np.all(np.isfinite(fitness)):
-            raise RuntimeError("Non-finite fitness detected")
+            invalid_indices = np.flatnonzero(
+                ~np.isfinite(fitness)
+            ).tolist()
+            raise RuntimeError(
+                "Non-finite fitness detected at indices "
+                f"{invalid_indices}"
+            )
 
-        # Store population history for visualization
-        self.population_history.append((population.copy(), fitness.copy()))
+        if fitness.size != population.shape[0]:
+            raise RuntimeError(
+                "The environment returned "
+                f"{fitness.size} fitness values for "
+                f"{population.shape[0]} candidates"
+            )
 
-        var = float(fitness.var())
+        self.population_history.append(
+            (
+                population.copy(),
+                fitness.copy(),
+            )
+        )
 
-        # improved = best > self.best_fitness + self.convergence_eps
-        # best_idx = int(fitness.argmax())
-
-        # if improved:
-        #     self.best_fitness = best
-        #     self.best_candidate = population[best_idx].copy()
-        #     self.best_mechanism_idx = best_idx
-        #     self.no_improve_steps = 0
-        # else:
-        #     self.no_improve_steps += 1
-
+        fitness_variance = float(
+            fitness.var()
+        )
 
         logger.info(
             "[ES] BEFORE UPDATE | "
-            f"gen={self.generation} | "
-            f"mean={pre_update_mean.tolist()} | "
-            f"sigma={pre_update_sigma:.5f} | "
-            f"population={population.tolist()} | "
-            f"fitness={fitness.tolist()}"
+            "gen=%d | mean=%s | sigma=%.5f | "
+            "population=%s | fitness=%s",
+            self.generation,
+            pre_update_mean.tolist(),
+            pre_update_sigma,
+            population.tolist(),
+            fitness.tolist(),
         )
 
-        self._update_parameters(population, fitness)
+        self._update_parameters(
+            population,
+            fitness,
+        )
 
         logger.info(
             "[ES] AFTER UPDATE | "
-            f"gen={self.generation} | "
-            f"mean={self.mean.tolist()} | "
-            f"sigma={self.sigma:.5f} | "
-            f"best={self.best_fitness:.5f}"
+            "gen=%d | mean=%s | sigma=%.5f | "
+            "best=%.5f",
+            self.generation,
+            self.mean.tolist(),
+            self.sigma,
+            self.best_fitness,
         )
+
         self.generation += 1
 
-        # Plotting
         ray.get(
             self.reporting.plot_es_population.remote(
                 generation=self.generation,
@@ -326,52 +650,60 @@ class ESOptimizer(Optimizer):
                 parameter_names=self.parameter_names,
                 mean=pre_update_mean,
                 sigma=pre_update_sigma,
-                best_fitness_global=self.best_fitness,
-                best_candidate_global=self.best_candidate,
+                best_fitness_global=(
+                    self.best_fitness
+                ),
+                best_candidate_global=(
+                    self.best_candidate
+                ),
                 prefix="es",
             )
         )
 
-        # converged = self.no_improve_steps >= self.convergence_patience
-
-        # if converged and not self.converged_once:
-        #     logger.info(
-        #         "[ES] CONVERGENCE REACHED | "
-        #         f"gen={self.generation} | "
-        #         f"best_fitness={self.best_fitness:.4f} | "
-        #         f"sigma={self.sigma:.4f} | "
-        #         f"var={var:.4f}"
-        #     )
-        #     self.converged_once = True
-
         self.metrics.log_dict(
             {
                 "es/generation": self.generation,
-                "es/best_fitness": self.best_fitness,
-                "es/mean_fitness": float(fitness.mean()),
-                "es/fitness_var": var,
+                "es/best_fitness": (
+                    self.best_fitness
+                ),
+                "es/mean_fitness": float(
+                    fitness.mean()
+                ),
+                "es/fitness_var": (
+                    fitness_variance
+                ),
                 "es/sigma": self.sigma,
-                # "es/no_improve_steps": self.no_improve_steps,
             }
         )
+
         logger.info(
-            "[ES] "
-            f"gen={self.generation} | "
-            f"best={self.best_fitness:.4f} | "
-            f"mean={fitness.mean():.4f}±{fitness.std():.4f} | "
-            f"var={var:.4f} | "
-            f"sigma={self.sigma:.4f} | "
-            # f"no_improve={self.no_improve_steps}"
+            "[ES] gen=%d | best=%.4f | "
+            "mean=%.4f+/-%.4f | var=%.4f | "
+            "sigma=%.4f",
+            self.generation,
+            self.best_fitness,
+            float(fitness.mean()),
+            float(fitness.std()),
+            fitness_variance,
+            self.sigma,
         )
 
-        # Get best trajectory from env if available
         best_trajectory = None
-        if hasattr(self.env, "trajectories") and self.best_mechanism_idx is not None:
-            best_trajectory = self.env.trajectories.get(self.best_mechanism_idx)
+        if (
+            hasattr(self.env, "trajectories")
+            and self.best_mechanism_idx
+            is not None
+        ):
+            best_trajectory = (
+                self.env.trajectories.get(
+                    self.best_mechanism_idx
+                )
+            )
 
         return {
-            # "converged": converged,
             "best_fitness": self.best_fitness,
             "best_trajectory": best_trajectory,
-            "population_history": self.population_history,
+            "population_history": (
+                self.population_history
+            ),
         }
