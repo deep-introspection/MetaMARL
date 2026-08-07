@@ -40,8 +40,11 @@ class ESOptimizer(Optimizer):
         self.max_sigma = float(config.max_sigma)
         self.break_symmetry = config.break_symmetry
 
-        if self.dimension <= 0:
-            raise ValueError("dimension must be positive")
+        if self.dimension < 0:
+            raise ValueError(
+                "dimension must be non-negative"
+            )
+        self.fixed_mode = self.dimension == 0
 
         if self.mean_lr <= 0.0:
             raise ValueError("mean_lr must be positive")
@@ -135,21 +138,39 @@ class ESOptimizer(Optimizer):
     def batch_capacity(self) -> int:
         return self._batch_capacity
 
+
     @batch_capacity.setter
     def batch_capacity(self, value: int) -> None:
         if value <= 0:
-            raise ValueError("population_size must be positive")
-
-        if value < 2:
             raise ValueError(
-                "ES requires at least two candidates."
+                "population_size must be positive"
             )
 
-        if not self.break_symmetry and value % 2 != 0:
+        if self.fixed_mode:
+            self._batch_capacity = value
+
+            logger.info(
+                "[ES] Fixed-mechanism batch mode enabled | "
+                "batch_capacity=%d",
+                value,
+            )
+            return
+
+        if value == 1:
+            self._batch_capacity = 1
+            logger.info(
+                "[ES] Single-candidate mode enabled. "
+                "Using sequential (1+1)-ES."
+            )
+            return
+
+        if (
+            not self.break_symmetry
+            and value % 2 != 0
+        ):
             raise ValueError(
-                f"Antithetic ES requires even batch size, got {value}. "
-                "Either increase num_envs_per_env_runner or enable "
-                "break_symmetry."
+                "Antithetic ES requires an even "
+                f"batch size, got {value}."
             )
 
         self._batch_capacity = value
@@ -192,6 +213,21 @@ class ESOptimizer(Optimizer):
             Population with shape
             ``(batch_capacity, dimension)`` and values in ``(0, 1)``.
         """
+        if self.fixed_mode:
+            return np.empty(
+                (
+                    self._batch_capacity,
+                    0,
+                ),
+                dtype=np.float32,
+            )
+
+        if (
+            self._batch_capacity == 1
+            and self.fitness_baseline is None
+        ):
+            return self.mean[None, :].copy()
+    
         half_pop = self._batch_capacity // 2
         remaining = self._batch_capacity - (2 * half_pop)
 
@@ -342,6 +378,115 @@ class ESOptimizer(Optimizer):
 
         return action
 
+    def _update_single_candidate(
+        self,
+        candidate: np.ndarray,
+        fitness: float,
+    ) -> None:
+        """Sequential (1+1)-ES update.
+
+        The first candidate becomes the remembered parent.
+        Later candidates replace the parent only when they improve fitness.
+        """
+
+        candidate = np.asarray(
+            candidate,
+            dtype=np.float32,
+        ).reshape(self.dimension)
+
+        fitness = float(fitness)
+
+        if not np.isfinite(fitness):
+            raise ValueError(
+                "Single-candidate fitness must be finite"
+            )
+
+        # First evaluation: remember the initial ES mean and its fitness.
+        if self.fitness_baseline is None:
+            self.mean = candidate.copy()
+            self.fitness_baseline = fitness
+            self.previous_population_mean_fitness = fitness
+
+            self.best_fitness = fitness
+            self.best_candidate = candidate.copy()
+            self.best_mechanism_idx = 0
+
+            logger.info(
+                "[ES] SINGLE INITIALIZED | "
+                "parent=%s | parent_fitness=%.6f",
+                candidate.tolist(),
+                fitness,
+            )
+            return
+
+        parent_fitness = float(
+            self.fitness_baseline
+        )
+
+        improvement = (
+            fitness - parent_fitness
+        )
+
+        accepted = fitness > parent_fitness
+
+        old_mean = self.mean.copy()
+        old_sigma = float(self.sigma)
+
+        if accepted:
+            # The offspring becomes the new remembered parent.
+            self.mean = candidate.copy()
+            self.fitness_baseline = fitness
+
+        # Track the globally best evaluated candidate.
+        if fitness > self.best_fitness:
+            self.best_fitness = fitness
+            self.best_candidate = candidate.copy()
+            self.best_mechanism_idx = 0
+
+        # Sigma adaptation only affects the new one-candidate mode.
+        # With sigma_lr=0, sigma remains exactly fixed.
+        adaptation_factor = (
+            self.sigma_decay ** self.sigma_lr
+        )
+
+        if self.sigma_lr > 0.0:
+            if accepted:
+                proposed_sigma = (
+                    self.sigma / adaptation_factor
+                )
+            else:
+                proposed_sigma = (
+                    self.sigma * adaptation_factor
+                )
+
+            self.sigma = float(
+                np.clip(
+                    proposed_sigma,
+                    self.min_sigma,
+                    self.max_sigma,
+                )
+            )
+
+        self.previous_population_mean_fitness = self.fitness_baseline
+
+        logger.info(
+            "[ES] SINGLE UPDATE | "
+            "accepted=%s | "
+            "parent_fitness=%.6f | "
+            "candidate_fitness=%.6f | "
+            "improvement=%+.6f | "
+            "mean=%s->%s | "
+            "sigma=%.6f->%.6f",
+            accepted,
+            parent_fitness,
+            fitness,
+            improvement,
+            old_mean.tolist(),
+            self.mean.tolist(),
+            old_sigma,
+            self.sigma,
+        )
+
     def _update_parameters(
         self,
         population: np.ndarray,
@@ -381,6 +526,54 @@ class ESOptimizer(Optimizer):
                 "fitness_scores must all be finite"
             )
 
+        if self.fixed_mode:
+            expected_size = population.shape[0]
+
+            if fitness_scores_array.size != expected_size:
+                raise ValueError(
+                    "Fixed-mechanism mode expected "
+                    f"{expected_size} fitness values, got "
+                    f"{fitness_scores_array.size}."
+                )
+
+            generation_mean_fitness = float(
+                np.mean(fitness_scores_array)
+            )
+
+            best_idx = int(
+                np.argmax(fitness_scores_array)
+            )
+            best_fitness = float(
+                fitness_scores_array[best_idx]
+            )
+
+            self.fitness_baseline = (
+                generation_mean_fitness
+            )
+            self.previous_population_mean_fitness = (
+                generation_mean_fitness
+            )
+
+            if best_fitness > self.best_fitness:
+                self.best_fitness = best_fitness
+                self.best_candidate = np.empty(
+                    0,
+                    dtype=np.float32,
+                )
+                self.best_mechanism_idx = best_idx
+
+            logger.info(
+                "[ES] FIXED MECHANISM BATCH | "
+                "fitness=%s | mean=%.6f | "
+                "std=%.6f | min=%.6f | max=%.6f",
+                fitness_scores_array.tolist(),
+                generation_mean_fitness,
+                float(np.std(fitness_scores_array)),
+                float(np.min(fitness_scores_array)),
+                float(np.max(fitness_scores_array)),
+            )
+            return
+
         generation_mean_fitness = float(
             np.mean(fitness_scores_array)
         )
@@ -389,41 +582,13 @@ class ESOptimizer(Optimizer):
         )
 
         if fitness_scores_array.size == 1:
-            current_fitness = float(
-                fitness_scores_array[0]
+            self._update_single_candidate(
+                candidate=population[0],
+                fitness=float(
+                    fitness_scores_array[0]
+                ),
             )
-
-            if self.fitness_baseline is None:
-                self.fitness_baseline = current_fitness
-                self.previous_population_mean_fitness = (
-                    current_fitness
-                )
-
-                if current_fitness > self.best_fitness:
-                    self.best_fitness = current_fitness
-                    self.best_candidate = (
-                        population[0].copy()
-                    )
-                    self.best_mechanism_idx = 0
-
-                return
-
-            advantage = (
-                current_fitness
-                - self.fitness_baseline
-            )
-            normalized_fitness = np.asarray(
-                [advantage],
-                dtype=np.float32,
-            )
-
-            baseline_alpha = 0.1
-            self.fitness_baseline = (
-                (1.0 - baseline_alpha)
-                * self.fitness_baseline
-                + baseline_alpha
-                * current_fitness
-            )
+            return
 
         else:
             fitness_mean = float(
@@ -642,20 +807,41 @@ class ESOptimizer(Optimizer):
 
         self.generation += 1
 
+        plot_population = population
+        plot_parameter_names = self.parameter_names
+        plot_mean = pre_update_mean
+        plot_best_candidate = self.best_candidate
+
+        if self.fixed_mode:
+            default_mechanism = self.env.m_space.default()
+
+            # Full normalized mechanism vector:
+            # fixed_quota, max_demand_frac, fine_amount,
+            # risk_penalty_scale, normalized risk_penalty_power
+            default_vector = np.asarray(
+                default_mechanism.to_vector(),
+                dtype=np.float32,
+            )
+
+            plot_population = np.repeat(
+                default_vector[None, :],
+                repeats=population.shape[0],
+                axis=0,
+            )
+            plot_parameter_names = default_mechanism.param_names()
+            plot_mean = default_vector.copy()
+            plot_best_candidate = default_vector.copy()
+
         ray.get(
             self.reporting.plot_es_population.remote(
                 generation=self.generation,
-                population=population,
+                population=plot_population,
                 fitness=fitness,
-                parameter_names=self.parameter_names,
-                mean=pre_update_mean,
+                parameter_names=plot_parameter_names,
+                mean=plot_mean,
                 sigma=pre_update_sigma,
-                best_fitness_global=(
-                    self.best_fitness
-                ),
-                best_candidate_global=(
-                    self.best_candidate
-                ),
+                best_fitness_global=self.best_fitness,
+                best_candidate_global=plot_best_candidate,
                 prefix="es",
             )
         )

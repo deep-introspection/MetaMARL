@@ -408,8 +408,8 @@ def _make_parallel_coordinates_figure(
     Create a cumulative parallel-coordinates plot.
 
     Each line represents one evaluated mechanism.
-    Each vertical axis represents one mechanism parameter.
-    Line colour represents the mechanism's fitness.
+    Each mechanism parameter has its own dynamically scaled axis.
+    Fitness is shown both as line colour and as the final vertical axis.
     """
     columns = list(history_table.columns)
 
@@ -422,7 +422,6 @@ def _make_parallel_coordinates_figure(
         for parameter_name in parameter_names
     }
 
-    # Keep the mechanisms ordered by outer iteration.
     ordered_rows = sorted(
         history_table.data,
         key=lambda row: (
@@ -431,31 +430,44 @@ def _make_parallel_coordinates_figure(
         ),
     )
 
+    if not ordered_rows:
+        return go.Figure()
+
     fitness_values = np.asarray(
-        [float(row[fitness_col]) for row in ordered_rows],
+        [
+            float(row[fitness_col])
+            for row in ordered_rows
+        ],
         dtype=np.float64,
     )
-
-    if fitness_values.size == 0:
-        return go.Figure()
 
     fitness_min = float(np.min(fitness_values))
     fitness_max = float(np.max(fitness_values))
 
-    # Plotly requires a non-zero colour range.
+    # Plotly requires a nonzero colour range.
     if fitness_min == fitness_max:
         colour_padding = max(
             1e-6,
             abs(fitness_min) * 0.01,
         )
+
         colour_min = fitness_min - colour_padding
         colour_max = fitness_max + colour_padding
     else:
         colour_min = fitness_min
         colour_max = fitness_max
 
+    display_names = {
+        "fixed_quota": "Fixed quota",
+        "max_demand_frac": "Max demand fraction",
+        "fine_amount": "Fine amount",
+        "risk_penalty_scale": "Risk penalty scale",
+        "risk_penalty_power": "Risk penalty power",
+    }
+
     dimensions: list[dict[str, Any]] = []
 
+    # Add each optimized mechanism parameter exactly once.
     for parameter_name in parameter_names:
         parameter_col = parameter_cols[parameter_name]
 
@@ -467,68 +479,77 @@ def _make_parallel_coordinates_figure(
             dtype=np.float64,
         )
 
-        parameter_min = float(np.min(parameter_values))
-        parameter_max = float(np.max(parameter_values))
+        readable_label = display_names.get(
+            parameter_name,
+            parameter_name.replace("_", " ").title(),
+        )
 
-        # Ensure the axis remains visible when all values are identical.
-        if parameter_min == parameter_max:
-            axis_padding = max(
-                1e-6,
-                abs(parameter_min) * 0.01,
-            )
-            axis_range = [
-                parameter_min - axis_padding,
-                parameter_max + axis_padding,
-            ]
-        else:
-            axis_range = [
-                parameter_min,
-                parameter_max,
-            ]
+        axis_range = _padded_range(
+            parameter_values,
+            minimum_padding=1e-3,
+            padding_fraction=0.10,
+        )
 
         dimensions.append(
             {
-                "label": parameter_name,
+                "label": readable_label,
                 "values": parameter_values,
                 "range": axis_range,
             }
         )
 
-    # Add fitness as the final vertical axis.
+    # Add fitness exactly once, after all mechanism parameters.
+    fitness_axis_range = _padded_range(
+        fitness_values,
+        minimum_padding=1e-3,
+        padding_fraction=0.10,
+    )
+
     dimensions.append(
         {
-            "label": "fitness",
+            "label": "Fitness",
             "values": fitness_values,
-            "range": [colour_min, colour_max],
+            "range": fitness_axis_range,
         }
     )
 
     figure = go.Figure(
         data=[
             go.Parcoords(
+                domain={
+                    "x": [0.08, 0.82],
+                    "y": [0.05, 0.95],
+                },
                 line={
-                    "color": fitness_values,
+                    "color": fitness_values.tolist(),
                     "colorscale": "Viridis",
                     "cmin": colour_min,
                     "cmax": colour_max,
                     "showscale": True,
                     "colorbar": {
                         "title": {
-                            "text": "Fitness<br>(higher is better)",
+                            "text": (
+                                "Fitness<br>"
+                                "(higher is better)"
+                            ),
                         },
                         "thickness": 18,
-                        "len": 0.85,
+                        "len": 0.80,
+                        "x": 0.92,
                     },
                 },
                 dimensions=dimensions,
                 labelfont={
-                    "size": 13,
+                    "size": 14,
+                    "color": "black",
                 },
                 tickfont={
                     "size": 11,
+                    "color": "black",
                 },
                 rangefont={
                     "size": 10,
+                    "color": "black",
                 },
             )
         ]
@@ -536,18 +557,24 @@ def _make_parallel_coordinates_figure(
 
     figure.update_layout(
         title={
-            "text": "Parallel coordinates of evaluated mechanisms",
+            "text": (
+                "Parallel coordinates of evaluated mechanisms"
+            ),
             "x": 0.5,
             "xanchor": "center",
+            "y": 0.98,
+            "yanchor": "top",
         },
         template="plotly_white",
         height=750,
         margin={
-            "l": 90,
-            "r": 120,
-            "t": 100,
-            "b": 70,
+            "l": 100,
+            "r": 170,
+            "t": 130,
+            "b": 80,
         },
+        paper_bgcolor="white",
+        plot_bgcolor="white",
     )
 
     return figure
