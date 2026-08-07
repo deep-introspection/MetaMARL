@@ -36,8 +36,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.sustainability_weight = ecology_cfg.get("sus_weight", 5.0)
-        self.sustainability_threshold = ecology_cfg.get("sus_threshold", 0.1)
+        self.sustainability_weight = ecology_cfg.get("sustainability_weight", 5.0)
+        self.sustainability_threshold = ecology_cfg.get("sustainability_threshold", 0.1)
         self.K = ecology_cfg.get("K")
         # Denormalized threshold for visualization
         self.raw_sustainability_threshold = (
@@ -136,6 +136,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
             rewards = np.empty(num_steps, dtype=np.float32)
             fish = np.empty(num_steps, dtype=np.float32)
             fines = np.empty(num_steps, dtype=np.float32)
+            realized_harvest = np.empty(num_steps, dtype=np.float32)
+            harvest_scores = np.empty(num_steps, dtype=np.float32)
 
             trajectory: list[dict[str, Any]] = []
 
@@ -145,11 +147,21 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
                 # TODO this is the mean however this is not good representation for late learning mechanisms
                 rewards[i] = np.mean(list(r.values()))
+                # selected_agent_id = "utilizer:0"
+
+                # if selected_agent_id not in r:
+                #     raise KeyError(
+                #         f"Missing {selected_agent_id}; available agents: {list(r.keys())}"
+                #     )
+
+                # rewards[i] = float(r[selected_agent_id])
 
                 # Extract fish from info dict
                 info = s.payload.info
                 first_info = next(iter(info.values()))
-                fish[i] = float(first_info["fish_norm"])
+                realized_harvest[i] = float(first_info["H_realized"])
+                harvest_scores[i] = float(first_info["harvest_to_msy"])
+                fish[i] = float(first_info["fish_norm_next"])
                 fish_current = float(first_info["fish"])
 
                 
@@ -175,6 +187,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
                         "step": s.step, #TODO verify s.step == i
                         "seed": seed,
                         "fish_population": fish_current, # TODO do we want fish norm or fish current ?
+                        "realized_harvest": float(realized_harvest[i]),
+                        "harvest_score": float(harvest_scores[i]),
                         "reward": float(rewards[i]),
                         "fines": float(step_fines),
                     }
@@ -190,6 +204,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
             tail_rewards = rewards[tail_start:]
             tail_fish = fish[tail_start:]
             tail_fines = fines[tail_start:]
+            tail_realized_harvest = realized_harvest[tail_start:]
+            tail_harvest_scores = harvest_scores[tail_start:]
 
             self.trajectories.setdefault(idx, {})[seed] = trajectory
 
@@ -204,6 +220,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     "seed": seed,
                     "mean_reward": float(tail_rewards.mean()),
                     "reward_std": float(tail_rewards.std()),
+                    "mean_realized_harvest": float(tail_realized_harvest.mean()),
+                    "harvest_score": float(tail_harvest_scores.mean()),
                     "collapse_rate": float(
                         (tail_fish < self.sustainability_threshold).mean()
                     ),
@@ -212,7 +230,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     ),
                     "min_fish": float(tail_fish.min()),
                     "mean_fish": float(tail_fish.mean()),
-                    "mean_fines": float(tail_fish.mean()),
+                    "mean_fines": float(tail_fines.mean()),
                 }
             )
 
@@ -225,6 +243,19 @@ class FisheryRegulatorEnv(RegulatorEnv):
             )
             reward_std = float(
                 np.mean([m["reward_std"] for m in seed_metrics])
+            )
+            mean_realized_harvest = float(
+                np.mean([
+                    m["mean_realized_harvest"]
+                    for m in seed_metrics
+                ])
+            )
+
+            harvest_score = float(
+                np.mean([
+                    m["harvest_score"]
+                    for m in seed_metrics
+                ])
             )
             collapse_rate = float(
                 np.mean([m["collapse_rate"] for m in seed_metrics])
@@ -251,6 +282,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
                 total_fines=mean_fines,
                 mean_fish=mean_fish,
                 min_fish=min_fish,
+                mean_realized_harvest=mean_realized_harvest,
+                harvest_score=harvest_score,
             )
 
             objective = float(fitness_ctx.objective_score)
@@ -268,18 +301,20 @@ class FisheryRegulatorEnv(RegulatorEnv):
             )
 
             per_mech_metrics.append(
-                {
-                    "idx": idx,
-                    "objective": objective,
-                    "mean_reward": mean_reward,
-                    "reward_std": reward_std,
-                    "collapse_rate": collapse_rate,
-                    "min_fish": min_fish,
-                    "mean_fish": mean_fish,
-                    "total_fines": mean_fines,
-                    "num_seeds": float(len(seed_metrics)),
-                }
-            )
+            {
+                "idx": idx,
+                "objective": objective,
+                "mean_reward": mean_reward,
+                "reward_std": reward_std,
+                "mean_realized_harvest": mean_realized_harvest,
+                "harvest_score": harvest_score,
+                "collapse_rate": collapse_rate,
+                "min_fish": min_fish,
+                "mean_fish": mean_fish,
+                "total_fines": mean_fines,
+                "num_seeds": float(len(seed_metrics)),
+            }
+        )
 
         objectives = np.asarray(
             [m["objective"] for m in per_mech_metrics],

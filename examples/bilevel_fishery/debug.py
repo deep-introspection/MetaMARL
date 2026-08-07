@@ -30,7 +30,7 @@ bilevel_opt_cfg: BilevelConfig = (
     .mechanism(
         # TODO adding defaults
         space=FisheryMechanismSpace(
-            optimize_params=["min_demand_frac"],
+            optimize_params=["fixed_quota", "restoration_subsidy"], #", "risk_penalty_scale", "risk_penalty_power", "fine_amount", , "max_demand_frac", 
             # default_fixed_quota=0.7812058329582214,
             # default_min_demand_frac=0.1059612140059471,
             # default_max_demand_frac=0.5705976366996766,
@@ -49,13 +49,13 @@ bilevel_opt_cfg: BilevelConfig = (
             # default_under_irrigation_penalty_scale=0.0,
 
             # extremely restrictive quota
-            default_fixed_quota=0.90,
-            default_min_demand_frac=0.05,
+            default_fixed_quota=0.56224, #0.90 #0.52
             default_max_demand_frac=1.0,
+            default_restoration_subsidy=0.10,
 
-            default_fine_amount=0.10, 
-            default_risk_penalty_scale=1.0,
-            default_risk_penalty_power=2.0,
+            default_fine_amount=0.20, 
+            default_risk_penalty_scale=0.0, #1.0
+            default_risk_penalty_power=1.0,
 
             # moderatley restrictive quota 
             # default_fixed_quota=0.80,
@@ -94,16 +94,17 @@ bilevel_opt_cfg: BilevelConfig = (
         .training(
             sigma=0.15,
             mean_lr=0.10,
-            sigma_lr=0.02,
-            min_sigma=0.01,
-            max_sigma=0.25,
+            sigma_decay=1.0,
+            sigma_lr=0.00,
+            min_sigma=0.15,
+            max_sigma=0.15,
         )
         .environment(
             env=FisheryRegulatorEnv,
             env_config={
                 "ecology_cfg": {
-                    "sus_weight": 1.0,
-                    "sus_threshold": 0.1,
+                    "sustainability_weight": 2, # assert between 0 and 5
+                    "sustainability_threshold": 0.20,
                     "K": 5_000, # HAS to match environmnet K
                 },
             },
@@ -112,7 +113,7 @@ bilevel_opt_cfg: BilevelConfig = (
         )
         .debugging(
             seed=42,
-            num_seeds=10,
+            num_seeds=1,
         )
     )
     .inner(
@@ -135,11 +136,24 @@ bilevel_opt_cfg: BilevelConfig = (
                     "r": 0.3,
                     "K": 5_000,
                     "p": 1.0,
-                    "sigma": 0.05,
-                    "B0": 2_500,
+                    "B0": 4_000,
+                     "fish_init": 4_000,
 
-                    # Optional compatibility alias used by reset if present
-                    "fish_init": 2_500,
+                    # Env stochasticity
+                    "sigma": 0.02,
+                    "initial_stock_log_sigma": 0.05,
+
+                    "unregulated_f_multiplier": 2.0,
+                    "collapse_stock_frac": 0.20,
+                    "collapse_transition_width": 0.03,
+                    "quota_transition_width": 0.05,
+                    "harvest_transition_width": 0.005,
+                    "violation_transition_width": 0.03,
+
+                    # restorative
+                    "restoration_effectiveness": 0.02,
+                    "restoration_effort_cost": 0.25,
+                    
                 },
                 "seed": 0,
             },
@@ -150,9 +164,10 @@ bilevel_opt_cfg: BilevelConfig = (
             num_env_runners=0,
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
-            num_envs_per_env_runner=1,
+            num_envs_per_env_runner=4,
             rollout_fragment_length=100,
             batch_mode="truncate_episodes",
+            max_requests_in_flight_per_env_runner=1,
         )
         .learners(
             num_learners=0,
@@ -186,12 +201,15 @@ bilevel_opt_cfg: BilevelConfig = (
                 "explore": False,
                 "rollout_fragment_length": 100,
                 "batch_mode": "complete_episodes",
+                "max_requests_in_flight_per_env_runner": 1,
             },
+            base_seed = 42,
+            num_seeds = 3
         )
         .agents(
             {
                 "utilizer": {
-                    "count":5,
+                    "count":10,
                     "policy": "fisher_policy",
                     "observation_space": spaces.Box(
                         low=-np.inf,
@@ -226,9 +244,9 @@ bilevel_opt_cfg: BilevelConfig = (
                         # NOTE:
                         # This does not change max_pull_fraction itself. It changes how much
                         # of that maximum capacity the policy is allowed to request.
-                        low=0.0,
-                        high=1,
-                        shape=(1,),
+                        low=-np.inf,
+                        high=np.inf,
+                        shape=(2,),
                         dtype=np.float32,
                     ),
                 }

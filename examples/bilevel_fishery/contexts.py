@@ -1,5 +1,7 @@
 from typing import SupportsFloat
 
+import numpy as np
+
 from core.world.context import ContextSchema
 
 
@@ -23,6 +25,8 @@ class FitnessContext(ContextSchema):
     total_fines: float
     mean_fish: float
     min_fish: float
+    mean_realized_harvest: float
+    harvest_score: float
 
     @classmethod
     def from_metrics(
@@ -35,14 +39,33 @@ class FitnessContext(ContextSchema):
         total_fines: SupportsFloat = 0.0,
         mean_fish: SupportsFloat = 0.0,
         min_fish: SupportsFloat = 0.0,
+        mean_realized_harvest: SupportsFloat = 0.0,
+        harvest_score: SupportsFloat = 0.0,
     ) -> "FitnessContext":
         """
         Construct fitness context from evaluation metrics.
         """
         # TODO 
         # objective = mean_reward - sustainability_weight * (1.0 - mean_fish)
-        objective = mean_reward
+        # objective = harvest_score
+        objective = harvest_score + sustainability_weight * mean_fish
         # objective = mean_fish
+
+        # reward = float(mean_reward)
+        # fish = float(mean_fish)
+        # alpha = float(sustainability_weight)
+
+        # if not 0.0 <= alpha <= 1.0:
+        #     raise ValueError(
+        #         "sustainability_weight must be between 0 and 1"
+        #     )
+
+        # eps = 1e-8
+
+        # objective = (
+        #     (1.0 - alpha) * np.log(max(reward, eps))
+        #     + alpha * np.log(max(fish, eps))
+        # )
 
         return cls(
             objective_score=objective,
@@ -52,4 +75,6 @@ class FitnessContext(ContextSchema):
             total_fines=float(total_fines),
             mean_fish=float(mean_fish),
             min_fish=float(min_fish),
+            mean_realized_harvest=float(mean_realized_harvest),
+            harvest_score=float(harvest_score),
         )

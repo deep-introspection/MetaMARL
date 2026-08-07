@@ -26,6 +26,7 @@ def pella_tomlinson_step(
     K: float,
     p: float = 1.0,
     noise: float = 0.0,
+    restoration: float = 0.0,
 ) -> tuple[float, float, float]:
     """
     Single-stock surplus production step.
@@ -40,7 +41,8 @@ def pella_tomlinson_step(
     K = max(float(K), EPS)
     p = max(float(p), EPS)
 
-    growth = (r / p) * B * (1.0 - (B / K) ** p) + noise
+    biological_growth = (r / p) * B * (1.0 - (B / K) ** p)
+    growth = biological_growth + noise + restoration
     available = max(B + growth, 0.0)
 
     H_realized = min(float(H), available)
@@ -80,6 +82,28 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
         self.max_fish = self.K
         self.fish_init = ecology_cfg.get("fish_init", ecology_cfg.get("B0", self.K))
+        self.restoration_effectiveness = float(
+            ecology_cfg.get(
+                "restoration_effectiveness",
+                0.005,
+            )
+        )
+        self.restoration_effort_cost = float(
+            ecology_cfg.get(
+                "restoration_effort_cost",
+                0.25,
+            )
+        )
+
+        self.collapse_stock_frac = ecology_cfg.get("collapse_stock_frac", 0.20)
+        self.collapse_transition_width = ecology_cfg.get("collapse_transition_width", 0.03)
+        self.unregulated_f_multiplier = ecology_cfg.get("unregulated_f_multiplier", 2.0)
+        self.initial_stock_log_sigma = float(ecology_cfg.get("initial_stock_log_sigma", 0.05))
+
+        if self.initial_stock_log_sigma < 0.0:
+            raise ValueError(
+                "initial_stock_log_sigma must be non-negative"
+            )
 
         self.quota_transition_width = ecology_cfg.get("quota_transition_width", 0.03)
         self.harvest_transition_width = ecology_cfg.get("harvest_transition_width", 0.005)
@@ -100,10 +124,20 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
     @override(MultiAgentRegulatedEnv)
     def _reset(self):
+        if self.initial_stock_log_sigma == 0.0:
+            initial_fish = float(self.fish_init)
+        else:
+            initial_fish = self.rng.lognormal(
+                mean=np.log(max(self.fish_init, EPS)),
+                sigma=self.initial_stock_log_sigma, #sigma around sampling from lognormal distribution
+            )
+
+        # worth investigating freezing
         self.S_t = {
-            "fish": max(
+            "fish": np.clip(
+                initial_fish,
                 EPS,
-                self.rng.lognormal(np.log(max(self.fish_init, EPS)), 0.05),
+                self.K,
             ),
             "last_usage": 0.0,
         }
@@ -117,10 +151,28 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def _is_truncated(self) -> bool:
         return self.horizon is not None and (self._t + 1) >= self.horizon
     
-    def _action_to_float(self, action: ActType) -> float:
-        if hasattr(action, "item"):
-            return float(action.item())
-        return float(action)
+    def _action_components(
+        self,
+        action: ActType,
+    ) -> tuple[float, float]:
+        z = np.asarray(action, dtype=np.float32).reshape(-1)
+
+        if z.size != 2:
+            raise ValueError(
+                f"Expected action with 2 elements, got shape {z.shape}"
+            )
+
+        temperature = 4.0
+
+        harvest_fraction = float(
+            sigmoid(float(z[0]) / temperature)
+        )
+
+        restoration_effort = float(
+            sigmoid(float(z[1]) / temperature)
+        )
+
+        return harvest_fraction, restoration_effort
     
     def _quota_stress(self, fish_norm: float) -> float:
         fish_norm = float(np.clip(fish_norm, 0.0, 1.0))
@@ -134,12 +186,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         stress = self._quota_stress(fish_norm)
 
         return float(
-            self.mechanism.min_demand_frac
-            + stress
-            * (
-                self.mechanism.max_demand_frac
-                - self.mechanism.min_demand_frac
-            )
+            stress * self.mechanism.max_demand_frac
         )
 
     def _allowed_harvest(self, fish_norm: float) -> float:
@@ -152,12 +199,21 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         fish = float(self.S_t["fish"])
         fish_norm = fish / max(self.max_fish, EPS)
 
-        self.full_required_harvest = fish / len(self.agents)
+        # self.full_required_harvest = fish / len(self.agents)
+        # self.full_required_harvest = (
+        #     self.F_msy * fish / len(self.agents)
+        # )
+        self.full_required_harvest = (
+            self.unregulated_f_multiplier
+            * self.F_msy
+            * fish
+            / len(self.agents)
+        )
 
         utilities = {}
 
         for agent_id, action in A_t.items():
-            harvest_frac = np.clip(self._action_to_float(action), 0.0, 1.0)
+            harvest_frac, _ = self._action_components(action)
 
             requested_harvest = harvest_frac * self.full_required_harvest
             allowed_harvest = self._allowed_harvest(fish_norm)
@@ -187,9 +243,12 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         fish = float(self.S_t["fish"])
         fish_norm = fish / max(self.max_fish, EPS)
 
+        harvest_frac, _ = self._action_components(
+            A_t[agent_id]
+        )
+
         requested_harvest = (
-            np.clip(self._action_to_float(A_t[agent_id]), 0.0, 1.0)
-            * self.full_required_harvest
+            harvest_frac * self.full_required_harvest
         )
 
         allowed_frac = self._allowed_frac(fish_norm)
@@ -200,6 +259,10 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         requested_frac_norm = (
             requested_harvest
             / max(EPS, self.full_required_harvest)
+        )
+
+        delivered_frac_norm = float(
+            np.clip(u_i, 0.0, 1.0)
         )
 
         violation_frac = smooth_positive_zero_at_origin(
@@ -223,7 +286,10 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         risk_penalty = (
             self.mechanism.risk_penalty_scale
             * stock_pressure
-            * (requested_frac_norm ** self.mechanism.risk_penalty_power)
+            * (
+                delivered_frac_norm
+                ** self.mechanism.risk_penalty_power
+            )
         )
 
         total_penalty = min(1.0, quota_penalty + risk_penalty)
@@ -236,7 +302,6 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         self._update_infos(key="quota_penalty", values={agent_id: quota_penalty})
         self._update_infos(key="risk_penalty", values={agent_id: risk_penalty})
         self._update_infos(key="quota_stress", values={agent_id: self._quota_stress(fish_norm)})
-        self._update_infos(key="min_demand_frac", values={agent_id: self.mechanism.min_demand_frac})
         self._update_infos(key="max_demand_frac", values={agent_id: self.mechanism.max_demand_frac})
 
         return total_penalty
@@ -253,21 +318,52 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         fish = float(S_t["fish"])
         fish_norm = fish / max(self.max_fish, EPS)
 
-        self.full_required_harvest = fish / len(self.agents)
+        # self.full_required_harvest = fish / len(self.agents)
+        # self.full_required_harvest = (
+        #     self.F_msy * fish / len(self.agents)
+        # )
+        self.full_required_harvest = (
+            self.unregulated_f_multiplier
+            * self.F_msy
+            * fish
+            / len(self.agents)
+        )
 
         delivered_harvest = {}
 
+        restoration_efforts = {}
+
         for agent_id, action in A_t.items():
-            harvest_frac = np.clip(self._action_to_float(action), 0.0, 1.0)
-            requested_harvest = harvest_frac * self.full_required_harvest
+            harvest_frac, restoration_effort = (
+                self._action_components(action)
+            )
+
+            restoration_efforts[agent_id] = restoration_effort
+
+            requested_harvest = (
+                harvest_frac * self.full_required_harvest
+            )
+
             allowed_harvest = self._allowed_harvest(fish_norm)
 
-            delivered_harvest[agent_id] = requested_harvest - (
-                smooth_positive_zero_at_origin(
+            delivered_harvest[agent_id] = (
+                requested_harvest
+                - smooth_positive_zero_at_origin(
                     requested_harvest - allowed_harvest,
-                    self.harvest_transition_width * self.full_required_harvest,
+                    self.harvest_transition_width
+                    * self.full_required_harvest,
                 )
             )
+
+        mean_restoration_effort = float(
+            np.mean(list(restoration_efforts.values()))
+        )
+
+        restoration_gain = (
+            self.restoration_effectiveness
+            * mean_restoration_effort
+            * self.K
+)
 
         H_attempted = float(sum(delivered_harvest.values()))
 
@@ -280,6 +376,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             K=self.K,
             p=self.p,
             noise=noise,
+            restoration=restoration_gain
         )
 
         new_state = {
@@ -347,13 +444,45 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             )
             for agent_id in self.agents
         }
+        restoration_efforts = {
+            agent_id: self._action_components(
+                action_dict[agent_id]
+            )[1]
+            for agent_id in self.agents
+        }
+        restoration_costs = {
+            agent_id: (
+                self.restoration_effort_cost
+                * restoration_efforts[agent_id] ** 2
+            )
+            for agent_id in self.agents
+        }
 
-        collapse_threshold = self.B_msy / max(self.max_fish, EPS)
+        restoration_subsidies = {
+            agent_id: (
+                self.mechanism.restoration_subsidy
+                * restoration_efforts[agent_id]
+            )
+            for agent_id in self.agents
+        }
+
+        S_next = self.transition_kernel(
+            A_t=action_dict,
+            S_t=S_t,
+        )
+        H_realized = float(S_next["last_usage"])
+        harvest_to_msy = H_realized / max(self.MSY, EPS)
+
+        fish_norm_next = float(
+            S_next["fish"] / max(self.max_fish, EPS)
+        )
+
         collapse_penalty = 0.1 / (
             1.0
             + np.exp(
                 np.clip(
-                    (fish_norm - collapse_threshold) / 0.05,
+                    (fish_norm_next - self.collapse_stock_frac) 
+                    / self.collapse_transition_width,
                     -60.0,
                     60.0,
                 )
@@ -365,16 +494,11 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
                 utilities[agent_id]
                 - violations[agent_id]
                 - collapse_penalty
+                - restoration_costs[agent_id]
+                + restoration_subsidies[agent_id]
             )
             for agent_id in self.agents
         }
-
-        rewards = self._aggregate_rewards(rewards)
-
-        S_next = self.transition_kernel(
-            A_t=action_dict,
-            S_t=S_t,
-        )
 
         obs = {
             agent_id: self.observation(agent_id, S_next)
@@ -397,6 +521,8 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
                 "fish_norm_next": S_next["fish"] / max(self.max_fish, EPS),
                 "intrinsic_utility": utilities[agent_id],
                 "violation_signal": violations[agent_id],
+                "H_realized": H_realized,
+                "harvest_to_msy": harvest_to_msy,
                 "B_msy": self.B_msy,
                 "MSY": self.MSY,
                 "F_msy": self.F_msy,
