@@ -7,16 +7,15 @@ from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
 from core.optimizers.appo.config import APPOptimizerConfig
 
-from examples.fresh_water.mechanism import WaterMechanismSpace
-from examples.fresh_water.regulated_env_ed_hs_v4 import WaterRegulatedEdHsEnv
-from examples.fresh_water.regulator_env_raven import WaterRegulatorRavenEnv
-
+from examples.bilevel_fishery.mechanism_v1 import FisheryMechanismSpace
+from examples.bilevel_fishery.regulated_env_shaefer import FisheryRegulatedEnv
+from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
 ray.shutdown()
 
 bilevel_opt_cfg: BilevelConfig = (
     BilevelConfig()
-    .world(world_name="water_world")
+    .world(world_name="fishery_world")
     .reporting(
         reporter="wandb",
         project_name="bilevel",
@@ -30,9 +29,50 @@ bilevel_opt_cfg: BilevelConfig = (
     )
     .mechanism(
         # TODO adding defaults
-        space=WaterMechanismSpace(),
+        space=FisheryMechanismSpace(
+            optimize_params=["fixed_quota", "restoration_subsidy"], #", "risk_penalty_scale", "risk_penalty_power", "fine_amount", , "max_demand_frac", 
+            # default_fixed_quota=0.7812058329582214,
+            # default_min_demand_frac=0.1059612140059471,
+            # default_max_demand_frac=0.5705976366996766,
+            # default_fine_amount=0.05723086595535279,
+            # default_risk_penalty_scale=0.5466187596321106,
+            # default_risk_penalty_power=3.8254001140594482,
+            # default_under_irrigation_penalty_scale=0.5174465179443359,
+
+            # permissive quota  
+            # default_fixed_quota=0.60,
+            # default_min_demand_frac=1.0,
+            # default_max_demand_frac=1.0,
+            # default_fine_amount=0.0,
+            # default_risk_penalty_scale=0.0,
+            # default_risk_penalty_power=1.0,
+            # default_under_irrigation_penalty_scale=0.0,
+
+            # extremely restrictive quota
+            default_fixed_quota=0.56224, #0.90 #0.52
+            default_max_demand_frac=1.0,
+            default_restoration_subsidy=0.10,
+
+            default_fine_amount=0.20, 
+            default_risk_penalty_scale=0.0, #1.0
+            default_risk_penalty_power=1.0,
+
+            # moderatley restrictive quota 
+            # default_fixed_quota=0.80,
+            # default_min_demand_frac=0.25,
+            # default_max_demand_frac=0.60,
+
+            # default_fine_amount=0.05,
+            # default_risk_penalty_scale=0.40,
+            # default_risk_penalty_power=2.0,
+            # default_under_irrigation_penalty_scale=0.0,
+
+            # # maybe set default near middle
+            # # 
+            # default_max_farm_area_m2=500_000.0,
+        )
     )
-    .training(outer_iters=100)
+    .training(outer_iters=1000)
     .ray(
         device="cpu",
         num_cpus=4,
@@ -52,23 +92,24 @@ bilevel_opt_cfg: BilevelConfig = (
     .outer(
         ESConfig()
         .training(
-            sigma=0.5,
-            mean_lr=0.2,
-            sigma_lr=0.05,
-            min_sigma=0.01,
-            max_sigma=0.6,
+            sigma=0.15,
+            mean_lr=0.10,
+            sigma_decay=1.0,
+            sigma_lr=0.00,
+            min_sigma=0.15,
+            max_sigma=0.15,
         )
         .environment(
-            env=WaterRegulatorRavenEnv,
+            env=FisheryRegulatorEnv,
             env_config={
                 "ecology_cfg": {
-                    "sus_weight": 1.0,
-                    "sus_threshold": 0.1,
-                    "max_water": 100.0,
+                    "sustainability_weight": 2, # assert between 0 and 5
+                    "sustainability_threshold": 0.20,
+                    "K": 5_000, # HAS to match environmnet K
                 },
             },
             horizon=100,
-            train_iters=200,
+            train_iters=50,
         )
         .debugging(
             seed=42,
@@ -88,32 +129,45 @@ bilevel_opt_cfg: BilevelConfig = (
             enable_env_runner_and_connector_v2=True,
         )
         .environment(
-            env=WaterRegulatedEdHsEnv,
+            env=FisheryRegulatedEnv,
             env_config={
                 "ecology_cfg": {
-                    "max_farm_area_m2": 1_000_000.0,
+                    # Pella-Tomlinson / Schaefer single-stock dynamics
+                    "r": 0.3,
+                    "K": 5_000,
+                    "p": 1.0,
+                    "B0": 4_000,
+                     "fish_init": 4_000,
 
-                    # TODO move this to Raven helper
-                    "full_stage_m": 420.41,
-                    "max_depth_m": 11.0,
-                    "lake_area_m2": 5756935.89615,
+                    # Env stochasticity
+                    "sigma": 0.02,
+                    "initial_stock_log_sigma": 0.05,
+
+                    "unregulated_f_multiplier": 2.0,
+                    "collapse_stock_frac": 0.20,
+                    "collapse_transition_width": 0.03,
+                    "quota_transition_width": 0.05,
+                    "harvest_transition_width": 0.005,
+                    "violation_transition_width": 0.03,
+
+                    # restorative
+                    "restoration_effectiveness": 0.02,
+                    "restoration_effort_cost": 0.25,
+                    
                 },
-                "use_raven": True,
-                "raven_cwd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven",
-                "raven_cmd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven/2_Raven/Raven.exe",
-                "raven_freq": 1,
                 "seed": 0,
             },
-            horizon=150,
+            horizon=100,
             disable_env_checking=False,
         )
         .env_runners(
             num_env_runners=0,
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
-            num_envs_per_env_runner=1,
-            rollout_fragment_length=150,
+            num_envs_per_env_runner=4,
+            rollout_fragment_length=100,
             batch_mode="truncate_episodes",
+            max_requests_in_flight_per_env_runner=1,
         )
         .learners(
             num_learners=0,
@@ -131,8 +185,8 @@ bilevel_opt_cfg: BilevelConfig = (
             timeout_s_aggregator_manager=10,
             gamma=0.99,
             lr=0.001,
-            train_batch_size_per_learner=150,
-            minibatch_size=150,
+            train_batch_size_per_learner=100,
+            minibatch_size=100,
             num_epochs=1,
             entropy_coeff=0.001,
             grad_clip=40.0,
@@ -145,19 +199,22 @@ bilevel_opt_cfg: BilevelConfig = (
             evaluation_parallel_to_training=False,
             evaluation_config={
                 "explore": False,
-                "rollout_fragment_length": 150,
+                "rollout_fragment_length": 100,
                 "batch_mode": "complete_episodes",
+                "max_requests_in_flight_per_env_runner": 1,
             },
+            base_seed = 42,
+            num_seeds = 3
         )
         .agents(
             {
                 "utilizer": {
-                    "count": 500,
-                    "policy": "utilizer_policy",
+                    "count":10,
+                    "policy": "fisher_policy",
                     "observation_space": spaces.Box(
                         low=-np.inf,
                         high=np.inf,
-                        shape=(4 + WaterMechanismSpace().full_dimension,
+                        shape=(3 + FisheryMechanismSpace().full_dimension,
                         ),
                         dtype=np.float32,
                     ),
@@ -187,9 +244,9 @@ bilevel_opt_cfg: BilevelConfig = (
                         # NOTE:
                         # This does not change max_pull_fraction itself. It changes how much
                         # of that maximum capacity the policy is allowed to request.
-                        low=0.0,
-                        high=1,
-                        shape=(1,),
+                        low=-np.inf,
+                        high=np.inf,
+                        shape=(2,),
                         dtype=np.float32,
                     ),
                 }

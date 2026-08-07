@@ -40,20 +40,15 @@ class RayOptimizer(Optimizer):
         self,
         # algo: Algorithm,
         config: RayOptimizerConfig,
-        world: ActorHandle[World],
-        reporting: ActorHandle[WandbReporter],
     ):
         super().__init__(config)
         # self.algo = algo
-        self.world = world  # TODO replace by envFactory
-        self.reporting = reporting
         # self.eval_episodes = config.eval_episodes
         # TODO fallback if rollout_fragment_length not in eval_cfg
         self.eval_episodes = (
             config.rllib_cfg.evaluation_duration
             // config.rllib_cfg.evaluation_config.get("rollout_fragment_length")
         )
-        self.eval_base_seed = config.eval_base_seed
         # self.rollout_fragment_length = config.rollout_fragment_length
 
         from core.adaptors.ray.policy_actor import PolicyActor
@@ -63,6 +58,7 @@ class RayOptimizer(Optimizer):
         # Track training metrics for plotting
         self._training_rewards: list[float] = []
         self._training_losses: list[float] = []
+        self._inner_iter: int = 0
         self._es_round: int = 0
 
         # TODO remove this - temporary for testing
@@ -107,46 +103,55 @@ class RayOptimizer(Optimizer):
     def run(self) -> None:
         logger.info("[PPO] Training step started")
         result = ray.get(self.policy_actor.train.remote())
-        step = int(to_float(result.get("training_iteration")) or 0)
+        # step = int(to_float(result.get("training_iteration")) or 0)
+
+        # Local inner-loop iteration. This resets for each outer ES round.
+        self._inner_iter += 1
+        step = self._inner_iter
+
+        # RLlib's own lifetime training counter, retained only for debugging.
+        rllib_training_iteration = int(
+            to_float(result.get("training_iteration")) or 0
+        )
 
         # TODO make this more dynamic NEW_STACK
         # TODO move this to world
-        ray.get(
-            self.reporting.plot_ray_result.remote(
-                outer_iter=self._es_round,
-                training_episode=step,
-                results=result,
-                prefix="appo/train",
-            )
-        )
+        # ray.get(
+        #     self.reporting.plot_ray_result.remote(
+        #         outer_iter=self._es_round,
+        #         training_episode=step,
+        #         results=result,
+        #         prefix="appo/train",
+        #     )
+        # )
 
-        eval_result = result.get("evaluation")
-        if eval_result:
-            ray.get(
-                self.reporting.plot_ray_result.remote(
-                outer_iter=self._es_round,
-                training_episode=step,
-                results=eval_result,
-                prefix="appo/eval",
-            )
-            )
+        # eval_result = result.get("evaluation")
+        # if eval_result:
+        #     ray.get(
+        #         self.reporting.plot_ray_result.remote(
+        #         outer_iter=self._es_round,
+        #         training_episode=step,
+        #         results=eval_result,
+        #         prefix="appo/eval",
+        #     )
+        #     )
 
         # TODO reduced env episode plotting
-        if self._env_reducers:
-            latest_env_ctxs = ray.get(
-                self.world.get_new_env_step_contexts.remote(opt_id=self.opt_id)
-            )
+        # if self._env_reducers:
+        #     latest_env_ctxs = ray.get(
+        #         self.world.get_new_env_step_contexts.remote(opt_id=self.opt_id)
+        #     )
 
-            if latest_env_ctxs:
-                ray.get(
-                    self.reporting.plot_env_reduced.remote(
-                        ctxs=latest_env_ctxs,
-                        outer_iter=self._es_round,
-                        training_episode=step,
-                        reducers=self._env_reducers,
-                        prefix="env_reduced",
-                    )
-                )
+        #     if latest_env_ctxs:
+        #         ray.get(
+        #             self.reporting.plot_env_reduced.remote(
+        #                 ctxs=latest_env_ctxs,
+        #                 outer_iter=self._es_round,
+        #                 training_episode=step,
+        #                 reducers=self._env_reducers,
+        #                 prefix="env_reduced",
+        #             )
+        #         )
 
         # TODO temporary to be moved to a logger Extract metrics
         ep_return = get_episode_return_mean(result)
@@ -158,8 +163,13 @@ class RayOptimizer(Optimizer):
         self._training_losses.append(policy_loss)
 
         logger.info(
-            "[PPO] Training step completed | iter=%d | ep_return=%.4f | env_steps_iter=%d | env_steps_lifetime=%d | policy_loss=%s",
+            "[PPO] Training step completed | "
+            "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
+            "ep_return=%.4f | env_steps_iter=%d | "
+            "env_steps_lifetime=%d | policy_loss=%s",
+            self._es_round,
             step,
+            rllib_training_iteration,
             ep_return,
             steps_iter,
             steps_life,
@@ -178,6 +188,7 @@ class RayOptimizer(Optimizer):
         logger.info("[PPO] Resetting policy weights")
         self._training_rewards = []
         self._training_losses = []
+        self._inner_iter = 0
         self._es_round += 1
         ray.get(self.policy_actor.reset.remote())
 

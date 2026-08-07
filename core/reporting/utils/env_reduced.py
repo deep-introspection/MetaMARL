@@ -14,6 +14,8 @@ from core.reporting.utils.env_step_context import _extract_info_series
 
 _ENV_REDUCED_ITER_TABLES: dict[tuple[int, str], wandb.Table] = {}
 
+EPS = 1e-8
+
 
 @dataclass(frozen=True)
 class ReductionSpec:
@@ -73,12 +75,98 @@ def _ctx_to_metric_rows(ctx: Context) -> list[dict[str, Any]]:
         "info/reservoir_level_norm",
         "info/streamflow_m3s",
         "info/precip_mm_day",
+        "info/outflow_m3s",
         "info/temp_c",
+        "info/crop_satisfaction",
+        "info/delivered_m3_day",
         "info/total_usage_m3s",
         "info/full_required_m3_day",
         "info/deficit_mm_day",
+        "info/requested_m3_day",
+        "info/allowed_m3_day",
+        "info/quota_violation_m3",
         "info/quota_penalty",
+        "info/violation_signal",
+        "info/release_pressure",
+        "info/residence_time_days",
+        "info/02GA041_streamflow_m3s",
+        "info/02GA041_streamflow_m3s_observed",
+        "info/02GA014_streamflow_m3s",
+        "info/02GA014_streamflow_m3s_observed",
+        "info/West_Montrose_streamflow_m3s",
+        "info/West_Montrose_streamflow_m3s_observed",
+        "info/base_allowed_m3_day",
+        "info/graded_floor_m3_day",
+        "info/quota_source",
+        "info/farm_area_m2",
+        "info/farm_area_m2_std",
+        "info/farm_area_m2_min",
+        "info/farm_area_m2_p05",
+        "info/farm_area_m2_p25",
+        "info/farm_area_m2_p50",
+        "info/farm_area_m2_p75",
+        "info/farm_area_m2_p90",
+        "info/farm_area_m2_p95",
+        "info/farm_area_m2_p99",
+        "info/farm_area_m2_max",
+
+        "info/farm_area_ha",
+        "info/farm_area_ha_std",
+        "info/farm_area_ha_min",
+        "info/farm_area_ha_p05",
+        "info/farm_area_ha_p25",
+        "info/farm_area_ha_p50",
+        "info/farm_area_ha_p75",
+        "info/farm_area_ha_p90",
+        "info/farm_area_ha_p95",
+        "info/farm_area_ha_p99",
+        "info/farm_area_ha_max",
+
+        "info/fish",
+        "info/fish_next",
+        "info/fish_norm",
+        "info/fish_norm_next",
+        "info/growth",
+        "info/growth_noise",
+        "info/H_attempted",
+        "info/H_realized",
+        "info/total_usage_norm",
+        "info/full_required_harvest",
+        "info/requested_harvest",
+        "info/allowed_harvest",
+        "info/delivered_harvest",
+        "info/quota_violation",
+        "info/risk_penalty",
+        "info/quota_stress",
+        "info/min_demand_frac",
+        "info/max_demand_frac",
+        "info/B_msy",
+        "info/MSY",
+        "info/F_msy",
+        "info/intrinsic_utility",
     }
+    # KEEP_METRICS = {
+    #     "info/fish",
+    #     "info/fish_next",
+    #     "info/fish_norm",
+    #     "info/growth",
+    #     "info/growth_noise",
+    #     "info/harvest",
+    #     "info/desired_harvest",
+    #     "info/intrinsic_utility",
+    #     "info/violation_signal",
+    #     "info/H_attempted",
+    #     "info/H_realized",
+    #     "info/harvest_scale",
+    #     "info/below_target_zone",
+    #     "info/target_shortfall",
+    #     "info/B_msy",
+    #     "info/MSY",
+    #     "info/F_msy",
+    #     "info/quota_violation",
+    #     "info/quota_penalty",
+    #     "info/stock_penalty",
+    # }
 
     if ctx is None or not isinstance(ctx.payload, EnvStepContext):
         return []
@@ -116,11 +204,33 @@ def _ctx_to_metric_rows(ctx: Context) -> list[dict[str, Any]]:
     info_by_key = _extract_info_series(payload.info)
 
     for info_key, values_by_agent in info_by_key.items():
-        add_metric(
-            f"info/{info_key}",
-            _mean_agent_values(values_by_agent),
-        )
+        vals = []
 
+        for value in values_by_agent.values():
+            fv = to_float(value)
+            if fv is not None:
+                vals.append(float(fv))
+
+        if not vals:
+            continue
+
+        arr = np.asarray(vals, dtype=np.float64)
+
+        # Always log mean
+        add_metric(f"info/{info_key}", float(arr.mean()))
+
+        # Extra distribution stats for heterogeneous farm sizes
+        if info_key in {"farm_area_m2", "farm_area_ha"}:
+            add_metric(f"info/{info_key}_std", float(arr.std()))
+            add_metric(f"info/{info_key}_min", float(arr.min()))
+            add_metric(f"info/{info_key}_p05", float(np.quantile(arr, 0.05)))
+            add_metric(f"info/{info_key}_p25", float(np.quantile(arr, 0.25)))
+            add_metric(f"info/{info_key}_p50", float(np.quantile(arr, 0.50)))
+            add_metric(f"info/{info_key}_p75", float(np.quantile(arr, 0.75)))
+            add_metric(f"info/{info_key}_p90", float(np.quantile(arr, 0.90)))
+            add_metric(f"info/{info_key}_p95", float(np.quantile(arr, 0.95)))
+            add_metric(f"info/{info_key}_p99", float(np.quantile(arr, 0.99)))
+            add_metric(f"info/{info_key}_max", float(arr.max()))
     return rows
 
 
@@ -417,27 +527,260 @@ def _rows_to_iteration_metric_rows(
                 continue
 
             clean_name = metric_name.replace("info_", "")
+            # clean_name = metric_name.split("/")[-1]
             arr = np.asarray(values, dtype=np.float64)
 
-            if clean_name == "total_usage_m3s":
-                # Total extraction across the rollout.
-                value = float(np.sum(arr))
-                out_name = "total_usage_m3s_sum"
+            # if clean_name == "total_usage_m3s":
+            #     # Total extraction across the rollout.
+            #     value = float(np.sum(arr))
+            #     out_name = "total_usage_m3s_sum"
+
+            # else:
+            #     # Typical state / penalty / flow level over the rollout.
+            #     value = float(np.mean(arr))
+            #     out_name = f"{clean_name}_mean"
+
+            # # if clean_name in {"harvest", "desired_harvest", "H_attempted", "H_realized"}:
+            # #     value = float(np.sum(arr))
+            # #     out_name = f"{clean_name}_sum"
+            # # else:
+            # #     value = float(np.mean(arr))
+            # #     out_name = f"{clean_name}_mean"
+
+            # add(
+            #     phase,
+            #     mechanism,
+            #     seed,
+            #     out_name,
+            #     value,
+            # )
+
+            if clean_name in {
+                "total_usage_m3s",
+                "H_realized",
+                "H_attempted",
+                "requested_harvest",
+                "allowed_harvest",
+                "delivered_harvest",
+                "requested_m3_day",
+                "allowed_m3_day",
+                "delivered_m3_day",
+            }:
+                add(phase, mechanism, seed, f"{clean_name}_sum", float(np.sum(arr)))
+                add(phase, mechanism, seed, f"{clean_name}_mean", float(np.mean(arr)))
+                add(phase, mechanism, seed, f"{clean_name}_max", float(np.max(arr)))
+
+            elif clean_name in {
+                # water state variables
+                "reservoir_stage",
+                "reservoir_level_norm",
+                "streamflow_m3s",
+                "outflow_m3s",
+                "02GA041_streamflow_m3s",
+                "02GA041_streamflow_m3s_observed",
+                "02GA014_streamflow_m3s",
+                "02GA014_streamflow_m3s_observed",
+                "West_Montrose_streamflow_m3s",
+                "West_Montrose_streamflow_m3s_observed",
+                "release_pressure",
+                "residence_time_days",
+
+                # fishery state variables
+                "fish",
+                "fish_next",
+                "fish_norm",
+                "fish_norm_next",
+                "growth",
+                "total_usage_norm",
+            }:
+                add(phase, mechanism, seed, f"{clean_name}_mean", float(np.mean(arr)))
+                add(phase, mechanism, seed, f"{clean_name}_last", float(arr[-1]))
+                add(phase, mechanism, seed, f"{clean_name}_min", float(np.min(arr)))
+                add(phase, mechanism, seed, f"{clean_name}_max", float(np.max(arr)))
 
             else:
-                # Typical state / penalty / flow level over the rollout.
-                value = float(np.mean(arr))
-                out_name = f"{clean_name}_mean"
-
-            add(
-                phase,
-                mechanism,
-                seed,
-                out_name,
-                value,
-            )
+                add(phase, mechanism, seed, f"{clean_name}_mean", float(np.mean(arr)))
     return out
 
+def _log_02GA041_observed_vs_simulated(
+    *,
+    wandb_run,
+    prefix: str,
+    metric_tables: dict[str, wandb.Table],
+    step: int,
+) -> None:
+    sim_key = sanitize_key("info/02GA041_streamflow_m3s")
+    obs_key = sanitize_key("info/02GA041_streamflow_m3s_observed")
+
+    if sim_key not in metric_tables or obs_key not in metric_tables:
+        return
+
+    sim_table = metric_tables[sim_key]
+    obs_table = metric_tables[obs_key]
+
+    fig = go.Figure()
+
+    def add_trace(table: wandb.Table, name: str) -> None:
+        cols = list(table.columns)
+        ix = cols.index("env_step")
+        iy = cols.index("value")
+
+        xs = []
+        ys = []
+
+        for row in table.data:
+            x = to_float(row[ix])
+            y = to_float(row[iy])
+            if x is not None and y is not None:
+                xs.append(float(x))
+                ys.append(float(y))
+
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=ys,
+                mode="lines+markers",
+                name=name,
+            )
+        )
+
+    add_trace(sim_table, "02GA041 simulated")
+    add_trace(obs_table, "02GA041 observed")
+
+    fig.update_layout(
+        title="02GA041 simulated vs observed streamflow",
+        xaxis_title="env_step",
+        yaxis_title="streamflow [m3/s]",
+        hovermode="x unified",
+        template="plotly_white",
+        height=650,
+    )
+
+    wandb_run.log(
+        {f"{prefix}/plots/02GA041_simulated_vs_observed": fig},
+        step=step,
+        commit=False,
+    )
+
+def _log_02GA014_observed_vs_simulated(
+    *,
+    wandb_run,
+    prefix: str,
+    metric_tables: dict[str, wandb.Table],
+    step: int,
+) -> None:
+    sim_key = sanitize_key("info/02GA014_streamflow_m3s")
+    obs_key = sanitize_key("info/02GA014_streamflow_m3s_observed")
+
+    if sim_key not in metric_tables or obs_key not in metric_tables:
+        return
+
+    sim_table = metric_tables[sim_key]
+    obs_table = metric_tables[obs_key]
+
+    fig = go.Figure()
+
+    def add_trace(table: wandb.Table, name: str) -> None:
+        cols = list(table.columns)
+        ix = cols.index("env_step")
+        iy = cols.index("value")
+
+        xs = []
+        ys = []
+
+        for row in table.data:
+            x = to_float(row[ix])
+            y = to_float(row[iy])
+            if x is not None and y is not None:
+                xs.append(float(x))
+                ys.append(float(y))
+
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=ys,
+                mode="lines+markers",
+                name=name,
+            )
+        )
+
+    add_trace(sim_table, "02GA014 simulated")
+    add_trace(obs_table, "02GA014 observed")
+
+    fig.update_layout(
+        title="02GA014 simulated vs observed streamflow",
+        xaxis_title="env_step",
+        yaxis_title="streamflow [m3/s]",
+        hovermode="x unified",
+        template="plotly_white",
+        height=650,
+    )
+
+    wandb_run.log(
+        {f"{prefix}/plots/02GA014_simulated_vs_observed": fig},
+        step=step,
+        commit=False,
+    )
+
+def _log_West_Montrose_observed_vs_simulated(
+    *,
+    wandb_run,
+    prefix: str,
+    metric_tables: dict[str, wandb.Table],
+    step: int,
+) -> None:
+    sim_key = sanitize_key("info/West_Montrose_streamflow_m3s")
+    obs_key = sanitize_key("info/West_Montrose_streamflow_m3s_observed")
+
+    if sim_key not in metric_tables or obs_key not in metric_tables:
+        return
+
+    sim_table = metric_tables[sim_key]
+    obs_table = metric_tables[obs_key]
+
+    fig = go.Figure()
+
+    def add_trace(table: wandb.Table, name: str) -> None:
+        cols = list(table.columns)
+        ix = cols.index("env_step")
+        iy = cols.index("value")
+
+        xs = []
+        ys = []
+
+        for row in table.data:
+            x = to_float(row[ix])
+            y = to_float(row[iy])
+            if x is not None and y is not None:
+                xs.append(float(x))
+                ys.append(float(y))
+
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=ys,
+                mode="lines+markers",
+                name=name,
+            )
+        )
+
+    add_trace(sim_table, "West_Montrose simulated")
+    add_trace(obs_table, "West_Montrose observed")
+
+    fig.update_layout(
+        title="West_Montrose simulated vs observed streamflow",
+        xaxis_title="env_step",
+        yaxis_title="streamflow [m3/s]",
+        hovermode="x unified",
+        template="plotly_white",
+        height=650,
+    )
+
+    wandb_run.log(
+        {f"{prefix}/plots/West_Montrose_simulated_vs_observed": fig},
+        step=step,
+        commit=False,
+    )
 
 def plot_env_reduced(
     *,
@@ -460,8 +803,208 @@ def plot_env_reduced(
 
     if not rows:
         return
+    
+    # ============================================================
+    # RAW TABLES FOR POST-HOC ANALYSIS
+    # ============================================================
+
+    import pandas as pd
+
+    # ------------------------------------------------------------
+    # 1. Long-form timestep table
+    # ------------------------------------------------------------
+    raw_env_df = pd.DataFrame(rows)
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/raw_env_steps": wandb.Table(
+                dataframe=raw_env_df
+            )
+        },
+        step=gs,
+        commit=False,
+    )
+
+    # ------------------------------------------------------------
+    # 2. Wide timestep table
+    # ------------------------------------------------------------
+    wide_rows: dict = {}
+
+    for row in rows:
+        key = (
+            row["phase"],
+            row["mechanism"],
+            row["seed"],
+            row["env_step"],
+        )
+
+        wide_rows.setdefault(
+            key,
+            {
+                "phase": row["phase"],
+                "mechanism": row["mechanism"],
+                "seed": row["seed"],
+                "env_step": row["env_step"],
+            },
+        )
+
+        wide_rows[key][row["metric"]] = row["value"]
+
+    wide_df = pd.DataFrame(
+        list(wide_rows.values())
+    )
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/raw_env_steps_wide": wandb.Table(
+                dataframe=wide_df
+            )
+        },
+        step=gs,
+        commit=False,
+    )
+
+    # ------------------------------------------------------------
+    # 3. Useful derived quantities
+    # ------------------------------------------------------------
+
+    if (
+        "info_requested_m3_day" in wide_df.columns
+        and "info_allowed_m3_day" in wide_df.columns
+    ):
+        wide_df["requested_over_allowed"] = (
+            wide_df["info_requested_m3_day"]
+            / np.maximum(
+                EPS,
+                wide_df["info_allowed_m3_day"],
+            )
+        )
+
+    if (
+        "info_streamflow_m3s" in wide_df.columns
+        and "info_total_usage_m3s" in wide_df.columns
+    ):
+        wide_df["usage_over_streamflow"] = (
+            wide_df["info_total_usage_m3s"]
+            / np.maximum(
+                EPS,
+                wide_df["info_streamflow_m3s"],
+            )
+        )
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/raw_env_steps_wide_derived":
+                wandb.Table(dataframe=wide_df)
+        },
+        step=gs,
+        commit=False,
+    )
+
+    # ------------------------------------------------------------
+    # 4. Correlation matrix
+    # ------------------------------------------------------------
+
+    exclude_cols = {
+        "phase",
+        "mechanism",
+        "seed",
+        "env_step",
+    }
+
+    numeric_cols = [
+        c
+        for c in wide_df.columns
+        if c not in exclude_cols
+    ]
+
+    corr_df = (
+        wide_df[numeric_cols]
+        .apply(pd.to_numeric, errors="coerce")
+        .corr()
+    )
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/correlation_matrix":
+                wandb.Table(
+                    dataframe=corr_df.reset_index()
+                )
+        },
+        step=gs,
+        commit=False,
+    )
+
+    # ------------------------------------------------------------
+    # 5. Distribution summary table
+    # ------------------------------------------------------------
+
+    summary_rows = []
+
+    for col in numeric_cols:
+        series = pd.to_numeric(
+            wide_df[col],
+            errors="coerce",
+        ).dropna()
+
+        if len(series) == 0:
+            continue
+
+        summary_rows.append(
+            {
+                "metric": col,
+                "count": len(series),
+                "mean": float(series.mean()),
+                "std": float(series.std()),
+                "min": float(series.min()),
+                "p05": float(series.quantile(0.05)),
+                "p25": float(series.quantile(0.25)),
+                "p50": float(series.quantile(0.50)),
+                "p75": float(series.quantile(0.75)),
+                "p95": float(series.quantile(0.95)),
+                "max": float(series.max()),
+            }
+        )
+
+    summary_df = pd.DataFrame(summary_rows)
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/distribution_summary":
+                wandb.Table(
+                    dataframe=summary_df
+                )
+        },
+        step=gs,
+        commit=False,
+    )
+
+    # ============================================================
+    # END RAW ANALYSIS TABLES
+    # ============================================================
 
     metric_tables = _build_metric_tables(rows)
+
+    _log_02GA041_observed_vs_simulated(
+        wandb_run=wandb_run,
+        prefix=prefix,
+        metric_tables=metric_tables,
+        step=gs,
+    )
+
+    _log_02GA014_observed_vs_simulated(
+        wandb_run=wandb_run,
+        prefix=prefix,
+        metric_tables=metric_tables,
+        step=gs,
+    )
+
+    _log_West_Montrose_observed_vs_simulated(
+        wandb_run=wandb_run,
+        prefix=prefix,
+        metric_tables=metric_tables,
+        step=gs,
+    )
 
     # 1. Raw rollout plots over horizon/env_step.
     for metric_name, table in metric_tables.items():
@@ -477,6 +1020,17 @@ def plot_env_reduced(
     iter_rows = _rows_to_iteration_metric_rows(
         rows,
         train_step=gs,
+    )
+
+    iter_df = pd.DataFrame(iter_rows)
+
+    wandb_run.log(
+        {
+            f"{prefix}/tables/training_metrics":
+                wandb.Table(dataframe=iter_df)
+        },
+        step=gs,
+        commit=False,
     )
 
     for row in iter_rows:

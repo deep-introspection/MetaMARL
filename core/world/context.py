@@ -32,6 +32,7 @@ class MechanismContext(ContextSchema):
     index: int
     env_id: Optional[str]
     seed: Optional[int]
+    eval_seed: Optional[int] = None
     status: MechanismStatus
     mechanism: SkipValidation[Mechanism]
     metrics: Optional[ContextSchema]
@@ -41,6 +42,7 @@ class MechanismContext(ContextSchema):
 class EnvStepContext(ContextSchema):
     env_id: Optional[int]
     seed: Optional[int]
+    policy_seed: Optional[int]
     status: MechanismStatus
     mechanism: Optional[int]
     observation: ObsType | MultiAgentDict

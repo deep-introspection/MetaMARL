@@ -11,51 +11,62 @@ from core.mechanism.space import MechanismSpace
 @dataclass(frozen=True)
 class WaterMechanism(Mechanism):
     fixed_quota: float
-    prop_quota: float
-    min_stock: float
+
+    # CHANGED:
+    # Replaced prop_quota + min_stock with demand-fraction quota parameters.
+    #
+    # Old behavior:
+    #   allowed_m3_day was based on excess reservoir storage:
+    #       prop_quota * excess_norm * max_depth_m * lake_area_m2
+    #   This often collapsed to ~0 when reservoir_level_norm <= fixed_quota,
+    #   forcing the mechanism to always use the tiny floor.
+    #
+    # New behavior:
+    #   allowed_m3_day is directly a fraction of the crop water deficit:
+    #       allowed_frac * full_required_m3_day
+    #   This makes the mechanism interpretable and prevents the quota from
+    #   being clipped to near-zero absolute volumes.
+    min_demand_frac: float
+    max_demand_frac: float
+
     fine_amount: float
-    ban_period: int
 
     risk_penalty_scale: float
     risk_penalty_power: float
+    under_irrigation_penalty_scale: float
 
-    max_ban: int = 50
+    max_farm_area_m2: float
 
     def __post_init__(self) -> None:
-        # max_pull_fraction = 0.0001 -> individual farm / small water user
-        # max_pull_fraction = 0.0005 -> large farm / small irrigation system
-        # max_pull_fraction = 0.001  -> irrigation district / small utility
-        # max_pull_fraction = 0.005  -> municipality / industrial user / large irrigation district
-        # max_pull_fraction = 0.01   -> major municipality / large industrial user
-        # max_pull_fraction = 0.05   -> unrealistic for one agent; behaves like regional extraction
-
-        # Quota scales:
-        # 0.001 -> severe drought restriction
-        # 0.003 -> strict regulation
-        # 0.005 -> moderate (municipality / irrigation district)
-        # 0.01  -> permissive
-        # >0.05 -> effectively unconstrained
-        
-        # fixed_quota = protected reservoir fullness
+        # fixed_quota = protected reservoir fullness threshold.
+        # If reservoir_level_norm <= fixed_quota, agents receive only min_demand_frac.
+        # If reservoir_level_norm approaches 1.0, agents approach max_demand_frac.
         assert 0.6 <= self.fixed_quota <= 0.95
-        assert 1e-7 <= self.prop_quota <= 1e-4
-        assert 0.0 <= self.min_stock <= 1.0
+
+        # CHANGED:
+        # These are fractions of crop irrigation demand, not fractions of reservoir storage.
+        assert 0.0 <= self.min_demand_frac <= 1.0
+        assert 0.05 <= self.max_demand_frac <= 1.0
+        assert self.min_demand_frac <= self.max_demand_frac
+
         assert 0.0 <= self.fine_amount <= 0.1
         assert 0.0 <= self.risk_penalty_scale <= 1.0
         assert 1.0 <= self.risk_penalty_power <= 5.0
-        assert 0 <= self.ban_period <= self.max_ban
+        assert 0.0 <= self.under_irrigation_penalty_scale <= 1.0
+        assert 100_000 <= self.max_farm_area_m2 <= 20_000_000
 
     @override(Mechanism)
     def to_vector(self) -> np.ndarray:
         return np.array(
             [
                 self.fixed_quota,
-                self.prop_quota,
-                self.min_stock,
+                self.min_demand_frac,
+                self.max_demand_frac,
                 self.fine_amount,
-                self.ban_period / self.max_ban,
                 self.risk_penalty_scale,
                 (self.risk_penalty_power - 1.0) / 4.0,  # maps [1,5] -> [0,1]
+                self.under_irrigation_penalty_scale,
+                self.max_farm_area_m2,
             ],
             dtype=np.float32,
         )
@@ -63,24 +74,29 @@ class WaterMechanism(Mechanism):
     def param_names(self) -> list[str]:
         return [
             "fixed_quota",
-            "prop_quota",
-            "min_stock",
+            "min_demand_frac",
+            "max_demand_frac",
             "fine_amount",
-            "ban_period",
             "risk_penalty_scale",
             "risk_penalty_power",
+            "under_irrigation_penalty_scale",
+            "max_farm_area_m2",
         ]
 
 
 class WaterMechanismSpace(MechanismSpace):
+    # CHANGED:
+    # prop_quota and min_stock removed.
+    # min_demand_frac and max_demand_frac added.
     ALL_PARAMS = [
         "fixed_quota",
-        "prop_quota",
-        "min_stock",
+        "min_demand_frac",
+        "max_demand_frac",
         "fine_amount",
-        "ban_period",
         "risk_penalty_scale",
         "risk_penalty_power",
+        "under_irrigation_penalty_scale",
+        "max_farm_area_m2",
     ]
 
     def __init__(
@@ -88,27 +104,33 @@ class WaterMechanismSpace(MechanismSpace):
         use_stochastic_rounding: bool = True,
         optimize_params: list[str] | None = None,
         default_fixed_quota: float = 0.85,
-        default_prop_quota: float = 1e-5,
-        default_min_stock: float = 0.15,
+
+        # CHANGED:
+        # Defaults now mean:
+        #   under stress: at least 5% of full required irrigation can be delivered
+        #   when reservoir is healthy: up to 100% of full required irrigation can be delivered
+        default_min_demand_frac: float = 0.05,
+        default_max_demand_frac: float = 1.0,
+
         default_fine_amount: float = 0.05,
-        default_ban_period: int = 3,
         default_risk_penalty_scale: float = 0.5,
         default_risk_penalty_power: float = 2.0,
-        max_ban: int = 50,
+        default_under_irrigation_penalty_scale: float = 0.25,
+        default_max_farm_area_m2: float = 500_000
     ):
         super().__init__()
 
         self.use_stochastic_rounding = use_stochastic_rounding
-        self.max_ban = max_ban
 
         self.optimize_params = optimize_params or [
             "fixed_quota",
-            "prop_quota",
-            "min_stock",
+            "min_demand_frac",
+            "max_demand_frac",
             "fine_amount",
-            "ban_period",
             "risk_penalty_scale",
             "risk_penalty_power",
+            "under_irrigation_penalty_scale",
+            "max_farm_area_m2"
         ]
 
         self.dimension = len(self.optimize_params)
@@ -116,77 +138,101 @@ class WaterMechanismSpace(MechanismSpace):
 
         self.defaults = {
             "fixed_quota": default_fixed_quota,
-            "prop_quota": default_prop_quota,
-            "min_stock": default_min_stock,
+            "min_demand_frac": default_min_demand_frac,
+            "max_demand_frac": default_max_demand_frac,
             "fine_amount": default_fine_amount,
-            "ban_period": default_ban_period,
             "risk_penalty_scale": default_risk_penalty_scale,
             "risk_penalty_power": default_risk_penalty_power,
+            "under_irrigation_penalty_scale": default_under_irrigation_penalty_scale,
+            "max_farm_area_m2": default_max_farm_area_m2
         }
-
-    def _discretize_ban(self, ban_period_cont: float, u: np.ndarray) -> int:
-        if not self.use_stochastic_rounding:
-            return int(np.clip(round(ban_period_cont), 0, self.max_ban))
-
-        floor = int(np.floor(ban_period_cont))
-        frac = ban_period_cont - floor
-
-        h = hash(tuple(map(float, u)))
-        pseudo_random = (h % 10000) / 10000.0
-
-        if pseudo_random < frac and floor < self.max_ban:
-            return floor + 1
-
-        return floor
 
     def _denormalize_param(self, name: str, value: float, u: np.ndarray) -> float | int:
         if name == "fixed_quota":
             return 0.6 + value * (0.95 - 0.6)
-        if name == "prop_quota":
-            return 1e-7 + value * (1e-4 - 1e-7)
+
+        # CHANGED:
+        # min_demand_frac controls the floor of allowed irrigation demand.
+        if name == "min_demand_frac":
+            return value * 0.35  # maps [0,1] -> [0,0.35]
+
+        # CHANGED:
+        # max_demand_frac controls the ceiling of allowed irrigation demand.
+        # We enforce max_demand_frac >= min_demand_frac after decoding.
+        if name == "max_demand_frac":
+            return 0.35 + value * (1.0 - 0.35)  # maps [0,1] -> [0.35,1.0]
+
         if name == "fine_amount":
-            return value * 0.10   # map [0,1] -> [0,0.1]
+            return value * 0.10
 
         if name == "risk_penalty_scale":
             return value
-        if name == "ban_period":
-            return self._discretize_ban(value * self.max_ban, u)
-        elif name == "risk_penalty_power":
+
+        if name == "risk_penalty_power":
             return 1.0 + 4.0 * value
+
+        if name == "under_irrigation_penalty_scale":
+            return value
+        
+        if name == "max_farm_area_m2":
+            return 100_000 + value * (20_000_000 - 100_000)
+
         return value
-    
+
     def _denormalize(self, u: np.ndarray) -> dict:
         result = {}
         for i, name in enumerate(self.optimize_params):
             result[name] = self._denormalize_param(name, float(u[i]), u)
+
+        # CHANGED:
+        # Keep the quota curve monotonic.
+        if "min_demand_frac" in result and "max_demand_frac" in result:
+            result["max_demand_frac"] = max(
+                result["max_demand_frac"],
+                result["min_demand_frac"],
+            )
+
         return result
 
     def _normalize_param(self, name: str, value: float | int) -> float:
         if name == "fixed_quota":
             return (float(value) - 0.6) / (0.95 - 0.6)
-        if name == "prop_quota":
-            return (float(value) - 1e-7) / (1e-4 - 1e-7)
-        if name == "ban_period":
-            return float(value) / self.max_ban
+
+        # CHANGED:
+        # Normalize demand-fraction quota parameters.
+        if name == "min_demand_frac":
+            return float(value) / 0.35
+
+        if name == "max_demand_frac":
+            return (float(value) - 0.35) / (1.0 - 0.35)
+
         if name == "fine_amount":
             return float(value) / 0.10
+
         if name == "risk_penalty_scale":
-            return value
+            return float(value)
+
         if name == "risk_penalty_power":
             return (float(value) - 1.0) / 4.0
+
+        if name == "under_irrigation_penalty_scale":
+            return float(value)
+        
+        if name == "max_farm_area_m2":
+            return (float(value) - 100_000) / (20_000_000 - 100_000)
 
         return float(value)
 
     def default(self) -> WaterMechanism:
         return WaterMechanism(
             fixed_quota=self.defaults["fixed_quota"],
-            prop_quota=self.defaults["prop_quota"],
-            min_stock=self.defaults["min_stock"],
+            min_demand_frac=self.defaults["min_demand_frac"],
+            max_demand_frac=self.defaults["max_demand_frac"],
             fine_amount=self.defaults["fine_amount"],
             risk_penalty_scale=self.defaults["risk_penalty_scale"],
             risk_penalty_power=self.defaults["risk_penalty_power"],
-            ban_period=self.defaults["ban_period"],
-            max_ban=self.max_ban,
+            under_irrigation_penalty_scale=self.defaults["under_irrigation_penalty_scale"],
+            max_farm_area_m2=self.defaults["max_farm_area_m2"]
         )
 
     def encode(self, m: WaterMechanism) -> NDArray[np.float32]:
@@ -206,34 +252,78 @@ class WaterMechanismSpace(MechanismSpace):
         for i, name in enumerate(self.optimize_params):
             params[name] = self._denormalize_param(name, float(u[i]), u)
 
+        # CHANGED:
+        # Make sure min <= max even when only one of the two params is optimized.
+        params["max_demand_frac"] = max(
+            params["max_demand_frac"],
+            params["min_demand_frac"],
+        )
+
         mech = WaterMechanism(
             fixed_quota=params["fixed_quota"],
-            prop_quota=params["prop_quota"],
-            min_stock=params["min_stock"],
+            min_demand_frac=params["min_demand_frac"],
+            max_demand_frac=params["max_demand_frac"],
             fine_amount=params["fine_amount"],
             risk_penalty_scale=params["risk_penalty_scale"],
             risk_penalty_power=params["risk_penalty_power"],
-            ban_period=params["ban_period"],
-            max_ban=self.max_ban,
+            under_irrigation_penalty_scale=params["under_irrigation_penalty_scale"],
+            max_farm_area_m2=params["max_farm_area_m2"]
         )
 
         return self.clip(mech)
 
     def clip(self, m: WaterMechanism) -> WaterMechanism:
+        min_demand_frac = float(np.clip(m.min_demand_frac, 0.0, 1.0))
+        max_demand_frac = float(np.clip(m.max_demand_frac, 0.05, 1.0))
+
+        # CHANGED:
+        # Preserve monotonicity after clipping.
+        max_demand_frac = max(max_demand_frac, min_demand_frac)
+
         return WaterMechanism(
             fixed_quota=float(np.clip(m.fixed_quota, 0.6, 0.95)),
-            prop_quota=float(np.clip(m.prop_quota, 1e-7, 1e-4)),
-            min_stock=float(np.clip(m.min_stock, 0.0, 1.0)),
+            min_demand_frac=min_demand_frac,
+            max_demand_frac=max_demand_frac,
             fine_amount=float(np.clip(m.fine_amount, 0.0, 0.1)),
-            risk_penalty_scale=float(np.clip(m.risk_penalty_scale, 0, 1)),
+            risk_penalty_scale=float(np.clip(m.risk_penalty_scale, 0.0, 1.0)),
             risk_penalty_power=float(np.clip(m.risk_penalty_power, 1.0, 5.0)),
-            ban_period=int(np.clip(m.ban_period, 0, self.max_ban)),
-            max_ban=self.max_ban,
+            under_irrigation_penalty_scale=float(
+                np.clip(m.under_irrigation_penalty_scale, 0.0, 1.0)
+            ),
+            max_farm_area_m2=float(
+                np.clip(m.max_farm_area_m2, 100_000, 20_000_000)
+            )
         )
 
     def from_dict(self, cfg: dict) -> WaterMechanism:
+        # CHANGED:
+        # Backward-compatible migration for old configs.
+        # If old prop_quota/min_stock appear, ignore them and use the new defaults.
+        cfg = dict(cfg)
+        cfg.pop("prop_quota", None)
+        cfg.pop("min_stock", None)
+
+        if "min_demand_frac" not in cfg:
+            cfg["min_demand_frac"] = self.defaults["min_demand_frac"]
+
+        if "max_demand_frac" not in cfg:
+            cfg["max_demand_frac"] = self.defaults["max_demand_frac"]
+
         if "risk_penalty_scale" not in cfg:
-            cfg = {**cfg, "risk_penalty_scale": self.defaults["risk_penalty_scale"]}
+            cfg["risk_penalty_scale"] = self.defaults["risk_penalty_scale"]
+
         if "risk_penalty_power" not in cfg:
-            cfg = {**cfg, "risk_penalty_power": self.defaults["risk_penalty_power"]}
-        return WaterMechanism(**cfg, max_ban=self.max_ban)
+            cfg["risk_penalty_power"] = self.defaults["risk_penalty_power"]
+
+        if "under_irrigation_penalty_scale" not in cfg:
+            cfg["under_irrigation_penalty_scale"] = self.defaults[
+                "under_irrigation_penalty_scale"
+            ]
+        
+        if "max_farm_area_m2" not in cfg:
+            cfg["max_farm_area_m2"] = self.defaults[
+                "max_farm_area_m2"
+            ]
+
+        mech = WaterMechanism(**cfg)
+        return self.clip(mech)

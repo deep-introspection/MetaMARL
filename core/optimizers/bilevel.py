@@ -162,6 +162,13 @@ class BilevelConfig(OptimizerConfig):
             )
             # inner_cfg.seed = None
 
+        if inner_cfg.eval_seeds is not None:
+            outer_cfg._merge_env_config(
+                {
+                    "eval_seeds": inner_cfg.eval_seeds,
+                }
+            )
+
         outer_cfg = outer_cfg._merge_env_config(
             {
                 "mechanism_space": self.mechanism_space,
@@ -172,7 +179,11 @@ class BilevelConfig(OptimizerConfig):
         inner_opt = inner_cfg.build_optimizer(
             world=world, world_name=self.world_name, reporting=self.reporter
         )
-        outer_opt = outer_cfg.build_optimizer(world=world, inner_opt=inner_opt)
+        outer_opt = outer_cfg.build_optimizer(
+            world=world, 
+            inner_opt=inner_opt, 
+            reporting=self.reporter
+        )
 
         # what if outer_opt does not have that property ??
         # override outer_opt population size with inner_opt batch_size

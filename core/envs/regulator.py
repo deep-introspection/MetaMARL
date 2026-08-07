@@ -27,12 +27,14 @@ class RegulatorEnv(BaseEnv):
         optimizer: Optional[Optimizer] = None,
         train_iters: int = 5,
         seeds: Optional[list[int]] = None,
+        eval_seeds: Optional[list[int]] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.inner: Optimizer = optimizer
         self.train_iters: int = train_iters
         self.seeds: list[int] = seeds or []
+        self.eval_seeds: Optional[list[int]] = eval_seeds or None
 
         self._validate()
 
@@ -87,9 +89,21 @@ class RegulatorEnv(BaseEnv):
                     )
                 )
 
+        # TODO : why eval gets repeated ?
         # Train policy for train_iters iterations
         for _ in range(self.train_iters):
+            ctx_registry = ray.get(self.world.get_ctx_registry.remote())
+            ray.get(self.world.flush_ctx.remote(ctx_registry.keys()))
+            ray.get(self.world.flush.remote(status=MechanismStatus.eval))
             self.inner.run()
+
+        # TODO check if eval mechanisms published. If parallel and sequential eval both turned on
+            # will be a problem
+        if self.eval_seeds:
+            # TODO flush all remote mechanisms and env_step ctx.
+            # TODO initializing the envs with the seeds from eval_seeds
+            # TODO flush all remote mechanisms and env_step ctx.
+            self.inner.evaluate()
 
 
         ctx_registry = ray.get(self.world.get_ctx_registry.remote())
@@ -99,7 +113,7 @@ class RegulatorEnv(BaseEnv):
 
         # flush consumed contexts
         ray.get(self.world.flush_ctx.remote(ctx_registry.keys()))
-        ray.get(self.world.flush.remote(job=MechanismStatus.eval))
+        ray.get(self.world.flush.remote(status=MechanismStatus.eval))
 
         return None, reward, False, False, {}
 
