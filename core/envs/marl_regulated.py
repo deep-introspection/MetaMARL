@@ -115,6 +115,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
             EnvStepContext(
                 env_id=self.env_id,
                 seed=self.seed,
+                policy_seed=self.policy_seed,
                 status=MechanismStatus(self.mode),
                 mechanism=self.mechanism_id,
                 observation=obs,
