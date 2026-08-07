@@ -19,6 +19,7 @@ from ray.tune.registry import register_env
 
 from core.adaptors.ray.optimizer import RayOptimizer
 from core.annotations import override
+from core.callbacks import _evaluate_with_fixed_duration_once
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
 from core.reporting.wandb import WandbReporter
@@ -193,11 +194,8 @@ class RayOptimizerConfig(OptimizerConfig):
                 "`num_seeds` requires `base_seed`, unless explicit `seeds` are provided."
             )
 
-        evaluation_parallel_to_training = kwargs.get("evaluation_parallel_to_training", False)
-        if not evaluation_parallel_to_training:
-            kwargs["evaluation_interval"] = None
-        else:
-            kwargs["evaluation_parallel_to_training"] = False
+        kwargs["evaluation_interval"] = None
+        kwargs["evaluation_parallel_to_training"] = False
 
         return self._evaluation_rllib(**kwargs)
 
@@ -257,7 +255,7 @@ class RayOptimizerConfig(OptimizerConfig):
             key, value = part.split("=", 1)
             identity[key] = value
 
-        required = {"env", "m", "ps"}
+        required = {"env", "m", "ps", "ss"}
         missing = required - identity.keys()
         if missing:
             raise RuntimeError(
@@ -365,7 +363,7 @@ class RayOptimizerConfig(OptimizerConfig):
             identity = self._parse_episode_identity(episode.id_)
             mechanism_id = identity["m"]
             policy_seed = identity["ps"]
-            policy_id = f"{base_policy}_m{mechanism_id}_s{seed}"
+            policy_id = f"{base_policy}_m{mechanism_id}_s{policy_seed}"
 
             if policy_id not in policies:
                 raise RuntimeError(
@@ -415,9 +413,14 @@ class RayOptimizerConfig(OptimizerConfig):
         if evaluation_op is not None:
             num_eval_seeds = len(self.eval_seeds) if self.eval_seeds else 1
             num_train_seeds = len(self.seeds) if self.seeds else 1
-            num_eval_envs = self.num_mechanisms * num_eval_seeds * num_train_seeds
-            evaluation_op.kwargs["evaluation_num_env_runners"] = num_eval_envs
-            evaluation_op.kwargs["evaluation_duration"] = num_eval_envs
+            num_eval_runners = num_eval_seeds * num_train_seeds
+            num_eval_episodes = num_eval_runners * self.num_mechanisms
+            evaluation_op.kwargs["evaluation_num_env_runners"] = num_eval_runners
+            #TODO verify this
+            evaluation_op.kwargs["evaluation_duration"] = num_eval_episodes
+            evaluation_op.kwargs["custom_evaluation_function"] = (
+                _evaluate_with_fixed_duration_once
+            )
 
         if self.rllib_cfg is None:
             self.rllib_cfg = self.algo_class.get_default_config()
@@ -443,7 +446,10 @@ class RayOptimizerConfig(OptimizerConfig):
         if self.agent_specs:
             agents = self._apply_agents_to_rllib()
 
-        env_counter = {"idx": 0}
+        env_counter = {
+            "train": 0,
+            "eval": 0
+            }
 
         def env_creator(env_ctx):
             mode = env_ctx.get("mode", "train")
@@ -454,21 +460,21 @@ class RayOptimizerConfig(OptimizerConfig):
 
             num_train_seeds = len(train_seeds)
 
-            if mode == "eval":
-                env_idx = env_ctx.worker_index - 1
-                mechanism_idx = env_idx % num_mechanisms
-                train_seed_idx = (env_idx // num_mechanisms) % num_train_seeds
-                eval_seed_idx = env_idx // (num_mechanisms * num_train_seeds)
+            local_env_idx = env_counter[mode]
+            env_counter[mode] += 1
 
+            if mode == "eval":
+                runner_idx = env_ctx.worker_index - 1
+                train_seed_idx = runner_idx % num_train_seeds
+                eval_seed_idx = runner_idx // num_train_seeds
+                mechanism_idx = local_env_idx % num_mechanisms
                 policy_seed = train_seeds[train_seed_idx]
                 env_seed = eval_seeds[eval_seed_idx]
 
             else:
                 num_envs = self.rllib_cfg.num_envs_per_env_runner or 1
-                raw_env_idx = env_counter["idx"]
-                env_counter["idx"] += 1
 
-                env_idx = raw_env_idx % num_envs
+                env_idx = local_env_idx % num_envs
                 mechanism_idx = env_idx % num_mechanisms
                 train_seed_idx = env_idx // num_mechanisms
 
