@@ -9,18 +9,18 @@ from core.metrics.metric.factory import MetricFactory
 from core.metrics.metric.base import Metric
 
 Path: TypeAlias = tuple[str, ...]
-Node = Metric | dict[str, Node] # validate recursive imports
+Node = Metric | dict[str, "Node"] # validate recursive imports
 
 
 class MetricLogger:
-    __token__: ClassVar[object] = object()
-    __schema__: MetricSchema
-    __refs__: dict[Path, Metric]
-    __root__: str
-    __tree__: dict[str, Node]
+    _TOKEN: ClassVar[object] = object()
+    _schema: type[MetricSchema]
+    _refs: dict[Path, Metric]
+    _root: str
+    _tree: dict[str, Node]
 
     def __new__(cls, *, _token: object | None = None) -> "MetricLogger":
-        if _token is not cls.__token__:
+        if _token is not cls._TOKEN:
             raise TypeError(
                 "MetricLogger cannot be instantiated directly. "
                 "Use MetricLogger.from_schema(schema)"
@@ -28,7 +28,7 @@ class MetricLogger:
         return super().__new__(cls)
 
     def __init__(self, *, _token: object | None = None) -> None:
-        if _token is not self.__token__:
+        if _token is not self._TOKEN:
             raise TypeError(
                 "MetricLogger cannot be instantiated directly. "
                 "Use MetricLogger.from_schema(schema)"
@@ -38,11 +38,11 @@ class MetricLogger:
     @classmethod
     def from_schema(cls, schema: type[MetricSchema]) -> "MetricLogger":
         tree, refs = cls._build_refs_from_schema(schema)
-        self = cls.__new__(cls, _token=cls.__token__)
-        self.__schema__ = schema
-        self.__root__ = schema.__name__
-        self.__tree__ = tree
-        self.__refs__ = refs
+        self = cls.__new__(cls, _token=cls._TOKEN)
+        self._schema = schema
+        self._root = schema.__name__
+        self._tree = tree
+        self._refs = refs
         return self
 
     @classmethod
@@ -66,7 +66,7 @@ class MetricLogger:
                 refs.update(child_res)
                 continue
             
-            protocol = field.json_schema_extra.get("reduce", ReduceProtocol.MEAN)
+            protocol = extra.get("reduce", ReduceProtocol.MEAN)
             metric = MetricFactory.create(protocol)
             tree[field_name] = metric
             refs[path] = metric
@@ -74,19 +74,31 @@ class MetricLogger:
         return tree, refs
 
 
-    def push_data(self, data: MetricSchema) -> None:
-        """Logs all leafs of a possibly nested schema into logger.
-        
-        Traverses through all leafs of a `MetricSchema` object provided it has the same schema as
-        the instantiated logger
-        """
-        pass
+    def push_data(self, data: MetricSchema, prefix: Path = ()) -> None:
+        """Push all leaf values of a MetricSchema into their corresponding metrics."""
+
+        if type(data) is not self._schema:
+            raise TypeError(
+                f"Expected {self._schema.__name__}, "
+                f"got {type(data).__name__}."
+            )
+
+        for field_name in type(data).model_fields:
+            path = prefix + (field_name,)
+            value = getattr(data, field_name)
+
+            if isinstance(value, MetricSchema):
+                self.push_data(value, prefix=path)
+                continue
+
+            self.push_value(key=field_name, value=value)
+
 
     def push_value(self, key: Path, value: Any) -> None:
         # TODO narrow down Any to stricter type annotation
         """Logs a new value or item under a (strictly existing) path to the logger """
         try:
-            metric = self.__refs__[key]
+            metric = self._refs[key]
         except KeyError:
             raise KeyError(f"Unknown logger path: {key}") from None
         metric.push(value)
@@ -98,10 +110,10 @@ class MetricLogger:
         Reads a metric value given its path without destructively reducing it
         """
         try:
-            metric = self.__refs__[key]
+            metric = self._refs[key]
         except KeyError:
             raise KeyError(f"Unknown logger path: {key}") from None
-        metric.peek()
+        return metric.peek()
 
     def reduce(self) -> MetricSchema:
         """
@@ -109,7 +121,7 @@ class MetricLogger:
         """
         def _reduce(path: Path, metric: Metric):
             try:
-                return metric.reduce()
+                return metric.reduce(compile=True)
             # TODO custom exceptions
             except Exception as e:
                 raise ValueError(
@@ -117,9 +129,9 @@ class MetricLogger:
                 ) from e
         reduced = tree.map_structure_with_path(
             _reduce,
-            self.__tree__,
+            self._tree,
         )
-        return self.__schema__.model_validate(reduced)
+        return self._schema.model_validate(reduced)
             
 
     def compile(self) -> dict:
@@ -131,8 +143,8 @@ class MetricLogger:
     def reset(self) -> None:
         """
         Resets all data stored in this MetricLogger.
-        """
-        for path, metric in self.__refs__:
+        """ 
+        for path, metric in self._refs.items():
             try:
                 metric.flush()
             # TODO custom exceptions
