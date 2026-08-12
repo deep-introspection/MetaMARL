@@ -1,8 +1,8 @@
-
+from __future__ import annotations
 # TODO what is an ABCMeta
 from abc import ABC, abstractmethod
 from collections import deque
-from typing import TypeAlias, Union
+from typing import Self, TypeAlias, Union
 
 # NOTE this is restrictive can be relaxed in the future
 PrimitiveType : TypeAlias = Union[int, float, bool, str]
@@ -27,6 +27,9 @@ class Metric(ABC):
             raise ValueError(f"Can not convert {self} to int.")
         return int(value)
 
+    def empty_copy(self) -> Self:
+        return type(self)()
+
     @abstractmethod
     def peek(
         self, compile: bool = True,
@@ -47,7 +50,7 @@ class Metric(ABC):
     def reduce(
         self,
         compile: bool = True,
-    ) -> Union[PrimitiveType, list[PrimitiveType], "Metric"]:
+    ) -> Union[PrimitiveType, list[PrimitiveType], Metric]:
         """Reduces the internal values.
         
         This method should NOT be called directly by users.

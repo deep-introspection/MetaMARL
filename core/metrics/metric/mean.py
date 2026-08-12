@@ -1,3 +1,4 @@
+from __future__ import annotations
 from core.metrics.metric.base import PrimitiveType
 from core.metrics.metric.series import SeriesMetric
 
@@ -29,7 +30,7 @@ class MeanMetric(SeriesMetric):
     def reduce(
         self,
         compile: bool = True,
-    ) -> float | "MeanMetric":
+    ) -> float | MeanMetric:
         if not self.values:
             mean = float("nan")
         else:

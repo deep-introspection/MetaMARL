@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from core.metrics.metric.base import Metric, PrimitiveType
 
 
@@ -24,7 +26,7 @@ class SeriesMetric(Metric):
     def reduce(
         self,
         compile: bool = True,
-    ) -> list[PrimitiveType] | "SeriesMetric":
+    ) -> list[PrimitiveType] | SeriesMetric:
         values = list(self.values)
         self.flush()
 
