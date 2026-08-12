@@ -109,7 +109,7 @@ class MetricLogger(ABC):
 
             if isinstance(child, Metric):
                 if path not in self._refs:
-                    self._refs[path] = child.clone_empty()
+                    self._refs[path] = child.empty_copy()
                 continue
 
             if child.dynamic:
@@ -136,49 +136,53 @@ class MetricLogger(ABC):
             prefix = prefix + (dynamic_id,)
             index += 1
 
-            if index >= len(path):
-                raise KeyError(f"Logger path does not point to a metric: {path}")
-            field_name = path[index]
+        if index >= len(path):
+            raise KeyError(f"Logger path does not point to a metric: {path}")
+        field_name = path[index]
 
-            try:
-                child = node.children[field_name]
-            except KeyError:
-                raise KeyError(f"Unknown logger path: {path}") from None
+        try:
+            child = node.children[field_name]
+        except KeyError:
+            raise KeyError(f"Unknown logger path: {path}") from None
 
-            child_path = prefix + (field_name,)
+        child_path = prefix + (field_name,)
 
-            if isinstance(child, Metric):
-                if index != len(path) - 1:
-                    raise KeyError(f"Path continues beyond metric leaf: {path}")
+        # leaf
+        if isinstance(child, Metric):
+            if index != len(path) - 1:
+                raise KeyError(f"Path continues beyond metric leaf: {path}")
 
-                # static refs exist
-                metric = self._refs.get(child_path)
-                if metric is not None:
-                    return metric
+            # static refs exist
+            metric = self._refs.get(child_path)
+            if metric is not None:
+                return metric
 
-                # register refs for dynamic ID
-                if node.dynamic:
-                    self._register_refs(node, prefix=prefix)
-
-                raise RuntimeError(
-                    f"Metric path was valid but not registered: {child_path}"
-                )
-
-            metric = self._resolve_path(
-                child,
-                path=path,
-                index=index + 1,
-                prefix=child_path,
-            )
+            # register refs for dynamic ID
             if node.dynamic:
-                self._register_refs(
-                    node,
-                    prefix=prefix,
-                )
+                self._register_refs(node, prefix=prefix)
+                try:
+                    return self._refs[child_path]
+                except KeyError:
+                    raise RuntimeError(
+                        f"Metric path was valid but not registered: {child_path}"
+                    ) from None
+            raise RuntimeError(f"Static metric path was not registered: {child_path}")
 
-                return self._refs[path]
+        metric = self._resolve_path(
+            node=child,
+            path=path,
+            index=index + 1,
+            prefix=child_path,
+        )
+        if node.dynamic:
+            self._register_refs(
+                node,
+                prefix=prefix,
+            )
 
-            return metric
+            return self._refs[path]
+
+        return metric
 
     # TODO refactor into one push function
     def push_data(self, data: MetricSchema, prefix: Path = ()) -> None:
@@ -210,15 +214,15 @@ class MetricLogger(ABC):
         # TODO narrow down Any to stricter type annotation
         """Logs a new value or item under a (strictly existing) path to the logger """
 
-        metric = self._refs[key]
+        metric = self._refs.get(key)
         if metric is None:
             self._resolve_path(path=key, node=self._tree, index=0, prefix=())
 
             try:
-                metric = self._refs[key]
+                metric = self._refs.get(key)
             except KeyError:
                 raise KeyError(f"Unknown logger path: {key}") from None 
-            metric.push(value)
+        metric.push(value)
 
     def peek(self, key: Path) -> Any:
         # TODO narrow down Any to stricter type annotation
@@ -227,7 +231,7 @@ class MetricLogger(ABC):
         Reads a metric value given its path without destructively reducing it
         """
         try:
-            metric = self._refs[key]
+            metric = self._refs.get(key)
         except KeyError:
             raise KeyError(f"Unknown logger path: {key}") from None
         return metric.peek()
