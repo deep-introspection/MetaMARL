@@ -9,9 +9,13 @@ from gymnasium.core import ActType, ObsType, WrapperActType, WrapperObsType
 
 from core.annotations import override
 from core.mechanism.space import MechanismSpace
+from core.metrics.logger import MetricLogger
+from core.metrics.schemas import MetricSchema
+from core.reporting.query import Query
 from core.types import OptimizerID
 from core.world.base import World
 from core.world.context import Context, ContextSchema, EnvStepContext, MechanismStatus
+from core.reporting.config import ReporterConfig
 
 
 class BaseEnv(Env):
@@ -22,11 +26,15 @@ class BaseEnv(Env):
         *,
         world: World,
         opt_id: Optional[OptimizerID] = None,
+        env_name: Optional[str] = None,
         horizon: Optional[int] = None,
         mechanism_space: MechanismSpace = None,
         seed: Optional[int] = None,
         policy_seed: Optional[int] = None,
         mode: Optional[str] = "train",
+        reporter_cfg: Optional[ReporterConfig],
+        queries: Optional[tuple[Query]] = None,
+        schema: Optional[MetricSchema] = None,
         **kwargs
     ) -> None:
         super().__init__()
@@ -48,6 +56,23 @@ class BaseEnv(Env):
 
         # observation map
         self.obs_map: Optional[dict[int, str]] = None
+
+        # logger
+        self.logger: Optional[MetricLogger] = MetricLogger.from_schema(schema) if schema else None
+
+        # reporter
+        mechanism_id = getattr(self, "mechanism_id", None)
+        reporting_env_id = (
+            f"{env_name}"
+            f"|mode={mode}"
+            f"{f'|m={mechanism_id}' if mechanism_id is not None else ''}"
+            f"|ps={policy_seed}"
+            f"|ss={self.seed}"
+        )
+
+        self.reporter = reporter_cfg.build(label=reporting_env_id)
+        self.reporter.schema = schema
+        self.reporter.add_query(*(queries or ()))
 
     # Setter
     def set_opt_id(self, opt_id: OptimizerID) -> None:

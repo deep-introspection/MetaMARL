@@ -150,6 +150,24 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         truncated = {aid: time_limit for aid in self.agents}
         truncated["__all__"] = time_limit
 
+        # if terminated or truncated:
+        #     # 1. Reporting sees full trajectory.
+        #     snapshot = self.metrics.peek(compile=False)
+
+        #     self.reporter.report(snapshot)
+        #     self.reporter.export(snapshot)
+
+        #     # 2. Collapse the trajectory according to each field's protocol.
+        #     reduced = self.logger.reduce()
+
+        #     # 3. Send the reduced result upward.
+        #     ctx = EnvStepContext(
+        #         metrics=reduced,
+        #         ...
+        #     )
+
+        #     self._publish(ctx)
+
         self._update_infos(key="intrinsic_utility", values=intrinsic_rewards)
         return obs, rewards, terminated, truncated, self._infos
 
