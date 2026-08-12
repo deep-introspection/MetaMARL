@@ -1,16 +1,14 @@
 from pydantic import Field
 from typing import Optional, TypeAlias
-from core.reporting.loggers.enums import ReduceProtocol
-
-from core.reporting.loggers.schemas import LoggerSchema
+from core.metrics.schemas import MetricSchema
+from core.metrics.enums import ReduceProtocol
 
 PolicyID: TypeAlias = str
 EnvID: TypeAlias = str
+AgentID: TypeAlias = str
 
-
-# TODO add recducer metadata attachment.
-class EnvStepSchema(LoggerSchema):  # attention this is aggregate by env not by env step
-    # TODO models such as PILCO, Dyna, Qyna-Q
+class AgentEnvStepSchema(MetricSchema):
+    """Generic metrics produced for one agent during environment steps."""
     # statistics collected at env-step level
     action: float = Field(
         json_schema_extra={"reduce": ReduceProtocol.SERIES}
@@ -40,8 +38,25 @@ class EnvStepSchema(LoggerSchema):  # attention this is aggregate by env not by 
         default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
     )
 
+    # TODO is this necessary ?
+    intrinsic_utility: float = Field(
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
 
-class PolicyLearnerSchema(LoggerSchema):
+    violation_signal: float = Field(
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
+
+# TODO add recducer metadata attachment.
+class EnvStepSchema(MetricSchema):  # attention this is aggregate by env not by env step
+    """Generic environment-step metrics."""
+    # TODO models such as PILCO, Dyna, Qyna-Q
+    by_agent: dict[AgentID, AgentEnvStepSchema] = Field(
+        default_factory=dict,
+    )
+
+
+class PolicyLearnerSchema(MetricSchema):
     batch_size: int
     # Value, Q, advantage debugging
     total_loss: Optional[float] = Field(
@@ -120,7 +135,7 @@ class PolicyLearnerSchema(LoggerSchema):
     gradient_noise: float
 
 
-class EpisodeRolloutSchema(LoggerSchema):  # Episode rollout = aggregate over env steps
+class EpisodeRolloutSchema(MetricSchema):  # Episode rollout = aggregate over env steps
     # Reward (R) statistics
     reward_total: Optional[float] = None
     reward_mean: Optional[float] = Field(
@@ -175,30 +190,30 @@ class EpisodeRolloutSchema(LoggerSchema):  # Episode rollout = aggregate over en
     )
 
 
-class EnvRolloutSchema(LoggerSchema):
+class EnvRolloutSchema(MetricSchema):
     aggregate: EpisodeRolloutSchema
     step_series: EnvStepSchema
 
-class RolloutSchema(LoggerSchema):
+class RolloutSchema(MetricSchema):
     aggregate: EpisodeRolloutSchema
     by_policy: dict[PolicyID, EpisodeRolloutSchema] = Field(default_factory=dict)
     by_env: dict[EnvID, EnvRolloutSchema] = Field(default_factory=dict)
 
 
-class LearnerSchema(LoggerSchema):
+class LearnerSchema(MetricSchema):
     by_policy: dict[PolicyID, PolicyLearnerSchema] = Field(default_factory=dict)
 
 
-class TrainSchema(LoggerSchema):
+class TrainSchema(MetricSchema):
     rollout: RolloutSchema = Field(json_schema_extra = {"source" : "env_runners"})
     learner: LearnerSchema = Field(json_schema_extra = {"source" : "learners"})
 
 
-class EvalSchema(LoggerSchema):
+class EvalSchema(MetricSchema):
     rollout: RolloutSchema = Field(json_schema_extra = {"source" : "env_runners"})
 
 
-class RaySchema(LoggerSchema):
+class RaySchema(MetricSchema):
     train: TrainSchema = Field(
             default=None,
             json_schema_extra={
@@ -214,3 +229,4 @@ class RaySchema(LoggerSchema):
 # throughput_since_last_restore
 # num_agent_steps_sampled
 # num_agent_steps_sampled_lifetime
+# prevent non terminal leaves to have reduce objects
