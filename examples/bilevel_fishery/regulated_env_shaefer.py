@@ -223,13 +223,12 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
                     self.harvest_transition_width * self.full_required_harvest,
                 )
             )
-
-            utilities[agent_id] = float(
-                delivered_harvest / max(EPS, self.full_required_harvest)
-            )
-
-        self._update_infos(key="fish_norm", values=fish_norm)
-        self._update_infos(key="full_required_harvest", values=self.full_required_harvest)
+            requested_frac_norm = requested_harvest / max(EPS, self.full_required_harvest)
+            utilities[agent_id] = delivered_harvest / max(EPS, self.full_required_harvest)
+        
+            self.logger.push(key=("by_agent", agent_id, "requested_harvest"), value=requested_harvest)
+            self.logger.push(key=("by_agent", agent_id, "delivered_harvest"), value=delivered_harvest)
+            self.logger.push(key=("by_agent", agent_id, "requested_frac"), value=requested_frac_norm)
 
         return utilities
     
@@ -252,9 +251,6 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         )
 
         allowed_frac = self._allowed_frac(fish_norm)
-        allowed_harvest = allowed_frac * self.full_required_harvest
-
-        delivered_harvest = min(requested_harvest, allowed_harvest)
 
         requested_frac_norm = (
             requested_harvest
@@ -294,15 +290,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
         total_penalty = min(1.0, quota_penalty + risk_penalty)
 
-        self._update_infos(key="requested_harvest", values={agent_id: requested_harvest})
-        self._update_infos(key="allowed_harvest", values={agent_id: allowed_harvest})
-        self._update_infos(key="delivered_harvest", values={agent_id: delivered_harvest})
-        self._update_infos(key="requested_frac", values={agent_id: requested_frac_norm})
-        self._update_infos(key="quota_violation", values={agent_id: quota_violation})
-        self._update_infos(key="quota_penalty", values={agent_id: quota_penalty})
-        self._update_infos(key="risk_penalty", values={agent_id: risk_penalty})
-        self._update_infos(key="quota_stress", values={agent_id: self._quota_stress(fish_norm)})
-        self._update_infos(key="max_demand_frac", values={agent_id: self.mechanism.max_demand_frac})
+        self.logger.push(key=("by_agent", agent_id, "quota_violation"), value=quota_violation)
+        self.logger.push(key=("by_agent", agent_id, "quota_penalty"), value=quota_penalty)
+        self.logger.push(key=("by_agent", agent_id, "risk_penalty"), value=risk_penalty)
 
         return total_penalty
 
@@ -317,11 +307,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     ) -> dict[str, float]:
         fish = float(S_t["fish"])
         fish_norm = fish / max(self.max_fish, EPS)
+        allowed_harvest = self._allowed_harvest(fish_norm)
+        quota_stress = self._quota_stress(fish_norm)
 
-        # self.full_required_harvest = fish / len(self.agents)
-        # self.full_required_harvest = (
-        #     self.F_msy * fish / len(self.agents)
-        # )
         self.full_required_harvest = (
             self.unregulated_f_multiplier
             * self.F_msy
@@ -343,8 +331,6 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             requested_harvest = (
                 harvest_frac * self.full_required_harvest
             )
-
-            allowed_harvest = self._allowed_harvest(fish_norm)
 
             delivered_harvest[agent_id] = (
                 requested_harvest
@@ -384,18 +370,26 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             "last_usage": H_realized,
         }
 
-        self._update_infos(key="fish", values=fish)
-        self._update_infos(key="fish_next", values=fish_next)
-        self._update_infos(key="fish_norm", values=fish_norm)
-        self._update_infos(key="fish_norm_next", values=fish_next / max(self.max_fish, EPS))
-        self._update_infos(key="growth", values=growth)
-        self._update_infos(key="growth_noise", values=noise)
-        self._update_infos(key="H_attempted", values=H_attempted)
-        self._update_infos(key="H_realized", values=H_realized)
-        self._update_infos(key="total_usage_norm", values=H_realized / max(EPS, self.max_fish))
-        self._update_infos(key="B_msy", values=self.B_msy)
-        self._update_infos(key="MSY", values=self.MSY)
-        self._update_infos(key="F_msy", values=self.F_msy)
+        # TODO fallback when user forgets a comms
+        self.logger.push(key=("quota_stress",), value=quota_stress)
+        self.logger.push(key=("allowed_harvest",), value=allowed_harvest)
+        self.logger.push(key=("fish_stock",), value=fish)
+        self.logger.push(key=("growth",), value=growth)
+        self.logger.push(key=("growth_noise",), value=noise)
+        self.logger.push(key=("H_attempted",), value=H_attempted)
+        self.logger.push(key=("H_realized",), value=H_realized)
+        self.logger.push(key=("total_usage_norm",), value=H_realized / max(EPS, self.max_fish))
+        self.logger.push(key=("B_msy",), value=self.B_msy)
+        self.logger.push(key=("MSY",), value=self.MSY)
+        self.logger.push(key=("F_msy",), value=self.F_msy)
+
+        # TODO not necessary ?
+        self.logger.push(key=("fish_stock_next",), value=fish_next)
+        self.logger.push(key=("fish_norm",), value=fish_norm)
+        self.logger.push(key=("fish_norm_next",), value=fish_next / max(self.max_fish, EPS))
+
+        # Move this to mechanism logging
+        # self.logger.push(key=("by_agent", agent_id, "max_demand_frac"), value=self.mechanism.max_demand_frac)
 
         self.S_t = new_state
         return self.S_t
@@ -513,21 +507,6 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         truncated = {agent_id: time_limit for agent_id in self.agents}
         truncated["__all__"] = time_limit
 
-        infos = {
-            agent_id: {
-                "fish": fish,
-                "fish_next": S_next["fish"],
-                "fish_norm": fish_norm,
-                "fish_norm_next": S_next["fish"] / max(self.max_fish, EPS),
-                "intrinsic_utility": utilities[agent_id],
-                "violation_signal": violations[agent_id],
-                "H_realized": H_realized,
-                "harvest_to_msy": harvest_to_msy,
-                "B_msy": self.B_msy,
-                "MSY": self.MSY,
-                "F_msy": self.F_msy,
-            }
-            for agent_id in self.agents
-        }
+        infos = {}
 
         return obs, rewards, terminated, truncated, infos
