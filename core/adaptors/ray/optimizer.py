@@ -26,10 +26,6 @@ from core.adaptors.ray.utils import (
     get_episode_return_mean,
     get_policy_loss_if_present,
 )
-from core.reporting.utils.env_reduced import (
-    ReductionSpec,
-    build_default_fishery_reduction_specs,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +63,6 @@ class RayOptimizer(Optimizer):
         self._training_losses: list[float] = []
         self._inner_iter: int = 0
         self._es_round: int = 0
-
-        # TODO remove this - temporary for testing
-        self._env_reducers: list[ReductionSpec] = (
-            getattr(config, "env_reducers", None) or []
-        )
-
-        if not self._env_reducers:
-            self._env_reducers = build_default_fishery_reduction_specs()
 
     @property
     @override(Optimizer)
@@ -127,45 +115,6 @@ class RayOptimizer(Optimizer):
 
         metrics = self._to_logger_payload(result)
         self._metric_logger.push_data(metrics)
-
-        # TODO make this more dynamic NEW_STACK
-        # TODO move this to world
-        # ray.get(
-        #     self.reporting.plot_ray_result.remote(
-        #         outer_iter=self._es_round,
-        #         training_episode=step,
-        #         results=result,
-        #         prefix="appo/train",
-        #     )
-        # )
-
-        # eval_result = result.get("evaluation")
-        # if eval_result:
-        #     ray.get(
-        #         self.reporting.plot_ray_result.remote(
-        #         outer_iter=self._es_round,
-        #         training_episode=step,
-        #         results=eval_result,
-        #         prefix="appo/eval",
-        #     )
-        #     )
-
-        # TODO reduced env episode plotting
-        # if self._env_reducers:
-        #     latest_env_ctxs = ray.get(
-        #         self.world.get_new_env_step_contexts.remote(opt_id=self.opt_id)
-        #     )
-
-        #     if latest_env_ctxs:
-        #         ray.get(
-        #             self.reporting.plot_env_reduced.remote(
-        #                 ctxs=latest_env_ctxs,
-        #                 outer_iter=self._es_round,
-        #                 training_episode=step,
-        #                 reducers=self._env_reducers,
-        #                 prefix="env_reduced",
-        #             )
-        #         )
 
         # TODO temporary to be moved to a logger Extract metrics
         ep_return = get_episode_return_mean(result)
