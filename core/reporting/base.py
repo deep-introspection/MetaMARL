@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Optional
 
+from core.metrics.logger import Path
+from core.metrics.metric.base import Metric
+from core.metrics.metric.series import SeriesMetric
 from core.metrics.schemas import MetricSchema
 from core.reporting.query import Query
 
@@ -45,12 +47,41 @@ class Reporter(ABC):
         self._schema = schema
 
 
-    @abstractmethod
+    def _resolve_path(
+            self, 
+            path: Path, 
+            metrics: MetricSchema | dict[str, MetricSchema],
+            *,
+            index: int = 0
+        ) -> SeriesMetric:
+        """
+        Returns the Metric object following the Path in a metric schema
+        """
+        if index >= len(path): raise KeyError(f"Path does not point to a metric: {path}")
+        key = path[index]
+
+        if isinstance(metrics, dict):
+            try:
+                child = metrics[key]
+            except KeyError: raise KeyError(f"Unknown metric path: {path}") from None
+        
+        else:
+            try:
+                child = getattr(metrics, key)
+            except AttributeError: raise KeyError(f"Unknown metric path: {path}") from None
+
+        if isinstance(child, Metric):
+            if index != len(path) - 1: raise KeyError(f"Path continues beyond metric leaf: {path}")
+            if not isinstance(child, SeriesMetric): 
+                raise TypeError(f"Path does not point to a SeriesMetric: {path}")
+            return child
+        return self._resolve_path(path=path, metrics=child, index=index + 1)
+
     def _resolve_query(
         self,
         metrics: MetricSchema,
         query: Query,
-    ) -> None:
+    ) -> tuple[SeriesMetric, SeriesMetric]:
         """Resolve a query against a populated metric schema.
 
         Args:
@@ -64,14 +95,18 @@ class Reporter(ABC):
         Raises:
             KeyError: If a requested metric path does not exist in the schema.
         """
-        ...
+        # Must return x and y series of same length
+        x_series = self._resolve_path(path=query.x, metrics=metrics)
+        y_series = self._resolve_path(path=query.y, metrics=metrics)
+        return x_series, y_series
+
 
     @abstractmethod
-    def _report_query(
+    def _report(
         self,
         query: Query,
-        x,
-        y,
+        x: SeriesMetric,
+        y: SeriesMetric,
     ) -> None:
         """Report one resolved query using the concrete reporting backend.
 
@@ -93,13 +128,8 @@ class Reporter(ABC):
             metrics: Reduced metric schema to report.
         """
         for query in self._queries:
-            resolved = self._resolve_query(metrics, query)
-
-            if resolved is None:
-                continue
-
-            x, y = resolved
-            self._report_query(query, x, y)
+            x, y = self._resolve_query(metrics, query)
+            self._report(query, x, y)
 
     @abstractmethod
     def close(self) -> None:
