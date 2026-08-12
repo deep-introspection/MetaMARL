@@ -2,12 +2,17 @@ import numpy as np
 import ray
 from gymnasium import spaces
 
+from core.adaptors.ray.schema import RaySchema
 from core.callbacks import tag_episode_with_env_idx
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
 from core.optimizers.appo.config import APPOptimizerConfig
 
+from core.reporting.enums import Resolution
+from core.reporting.query import Query
+from core.reporting.wandb import WandbConfig
 from examples.bilevel_fishery.mechanism_v1 import FisheryMechanismSpace
+from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
 from examples.bilevel_fishery.regulated_env_shaefer import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
@@ -16,16 +21,15 @@ ray.shutdown()
 bilevel_opt_cfg: BilevelConfig = (
     BilevelConfig()
     .world(world_name="fishery_world")
-    .reporting(
-        reporter="wandb",
-        project_name="bilevel",
-        settings_dict={
-            "x_disable_stats": True,
-            "x_disable_meta": True,
-            "quiet": True,
-            "max_end_of_run_summary_metrics": 0,
-            "max_end_of_run_history_metrics": 0,
-        },
+    .reporter(
+            config=WandbConfig(
+            project = "bilevel",
+            x_disable_stats = True,
+            x_disable_meta = True,
+            quiet = True,
+            max_end_of_run_summary_metrics = 0,
+            max_end_of_run_history_metrics = 0,
+        )
     )
     .mechanism(
         # TODO adding defaults
@@ -115,6 +119,17 @@ bilevel_opt_cfg: BilevelConfig = (
             seed=42,
             num_seeds=1,
         )
+    #     .reporting(
+    #         schema=ESchema,
+    #         queries=[
+    #             Query(
+    #                 title="",
+    #                 x=("generation"),
+    #                 y=("fish_norm_mean")
+    #             ),
+
+    #         ],
+    #     )
     )
     .inner(
         APPOptimizerConfig()
@@ -159,6 +174,24 @@ bilevel_opt_cfg: BilevelConfig = (
             },
             horizon=100,
             disable_env_checking=False,
+            schema=FisheryMetricSchema,
+            queries=[
+                Query(
+                    title="Fish biomass",
+                    x=("step",),
+                    y=("fish_norm",),
+                ),
+                Query(
+                    title="Reward",
+                    x=("step",),
+                    y=("reward",),
+                ),
+                Query(
+                    title="Realized harvest",
+                    x=("step",),
+                    y=("realized_harvest",),
+                ),
+            ],
         )
         .env_runners(
             num_env_runners=0,
@@ -259,11 +292,20 @@ bilevel_opt_cfg: BilevelConfig = (
             seed=42,
             num_seeds=1,
         )
-        .reporting(
-            min_time_s_per_iteration=0,
-            min_sample_timesteps_per_iteration=0,
-            min_train_timesteps_per_iteration=0,
-        )
+        # .reporting(
+        #     min_time_s_per_iteration=0,
+        #     min_sample_timesteps_per_iteration=0,
+        #     min_train_timesteps_per_iteration=0,
+        #     schema=RaySchema,
+        #     queries=[
+        #         Query(
+        #             title="",
+        #             x=("train_iter"),
+        #             y=("fish_norm_mean")
+        #         ),
+
+        #     ],
+        # )
     )
 )
 
