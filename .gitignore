@@ -92,6 +92,7 @@ figures/
 *.parquet
 
 # WandB
+wandb_analysis/
 wandb/
 
 # Ray
