@@ -20,8 +20,11 @@ from ray.tune.registry import register_env
 from core.adaptors.ray.optimizer import RayOptimizer
 from core.annotations import override
 from core.callbacks import _evaluate_with_fixed_duration_once
+from core.metrics.schemas import MetricSchema
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
+from core.reporting.config import ReporterConfig
+from core.reporting.query import Query
 from core.reporting.wandb import WandbReporter
 from core.utils import generate_uuid
 from core.world.base import World
@@ -209,12 +212,22 @@ class RayOptimizerConfig(OptimizerConfig):
         return cfg.multi_agent(**kwargs)
 
     @rllib_config_mutator
-    def reporting(cfg, **kwargs) -> None:
+    def _reporting_rllib(cfg, **kwargs) -> None:
         """Sets the config's reporting settings.
         Returns:
             This updated AlgorithmConfig object.
         """
         return cfg.reporting(**kwargs)
+
+    @override(OptimizerConfig)
+    def reporting(
+        self, 
+        queries: Optional[tuple[Query]], 
+        schema: Optional[type[MetricSchema]],
+        **kwargs
+    ) -> None:
+        super().reporting(queries=queries, schema=schema)
+        return self._reporting_rllib(**kwargs)
 
     @rllib_config_mutator
     def checkpointing(cfg, **kwargs) -> None:
@@ -407,7 +420,6 @@ class RayOptimizerConfig(OptimizerConfig):
         *,
         world: ActorHandle[World],
         world_name: Optional[str] = None,
-        reporting: ActorHandle[WandbReporter],
     ):
         evaluation_op = self._cfg_ops.get("_evaluation_rllib")
         if evaluation_op is not None:
@@ -486,8 +498,12 @@ class RayOptimizerConfig(OptimizerConfig):
             return self._env_creator(
                 world=world,
                 opt_id=opt_id,
+                env_name=env_name,
                 agents=agents,
                 mechanism_id=mechanism_idx,
+                reporter_cfg=self._reporter_cfg.copy(),
+                queries=self._reporting_queries_env,
+                schema=self._reporting_schema_env,
                 **dict(env_ctx),
             )
 
@@ -503,7 +519,12 @@ class RayOptimizerConfig(OptimizerConfig):
         # TODO do not give world to ray optimizer. temp solution until environment factory
         opt = RayOptimizer(config=cfg)
         opt.world = world
-        opt.reporting = reporting
+
+        # Build reporter
+        reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
+        reporter.schema = self._reporting_schema
+        reporter.add_query(*(self._reporting_queries or ()))
+        opt.reporting = reporter
 
         # register optimizer in world to link contexts to optimizers
         if world is not None:

@@ -11,15 +11,14 @@ from ray.actor import ActorHandle
 from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 
 from core.envs.base import BaseEnv
-from core.reporting.wandb import WandbReporter
+from core.metrics.schemas import MetricSchema
+from core.reporting.query import Query
+from core.reporting.config import ReporterConfig
 from core.types import EnvConfigDict, EnvType
 from core.world.base import World
 
 if TYPE_CHECKING:
     from core.optimizers.base import Optimizer
-
-# TODO
-LOGGER_SCHEMA_REGISTRY = {}
 
 class _Config(ABC):
     def to_dict(self) -> dict:
@@ -59,6 +58,17 @@ class OptimizerConfig(_Config, ABC):
         # TODO
         # --- reporting ---
         self.stats_cls_lookup = DEFAULT_STATS_CLS_LOOKUP
+        self._reporter_cfg: Optional[ReporterConfig] = None
+        self._reporting_schema: Optional[MetricSchema] = None
+        self._reporting_queries: Optional[tuple[Query]] = None
+
+    @property
+    def reporter_cfg(self) -> None: 
+        return self._reporter_cfg
+
+    @reporter_cfg.setter
+    def reporter_cfg(self, reporter_cfg: ReporterConfig) -> None:
+        self._reporter_cfg = reporter_cfg
 
     def __setattr__(self, name, value):
         if hasattr(self, "_is_frozen") and self._is_frozen:
@@ -76,9 +86,6 @@ class OptimizerConfig(_Config, ABC):
             **extra,
         }
         return self
-
-    def _get_logger_schema(self) -> LoggerSchema:
-        return LOGGER_SCHEMA_REGISTRY[self.__class__]
 
     # TODO freezing for nested configs
     def freeze(self) -> None:
@@ -145,7 +152,6 @@ class OptimizerConfig(_Config, ABC):
         *,
         world: Optional[ActorHandle[World]] = None,
         inner_opt: Optional[Optimizer] = None,
-        reporting: Optional[ActorHandle[WandbReporter]] = None,
         **kwargs,
     ) -> Optimizer:
         """Builds an Optimizer from this OptimizerConfig (or a copy thereof)."""
@@ -157,7 +163,12 @@ class OptimizerConfig(_Config, ABC):
         opt: Optimizer = cfg.opt_class(config=cfg)
 
         opt.world = world
-        opt.reporting = reporting
+
+        # Build reporter
+        reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
+        reporter.schema = self._reporting_schema
+        reporter.add_query(*(self._reporting_queries or ()))
+        opt.reporting = reporter
 
         # register optimizer in world to link contexts to optimizers
         if world is not None:
@@ -165,7 +176,13 @@ class OptimizerConfig(_Config, ABC):
             opt.set_id(opt_id)
 
         env = cfg._env_creator(
-            world=world, opt_id=opt_id, optimizer=inner_opt, **self.env_config
+            world=world, 
+            opt_id=opt_id, 
+            optimizer=inner_opt, 
+            reporter_cfg=cfg.reporter_cfg.copy(),
+            queries=cfg._reporting_queries,
+            schema=cfg._reporting_schema,
+            **self.env_config
         )
         opt.env = env
 
@@ -177,6 +194,8 @@ class OptimizerConfig(_Config, ABC):
         env: Optional[Union[str, EnvType]] = None,
         train_iters: Optional[int] = None,
         horizon: Optional[int] = None,
+        queries: Optional[tuple[Query]]=None,
+        schema: Optional[type[MetricSchema]]=None,
         *,
         env_config: Optional[EnvConfigDict] = None,
         observation_space: Optional[Space] = None,
@@ -248,6 +267,10 @@ class OptimizerConfig(_Config, ABC):
             self.env_config.update(env_config)
         if disable_env_checking is not None:
             self.disable_env_checking = disable_env_checking
+        if queries is not None:
+            self._reporting_queries_env = queries
+        if schema is not None:
+            self._reporting_schema_env =schema
 
         return self
     
@@ -268,6 +291,17 @@ class OptimizerConfig(_Config, ABC):
         else:
             self.seeds = []
         return self
+
+    def reporting(
+            self, 
+            queries: Optional[tuple[Query]], 
+            schema: Optional[MetricSchema],
+        ) -> Self:
+        if schema is not None:
+            self._reporting_schema = schema
+        if queries is not None:
+            self._reporting_queries = queries
+        return Self
 
     # TODO Docstring explanation
     # @abstractmethod
