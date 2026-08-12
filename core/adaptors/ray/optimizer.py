@@ -13,7 +13,10 @@ from ray.rllib.utils.typing import ResultDict
 from core.adaptors.ray.schema import RaySchema
 from core.annotations import override
 from core.optimizers.base import Optimizer
+from core.metrics.logger import MetricLogger
 from core.world.base import World
+
+# Deprecated
 from core.reporting.wandb import WandbReporter
 from core.utils import to_float
 
@@ -43,6 +46,10 @@ class RayOptimizer(Optimizer):
     ):
         super().__init__(config)
         # self.algo = algo
+
+        # TODO maybe this either needs to be an actor. or atleast have method to serialize data
+        self._metric_logger = MetricLogger.from_schema(RaySchema)
+
         # self.eval_episodes = config.eval_episodes
         # TODO fallback if rollout_fragment_length not in eval_cfg
         self.eval_episodes = (
@@ -118,6 +125,9 @@ class RayOptimizer(Optimizer):
             to_float(result.get("training_iteration")) or 0
         )
 
+        metrics = self._to_logger_payload(result)
+        self._metric_logger.push_data(metrics)
+
         # TODO make this more dynamic NEW_STACK
         # TODO move this to world
         # ray.get(
@@ -179,6 +189,10 @@ class RayOptimizer(Optimizer):
             steps_life,
             f"{policy_loss:.6f}" if np.isfinite(policy_loss) else "NA",
         )
+
+        # TODO adding the couter to this.
+        metrics_reduced = self._metric_logger.reduce()
+        return metrics_reduced
 
     @override(Optimizer)
     def evaluate(self) -> None:

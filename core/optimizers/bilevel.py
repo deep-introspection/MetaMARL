@@ -11,6 +11,8 @@ from core.mechanism.base import Mechanism
 from core.mechanism.space import MechanismSpace
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
+from core.reporting.base import Reporter
+from core.reporting.config import ReporterConfig
 from core.reporting.wandb import WandbReporter
 from core.reporting.enums import ReporterType
 from core.world.base import World
@@ -33,20 +35,12 @@ class BilevelConfig(OptimizerConfig):
         self.default_mechanism: Optional[Mechanism] = None
         self.output_dir: str | None = None
 
-        # TODO generalize
-        self.wandb_cfg: dict[str, Any] | None = None
-        self._reporter: ActorHandle[WandbReporter] | None = None
-
     # @override(OptimizerConfig)
     # def _get_logger_schema(self):
     #     return LoggerSchema(
     #         inner: self.inner_cfg._get_logger_schema
     #         outer: self.inner_cfg._get_logger_schema
     #     )
-
-    @property
-    def reporter(self) -> ActorHandle[WandbReporter] | None:
-        return self._reporter
 
     def inner(self, cfg: OptimizerConfig = None) -> Self:
         if cfg is not None:
@@ -102,48 +96,27 @@ class BilevelConfig(OptimizerConfig):
         return self
 
     # TODO remote actor access to credentials
-    def reporting(
+    def reporter(
         self,
-        reporter: Literal["wandb", "local"],
-        project_name: str,
-        config: Optional[dict[str, Any]] = None,
-        settings_dict: Optional[dict[str, Any]] = None,
+        config: ReporterConfig,
     ) -> Self:
-        if ReporterType(reporter) == ReporterType.wandb:
-            self.wandb_cfg = {
-                "project_name": project_name,
-                "config": config,
-                "settings": settings_dict or {},
-            }
-        elif ReporterType(reporter) == ReporterType.local:
-            raise TypeError("Local reporting is not available yet.")
-
+        self.reporter_cfg = config
         return self
 
     @override(OptimizerConfig)
     def build_optimizer(self):
         RayRuntime.ensure_initialized(self.ray_cfg or RayRuntimeConfig())
-
-        if self.wandb_cfg:
-            project = self.wandb_cfg["project_name"]
-            extra_cfg = self.wandb_cfg.get("config") or {}
-            self._reporter = WandbReporter.options(
-                name=f"{self.world_name}_wandb"
-            ).remote(
-                project=project,
-                name=f"{project}-{self.world_name}",
-                config={
-                    "outer_iters": self.outer_iters,
-                    "world_name": self.world_name,
-                    **extra_cfg,
-                },
-                settings=self.wandb_cfg["settings"],
-            )
-
-        world = World.options(name=self.world_name).remote(reporting=self.reporter)
+        world = World.options(name=self.world_name).remote()
 
         inner_cfg = self.inner_cfg.copy()
         outer_cfg = self.outer_cfg.copy()
+
+        # Setup reporting
+        self.reporter_cfg.world = self.world_name
+        self.reporter_cfg.outer_iters = self.outer_iters
+        primary_reporter = self.reporter_cfg.build(label="bilvel")
+        inner_cfg.reporter_cfg = self.reporter_cfg.copy()
+        outer_cfg.reporter_cfg = self.reporter_cfg.copy()
         
         if self.mechanism_space is not None:
             outer_cfg.dimension = self.mechanism_space.dimension
@@ -177,23 +150,31 @@ class BilevelConfig(OptimizerConfig):
         )
 
         inner_opt = inner_cfg.build_optimizer(
-            world=world, world_name=self.world_name, reporting=self.reporter
+            world=world, world_name=self.world_name,
         )
         outer_opt = outer_cfg.build_optimizer(
             world=world, 
-            inner_opt=inner_opt, 
-            reporting=self.reporter
+            inner_opt=inner_opt,
         )
 
         # what if outer_opt does not have that property ??
         # override outer_opt population size with inner_opt batch_size
         # set inner batch capacity to be the same as inner for batch sampling
         outer_opt.batch_capacity = inner_opt.batch_capacity
-        return self.opt_class(config=self, outer=outer_opt, inner=inner_opt)
+        return self.opt_class(
+            config=self, 
+            outer=outer_opt, 
+            inner=inner_opt, 
+            reporter=primary_reporter)
 
 
 class BilevelOptimizer(Optimizer):
-    def __init__(self, config: BilevelConfig, outer: Optimizer, inner: Optimizer):
+    def __init__(
+            self, 
+            config: BilevelConfig, 
+            outer: Optimizer, 
+            inner: Optimizer, 
+            reporter: Reporter):
         super().__init__(config)
 
         self.world_name = config.world_name
@@ -210,9 +191,8 @@ class BilevelOptimizer(Optimizer):
         self.population_history: list[tuple[int, list]] = []
         self.es_metrics_history: list[dict] = []
 
-        # TODO avoid hardcoding prefix
-        # self.wandb_run.define_metric("ppo/ppo_step")
-        # self.wandb_run.define_metric("ppo/*", step_metric="ppo/ppo_step")
+        # reporter
+        self.reporting = reporter
 
     def run(self) -> None:
         logger.info(
@@ -259,8 +239,8 @@ class BilevelOptimizer(Optimizer):
         )
 
         # TODO fig reporter with the new wandb reporter actor
-        if self.config.reporter is not None:
-            ray.get(self.config.reporter.finish.remote())
+        if self.reporting is not None:
+            self.reporting.close()
 
         return {
             "converged": self.converged,
