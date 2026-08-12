@@ -16,20 +16,33 @@ class Reporter(ABC):
     """
 
     # TODO how to store data in the results reporter ?
-    
-    _views: tuple[Query, ...]
+    _queries: tuple[Query, ...] = ()
+    _schema: type[MetricSchema] | None = None
 
     @property
-    def views(self):
-        if self._views is None:
-            raise RuntimeError("Reporter views have not been set.")
-        return self._views
+    def queries(self) -> tuple[Query, ...]:
+        """Return the queries registered with this reporter."""
+        return self._queries
 
-    @views.setter
-    def set_views(self, views: list[Query]) -> None:
-        if self._views is not None:
-            raise RuntimeError("Reporter views have already been set.")
-        self._views = tuple(views)
+    def add_query(self, *queries: Query) -> None:
+        """Register one or more reporting queries.
+
+        Args:
+            *queries: Queries to register with this reporter.
+        """
+        self._queries += queries
+
+    @property
+    def schema(self) -> type[MetricSchema] | None:
+        return self._schema
+
+    @schema.setter
+    def schema(self, schema:  type[MetricSchema]) -> None:
+        if self._schema is not None:
+            raise AttributeError(
+            "Reporter schema has already been set and cannot be changed."
+        )
+        self._schema = schema
 
 
     @abstractmethod
@@ -37,7 +50,7 @@ class Reporter(ABC):
         self,
         metrics: MetricSchema,
         query: Query,
-    ):
+    ) -> None:
         """Resolve a query against a populated metric schema.
 
         Args:
@@ -68,7 +81,7 @@ class Reporter(ABC):
             y: Resolved values for the query's y dimension.
         """
         ...
-        
+    
     def report(self, metrics: MetricSchema) -> None:
         """Report all applicable configured views for a metric schema.
 
@@ -79,18 +92,17 @@ class Reporter(ABC):
         Args:
             metrics: Reduced metric schema to report.
         """
-        for query in self._views:
-            x, y = self._resolve_query(metrics, query)
+        for query in self._queries:
+            resolved = self._resolve_query(metrics, query)
+
+            if resolved is None:
+                continue
+
+            x, y = resolved
             self._report_query(query, x, y)
 
     @abstractmethod
-    def export(self, metrics: MetricSchema) -> None:
-        """Export a populated metric schema using the concrete backend.
-
-        This method handles backend-specific persistence or serialization of
-        metric results independently of configured views.
-
-        Args:
-            metrics: Reduced metric schema to export.
+    def close(self) -> None:
+        """Close the reporter instance
         """
         ...
