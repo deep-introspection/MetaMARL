@@ -50,6 +50,9 @@ class AgentEnvStepSchema(MetricSchema):
 # TODO add recducer metadata attachment.
 class EnvStepSchema(MetricSchema):  # attention this is aggregate by env not by env step
     """Generic environment-step metrics."""
+    step: Optional[int] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
+    )
     # TODO models such as PILCO, Dyna, Qyna-Q
     by_agent: dict[AgentID, AgentEnvStepSchema] = Field(
         default_factory=dict,
