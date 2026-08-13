@@ -2,13 +2,11 @@ import numpy as np
 import ray
 from gymnasium import spaces
 
-from core.adaptors.ray.schema import RaySchema
-from core.callbacks import tag_episode_with_env_idx
+from core.callbacks import log_and_report_episode_metrics, tag_episode_with_env_idx
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
 from core.optimizers.appo.config import APPOptimizerConfig
 
-from core.reporting.enums import Resolution
 from core.reporting.query import Query
 from core.reporting.wandb import WandbConfig
 from examples.bilevel_fishery.mechanism_v1 import FisheryMechanismSpace
@@ -178,18 +176,8 @@ bilevel_opt_cfg: BilevelConfig = (
             queries=[
                 Query(
                     title="Fish biomass",
-                    x=("step",),
+                    x=("iter",),
                     y=("fish_norm",),
-                ),
-                Query(
-                    title="Reward",
-                    x=("step",),
-                    y=("reward",),
-                ),
-                Query(
-                    title="Realized harvest",
-                    x=("step",),
-                    y=("realized_harvest",),
                 ),
             ],
         )
@@ -208,6 +196,7 @@ bilevel_opt_cfg: BilevelConfig = (
         )
         .callbacks(
             on_episode_created=tag_episode_with_env_idx,
+            on_episode_end=log_and_report_episode_metrics,
         )
         .training(
             vtrace=True,

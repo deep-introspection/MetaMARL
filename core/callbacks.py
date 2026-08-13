@@ -8,6 +8,7 @@ from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.rllib.env.vector.vector_multi_agent_env import VectorMultiAgentEnv
 from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
 from ray.rllib.evaluation.metrics import summarize_episodes
+from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 
 from ray.rllib.utils.metrics import (
     ENV_RUNNER_RESULTS,
@@ -61,6 +62,33 @@ def tag_episode_with_env_idx(
 
     # TODO inject policy_id to env for traceability and debugging
 
+# TODO to be moved to a separate actor in the future for extensibility
+def log_and_report_episode_metrics(
+    *,
+    env_runner: MultiAgentEnvRunner,
+    env: VectorMultiAgentEnv,
+    env_index: int,
+    metrics_logger: MetricsLogger,
+    **kwargs,
+) -> None:
+    env: BaseEnv = env_runner.env.envs[env_index].unwrapped
+
+    metrics = env.logger.peek()
+    env.reporter.report(metrics)
+    reduced = env.logger.reduce()
+
+    metrics_logger.log_value(
+        ("metrics", "episodes"),
+        {
+            "env_id": env.env_id,
+            "mechanism_id": env.mechanism_id,
+            "seed": env.seed,
+            "policy_seed": env.policy_seed,
+            "status": env.mode,
+            "metrics": reduced.model_dump(),
+        },
+        reduce="item_series",
+    )
 
 def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
     # How many episodes/timesteps do we need to run?
@@ -286,3 +314,6 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
     # A public custom evaluation function returns three values, not the
     # internal fixed-duration function's five values.
     return eval_results, env_steps, agent_steps
+
+
+
