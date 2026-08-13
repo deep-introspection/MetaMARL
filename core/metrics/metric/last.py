@@ -8,25 +8,20 @@ class LastMetric(SeriesMetric):
         self,
         compile: bool = True,
     ) -> PrimitiveType | list[PrimitiveType]:
+        if not compile :
+            return list(self.values)
+
         if not self.values:
             return float("nan") if compile else []
 
-        last = self.values[-1]
+        return self.values[-1]
 
-        if compile:
-            return last
-
-        return [last]
-
+    # TODO move to base cls
     def reduce(
         self,
         compile: bool = True,
     ) -> float | LastMetric:
-        if not self.values:
-            last = float("nan")
-        else:
-            last = self.values[-1]
-
+        last = self.peek(compile=True)
         self.flush()
 
         if compile:

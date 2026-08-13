@@ -17,25 +17,19 @@ class MeanMetric(SeriesMetric):
         self,
         compile: bool = True,
     ) -> float | list[float]:
+        if not compile :
+            return list(self.values)
+        
         if not self.values:
             return float("nan") if compile else []
 
-        mean = sum(self.values) / len(self.values)
-
-        if compile:
-            return mean
-
-        return [mean]
+        return sum(self.values) / len(self.values)
 
     def reduce(
         self,
         compile: bool = True,
     ) -> float | MeanMetric:
-        if not self.values:
-            mean = float("nan")
-        else:
-            mean = sum(self.values) / len(self.values)
-
+        mean = self.peek(compile=True)
         self.flush()
 
         if compile:
