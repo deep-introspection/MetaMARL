@@ -142,6 +142,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             "last_usage": 0.0,
         }
 
+        #TODO n.b. we do not log metrics at reset ! must be done in subclass ! this could end up
+        # skewing the count
+
         return {
             agent_id: self.observation(agent_id, self.S_t)
             for agent_id in self.agents
