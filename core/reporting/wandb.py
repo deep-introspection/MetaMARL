@@ -4,6 +4,7 @@ from typing import Any, Optional
 import uuid
 import wandb
 
+from core.metrics.metric.base import PrimitiveType
 from core.metrics.metric.series import SeriesMetric
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig
@@ -74,7 +75,7 @@ class WandbReporter(Reporter):
         settings: Optional[dict[str, Any]] = None,
     ) -> None:
         self._defined_prefixes: set[str] = set()
-        self._run: None
+        self._run: wandb = None
         self._project = project
         self._name = name
         self._run_id = run_id
@@ -82,7 +83,7 @@ class WandbReporter(Reporter):
         self._config = config
         self._settings = settings
 
-    def _get_run(self):
+    def _init_run(self):
         if self._run is None:
             self._run = wandb.init(
                 project=self._project,
@@ -97,21 +98,18 @@ class WandbReporter(Reporter):
     def _report(
         self,
         query: Query,
-        x: SeriesMetric,
-        y: SeriesMetric,
+        x: list[PrimitiveType],
+        y: list[PrimitiveType],
     ) -> None:
-        run = self._get_run()
-
-        x_values = x.peek(compile=False)
-        y_values = y.peek(compile=False)
+        self._init_run()
 
         x_name = "/".join(query.x)
         y_name = "/".join(query.y)
 
-        run.log({
+        self._run.log({
             f"{y_name}_vs_{x_name}": wandb.plot.line_series(
-                xs=x_values,
-                ys=[y_values],
+                xs=x,
+                ys=[y],
                 keys=[y_name],
                 title=f"{y_name} vs {x_name}",
                 xname=x_name,
@@ -119,7 +117,7 @@ class WandbReporter(Reporter):
         })
         
     def close(self) -> None:
-        run = self._get_run()
+        self._init_run()
         if run is not None:
             run.finish()
             run = None
