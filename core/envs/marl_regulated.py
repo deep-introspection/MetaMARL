@@ -76,6 +76,10 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         #     self.seed = seed
         #     self.rng = np.random.default_rng(seed)
         self._t = 0
+        self.logger.flush(key=("iter",))
+        # TODO only log iter when a metric is counted, meaning pushing a value with its attached 
+        # throughput makes logic less fragile
+        # self.logger.push(key=("iter",), value=self._t)
 
         effective_seed = self.seed if self.seed is not None else seed
         
@@ -107,6 +111,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
             truncated["__all__"] = False
 
             self._t += 1
+            self.logger.push(key=("iter", ), value=self._t)
             return obs, rewards, terminated, truncated, self._infos
         obs, rewards, terminated, truncated, self._infos = self._step(actions)
 
@@ -126,6 +131,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
             )
         )
         self._t += 1
+        self.logger.push(key=("iter", ), value=self._t)
         return obs, rewards, terminated, truncated, self._infos
     
     def _step(
@@ -149,24 +155,6 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
         truncated = {aid: time_limit for aid in self.agents}
         truncated["__all__"] = time_limit
-
-        # if terminated or truncated:
-        #     # 1. Reporting sees full trajectory.
-        #     snapshot = self.metrics.peek(compile=False)
-
-        #     self.reporter.report(snapshot)
-        #     self.reporter.export(snapshot)
-
-        #     # 2. Collapse the trajectory according to each field's protocol.
-        #     reduced = self.logger.reduce()
-
-        #     # 3. Send the reduced result upward.
-        #     ctx = EnvStepContext(
-        #         metrics=reduced,
-        #         ...
-        #     )
-
-        #     self._publish(ctx)
 
         self._update_infos(key="intrinsic_utility", values=intrinsic_rewards)
         return obs, rewards, terminated, truncated, self._infos

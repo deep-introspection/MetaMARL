@@ -11,6 +11,7 @@ from core.annotations import override
 from core.mechanism.space import MechanismSpace
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
+from core.reporting.base import Reporter
 from core.reporting.query import Query
 from core.types import OptimizerID
 from core.world.base import World
@@ -70,7 +71,7 @@ class BaseEnv(Env):
             f"|ss={self.seed}"
         )
 
-        self.reporter = reporter_cfg.build(label=reporting_env_id)
+        self.reporter: Reporter = reporter_cfg.build(label=reporting_env_id)
         self.reporter.schema = schema
         self.reporter.add_query(*(queries or ()))
 
@@ -131,6 +132,7 @@ class BaseEnv(Env):
             )
         )
         self._t += 1
+        self.logger.push(key=("iter", ), value=self._t)
         return obs, reward, terminated, truncated, info
 
     @override(Env)
@@ -143,7 +145,8 @@ class BaseEnv(Env):
         # if seed is not None and and seed != self.seed;
         #     self.seed = seed
         #     self.rng = np.random.default_rng(seed)
-        self._t = 0        
+        self._t = 0
+        self.logger.push(key=("iter",), value=self._t)
         self._pre_reset(seed=self.seed)
         obs = self._reset()
         self._publish(
