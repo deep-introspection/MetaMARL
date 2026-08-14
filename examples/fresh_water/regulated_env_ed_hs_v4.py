@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 
 from core.annotations import override
 from core.envs.marl_regulated import MultiAgentRegulatedEnv
+from core.utils import sigmoid, smooth_positive_zero_at_origin
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             "corn_permanent_wilting_fraction",
             0.35,
         )
+
+        # Smoothing
+        self.quota_transition_width = ecology_cfg.get("quota_transition_width", 0.03)
+        self.irrigation_transition_width = ecology_cfg.get("harvest_transition_width", 0.005)
+        self.violation_transition_width = ecology_cfg.get("violation_transition_width", 0.03)
         
         
         # self.streamflow_init = ecology_cfg.get("streamflow_init", 124.724)
@@ -181,9 +187,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         return self.horizon is not None and (self._t + 1) >= self.horizon
 
     def _action_to_float(self, action: ActType) -> float:
-        if hasattr(action, "item"):
-            return float(action.item())
-        return float(action)
+        z = float(np.asarray(action, dtype=np.float32).reshape(-1)[0])
+
+        temperature = 4.0
+
+        return float(sigmoid(z / temperature))
 
     def _crop_stage(self, date: datetime) -> str:
         planting_date = datetime(date.year, self._planting_month, self._planting_day)
@@ -222,26 +230,19 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
     # This avoids collapse to the floor when reservoir_level_norm is close
     # to fixed_quota.
     def _quota_stress(self, reservoir_level_norm: float) -> float:
-        return float(
-            np.clip(
-                (reservoir_level_norm - self.mechanism.fixed_quota)
-                / max(EPS, 1.0 - self.mechanism.fixed_quota),
-                0.0,
-                1.0,
-            )
-        )
+        reservoir_level_norm = float(np.clip(reservoir_level_norm, 0.0, 1.0))
+        width = max(self.quota_transition_width, EPS)
+        lower = sigmoid((0.0 - self.mechanism.fixed_quota) / width)
+        upper = sigmoid((1.0 - self.mechanism.fixed_quota) / width)
+        current = sigmoid((reservoir_level_norm - self.mechanism.fixed_quota) / width)
+        return (current - lower) / max(upper - lower, EPS)
 
     # allowed_frac smoothly interpolates from min_demand_frac to max_demand_frac.
     def _allowed_frac(self, reservoir_level_norm: float) -> float:
         stress = self._quota_stress(reservoir_level_norm)
 
         return float(
-            self.mechanism.min_demand_frac
-            + stress
-            * (
-                self.mechanism.max_demand_frac
-                - self.mechanism.min_demand_frac
-            )
+            stress * self.mechanism.max_demand_frac
         )
 
     # allowed_m3_day is now demand-scaled instead of storage-scaled.
@@ -287,7 +288,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         crop_satisfaction = {}
 
         for agent_id, action in A_t.items():
-            irrigation_frac = np.clip(self._action_to_float(action), 0.0, 1.0)
+            irrigation_frac = self._action_to_float(action)
             requested_m3_day = irrigation_frac * full_required_m3_day
 
             reservoir_level_norm = (
@@ -296,9 +297,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
             # Old storage-based quota replaced by demand-fraction quota.
             allowed_m3_day = self._allowed_m3_day(reservoir_level_norm)
-            delivered_m3_day = min(
-                requested_m3_day,
-                allowed_m3_day,
+            delivered_m3_day = requested_m3_day - (
+                smooth_positive_zero_at_origin(
+                    requested_m3_day - allowed_m3_day,
+                    self.irrigation_transition_width * self.full_required_m3_day,
+                )
             )
 
             if crop_water_need_m3_day <= EPS:
@@ -334,7 +337,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
     ) -> SupportsFloat:
         
         requested_m3_day = (
-            np.clip(self._action_to_float(A_t[agent_id]), 0.0, 1.0)
+            self._action_to_float(A_t[agent_id])
             * self.full_required_m3_day
         )
         reservoir_level_norm = (
@@ -349,21 +352,38 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             allowed_m3_day,
         )
 
-        # TODO review this
-        quota_violation_m3_day = max(0.0, requested_m3_day - allowed_m3_day)
+        requested_frac_norm = requested_m3_day / max(EPS, self.full_required_m3_day)
+
+        # TODO review why not use u_i
+        delivered_frac_norm = delivered_m3_day / max(EPS, self.full_required_m3_day) 
+
+        violation_frac = smooth_positive_zero_at_origin(
+            requested_frac_norm - allowed_frac,
+            self.violation_transition_width,
+        )
+
+        quota_violation_m3_day = (
+            violation_frac
+            * self.full_required_m3_day
+        )
+
         quota_penalty = min(
             1.0,
             self.mechanism.fine_amount
-            * (quota_violation_m3_day / max(EPS, self.full_required_m3_day)),
+            * violation_frac,
         )
+
+        reservoir_pressure = max(0.0, 1.0 - reservoir_level_norm)
 
         # risk_penalty_power is now actually used.
         # This makes high extraction fractions increasingly costly when release pressure is high.
-        requested_frac = requested_m3_day / max(EPS, self.full_required_m3_day)
         flow_penalty = (
             self.mechanism.risk_penalty_scale
-            * self.S_t["release_pressure"]
-            * (requested_frac ** self.mechanism.risk_penalty_power)
+            * reservoir_pressure # self.S_t["release_pressure"]
+            * (
+                delivered_frac_norm
+                ** self.mechanism.risk_penalty_power
+            )
         )
 
         # minimum_crop_need_m3_day = (
@@ -389,14 +409,12 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         self._update_infos(key="requested_m3_day", values={agent_id: requested_m3_day})
         self._update_infos(key="allowed_m3_day", values={agent_id: allowed_m3_day})
-        self._update_infos(key="requested_frac", values={agent_id: requested_frac})
+        self._update_infos(key="requested_frac", values={agent_id: requested_frac_norm})
         self._update_infos(key="delivered_m3_day", values={agent_id: delivered_m3_day})
         self._update_infos(key="quota_violation_m3", values={agent_id: quota_violation_m3_day})
         self._update_infos(key="quota_penalty", values={agent_id: quota_penalty})
         self._update_infos(key="flow_penalty", values={agent_id: flow_penalty})
         self._update_infos(key="quota_stress", values={agent_id: self._quota_stress(reservoir_level_norm)})
-        self._update_infos(key="min_demand_frac", values={agent_id: self.mechanism.min_demand_frac})
-        self._update_infos(key="max_demand_frac", values={agent_id: self.mechanism.max_demand_frac})
 
         return total_penalty
 
@@ -414,7 +432,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         delivered_m3_day = {}
 
         for agent_id, action in A_t.items():
-            irrigation_frac = np.clip(self._action_to_float(action), 0.0, 1.0)
+            irrigation_frac = self._action_to_float(action)
             requested_m3_day = irrigation_frac * self.full_required_m3_day
 
             reservoir_level_norm = (
@@ -424,9 +442,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             # Old storage-based quota replaced by demand-fraction quota.
             allowed_m3_day = self._allowed_m3_day(reservoir_level_norm)
 
-            delivered_m3_day[agent_id] = min(
-                requested_m3_day,
-                allowed_m3_day,
+            delivered_m3_day[agent_id] = requested_m3_day - (
+                smooth_positive_zero_at_origin(
+                    requested_m3_day - allowed_m3_day,
+                    self.irrigation_transition_width * self.full_required_m3_day,
+                )
             )
 
         total_usage_m3_day = sum(delivered_m3_day.values())

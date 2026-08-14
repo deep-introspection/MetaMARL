@@ -187,8 +187,8 @@ bilevel_opt_cfg: BilevelConfig = (
                         # NOTE:
                         # This does not change max_pull_fraction itself. It changes how much
                         # of that maximum capacity the policy is allowed to request.
-                        low=0.0,
-                        high=1,
+                        low=np.inf,
+                        high=np.inf,
                         shape=(1,),
                         dtype=np.float32,
                     ),
