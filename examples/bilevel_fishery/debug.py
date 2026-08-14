@@ -37,6 +37,7 @@ bilevel_opt_cfg: BilevelConfig = (
             # default_min_demand_frac=0.1059612140059471,
             # default_max_demand_frac=0.5705976366996766,
             # default_fine_amount=0.05723086595535279,
+            
             # default_risk_penalty_scale=0.5466187596321106,
             # default_risk_penalty_power=3.8254001140594482,
             # default_under_irrigation_penalty_scale=0.5174465179443359,
