@@ -3,7 +3,7 @@ world:
 
 reporting:
   reporter: wandb
-  project_name: bilevel
+  project_name: MetaMARL
   settings_dict:
     x_disable_stats: true
     x_disable_meta: true

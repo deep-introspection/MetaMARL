@@ -19,7 +19,7 @@ bilevel_opt_cfg: BilevelConfig = (
     .world(world_name="water_world")
     .reporting(
         reporter="wandb",
-        project_name="bilevel",
+        project_name="MetaMARL",
         settings_dict={
             "x_disable_stats": True,
             "x_disable_meta": True,
@@ -115,8 +115,8 @@ bilevel_opt_cfg: BilevelConfig = (
                     "violation_transition_width": 0.03,
                 },
                 "use_raven": True,
-                "raven_cwd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven",
-                "raven_cmd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven/2_Raven/Raven.exe",
+                "raven_cwd": "/Users/nadine/src/github.com/nadinemgh/MetaMARL/examples/fresh_water/raven",
+                "raven_cmd": "/Users/nadine/src/github.com/nadinemgh/MetaMARL/examples/fresh_water/raven/2_Raven/Raven.exe",
                 "raven_freq": 1,
                 "seed": 0,
             },
