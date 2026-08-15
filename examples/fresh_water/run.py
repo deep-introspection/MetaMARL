@@ -24,7 +24,7 @@ def build_config() -> BilevelConfig:
         .world(world_name="water_world")
         .reporting(
             reporter="wandb",
-            project_name="bilevel",
+            project_name="MetaMARL",
             settings_dict={
                 "x_disable_stats": True,
                 "x_disable_meta": True,
