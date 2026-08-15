@@ -37,4 +37,4 @@ test -d "$RAVEN_CWD"
 test -x "$RAVEN_CMD"
 
 # Run training
-python -m examples.fresh_water.run_test
+python -m examples.fresh_water.run
