@@ -71,12 +71,12 @@ bilevel_opt_cfg: BilevelConfig = (
                 "ecology_cfg": {
                     "sustainability_weight": 1.0,
                     "sustainability_threshold": 0.1,
-                    "fitness_tail_steps": 50,
+                    "fitness_tail_steps": 100,
                     "max_water": 100.0,
                 },
             },
-            horizon=5,
-            train_iters=10,
+            horizon=100,
+            train_iters=50,
         )
         .debugging(
             seed=42,
@@ -120,7 +120,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 "raven_freq": 1,
                 "seed": 0,
             },
-            horizon=5,
+            horizon=100,
             disable_env_checking=False,
         )
         .env_runners(
@@ -128,7 +128,7 @@ bilevel_opt_cfg: BilevelConfig = (
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
             num_envs_per_env_runner=4,
-            rollout_fragment_length=5,
+            rollout_fragment_length=100,
             batch_mode="truncate_episodes",
         )
         .learners(
@@ -147,8 +147,8 @@ bilevel_opt_cfg: BilevelConfig = (
             timeout_s_aggregator_manager=10,
             gamma=0.99,
             lr=0.001,
-            train_batch_size_per_learner=5,
-            minibatch_size=5,
+            train_batch_size_per_learner=100,
+            minibatch_size=100,
             num_epochs=1,
             entropy_coeff=0.001,
             grad_clip=40.0,
@@ -161,7 +161,7 @@ bilevel_opt_cfg: BilevelConfig = (
             evaluation_parallel_to_training=False,
             evaluation_config={
                 "explore": False,
-                "rollout_fragment_length": 5,
+                "rollout_fragment_length": 100,
                 "batch_mode": "complete_episodes",
                 "max_requests_in_flight_per_env_runner": 1,
             },

@@ -10,7 +10,7 @@ from core.optimizers.appo.config import APPOptimizerConfig
 
 # Fishery-specific objects
 from examples.bilevel_fishery.mechanism_v1 import FisheryMechanismSpace
-from examples.bilevel_fishery.regulated_env_v2 import FisheryRegulatedEnv
+from examples.bilevel_fishery.deprecated.regulated_env_v2 import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
 # TODO the default mechanism config and fisherman, and observation spaces and action spaces part of config
@@ -90,8 +90,8 @@ bilevel_opt_cfg: BilevelConfig = (
                     "sus_threshold": 0.1,
                 },
             },
-            horizon=1000,
-            train_iters=100,  # TODO implement early stop for plateau
+            horizon=5,
+            train_iters=10,  # TODO implement early stop for plateau
         )
         .debugging(
             seed=42,
@@ -128,7 +128,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 },
                 "seed": 0,
             },
-            horizon=1000,
+            horizon=5,
             disable_env_checking=False,
         )
         .env_runners(
@@ -136,7 +136,7 @@ bilevel_opt_cfg: BilevelConfig = (
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
             num_envs_per_env_runner=1,  # batch evaluated mechanism or population size for ES 16. Must be even due to antithetic sampling. If odd, set break_symmetry = false in esconfig
-            rollout_fragment_length=500,  # must be same as env horizon 200
+            rollout_fragment_length=5,  # must be same as env horizon 200
             batch_mode="truncate_episodes",
         )
         .learners(num_learners=0, num_gpus_per_learner=0)
@@ -152,8 +152,8 @@ bilevel_opt_cfg: BilevelConfig = (
             timeout_s_aggregator_manager=10,
             gamma=0.99,
             lr=0.001,
-            train_batch_size_per_learner=500, # same or less than rollout fragment length
-            minibatch_size=500,  # 512
+            train_batch_size_per_learner=5, # same or less than rollout fragment length
+            minibatch_size=5,  # 512
             num_epochs=1,
             entropy_coeff=0.001,
             grad_clip=40.0,
@@ -167,7 +167,7 @@ bilevel_opt_cfg: BilevelConfig = (
             evaluation_parallel_to_training=False,  # This must be False when local_mode is True !
             evaluation_config={
                 "explore": False,  # greedy eval actions
-                "rollout_fragment_length": 1000,  # same as training
+                "rollout_fragment_length": 5,  # same as training
                 "batch_mode": "complete_episodes",  # same as training
             },
         )
