@@ -31,45 +31,12 @@ bilevel_opt_cfg: BilevelConfig = (
         # TODO adding defaults
         space=FisheryMechanismSpace(
             optimize_params=["fixed_quota", "restoration_subsidy"], #", "risk_penalty_scale", "risk_penalty_power", "fine_amount", , "max_demand_frac", 
-            # default_fixed_quota=0.7812058329582214,
-            # default_min_demand_frac=0.1059612140059471,
-            # default_max_demand_frac=0.5705976366996766,
-            # default_fine_amount=0.05723086595535279,
-            # default_risk_penalty_scale=0.5466187596321106,
-            # default_risk_penalty_power=3.8254001140594482,
-            # default_under_irrigation_penalty_scale=0.5174465179443359,
-
-            # permissive quota  
-            # default_fixed_quota=0.60,
-            # default_min_demand_frac=1.0,
-            # default_max_demand_frac=1.0,
-            # default_fine_amount=0.0,
-            # default_risk_penalty_scale=0.0,
-            # default_risk_penalty_power=1.0,
-            # default_under_irrigation_penalty_scale=0.0,
-
-            # extremely restrictive quota
             default_fixed_quota=0.56224, #0.90 #0.52
             default_max_demand_frac=1.0,
             default_restoration_subsidy=0.10,
-
             default_fine_amount=0.20, 
             default_risk_penalty_scale=0.0, #1.0
             default_risk_penalty_power=1.0,
-
-            # moderatley restrictive quota 
-            # default_fixed_quota=0.80,
-            # default_min_demand_frac=0.25,
-            # default_max_demand_frac=0.60,
-
-            # default_fine_amount=0.05,
-            # default_risk_penalty_scale=0.40,
-            # default_risk_penalty_power=2.0,
-            # default_under_irrigation_penalty_scale=0.0,
-
-            # # maybe set default near middle
-            # # 
-            # default_max_farm_area_m2=500_000.0,
         )
     )
     .training(outer_iters=1000)
@@ -219,31 +186,6 @@ bilevel_opt_cfg: BilevelConfig = (
                         dtype=np.float32,
                     ),
                     "action_space": spaces.Box(
-                        # Action is the fraction of the agent's maximum pull capacity.
-                        #
-                        # action = 0.0 -> requests 0% of max_pull_fraction
-                        # action = 0.5 -> requests 50% of max_pull_fraction
-                        # action = 1.0 -> requests 100% of max_pull_fraction
-                        #
-                        # Actual requested flow:
-                        # requested_m3s = action * max_pull_fraction * current_streamflow
-                        #
-                        # With max_pull_fraction = 0.005:
-                        # action high=1.0 -> up to 0.5% of current streamflow
-                        # action high=0.5 -> up to 0.25% of current streamflow
-                        # action high=0.2 -> up to 0.10% of current streamflow
-                        # action high=0.1 -> up to 0.05% of current streamflow
-                        #
-                        # Rough agent interpretation:
-                        # high=0.05 -> individual/small farm-scale user
-                        # high=0.1  -> large farm / small irrigation user
-                        # high=0.2  -> irrigation district / small utility
-                        # high=0.5  -> municipality / industrial user
-                        # high=1.0  -> large municipality / regional user
-                        #
-                        # NOTE:
-                        # This does not change max_pull_fraction itself. It changes how much
-                        # of that maximum capacity the policy is allowed to request.
                         low=-np.inf,
                         high=np.inf,
                         shape=(2,),
