@@ -18,27 +18,31 @@ class FitnessContext(ContextSchema):
 
     objective_score: float
     mean_reward: float
-    collapse_rate: float
-    sustainability_penalty: float
+    crop_satisfaction: float
+    streamflow_deviation: float
+    streamflow_score: float
 
     @classmethod
     def from_metrics(
         cls,
         *,
         mean_reward: SupportsFloat,
-        collapse_rate: SupportsFloat,
-        sustainability_penalty: SupportsFloat,
         sustainability_weight: SupportsFloat,
+        crop_satisfaction: SupportsFloat,
+        streamflow_deviation: SupportsFloat,
     ) -> "FitnessContext":
         """
         Construct fitness context from evaluation metrics.
         """
 
-        objective = float(mean_reward - sustainability_weight * sustainability_penalty)
+        # objective = float(mean_reward - sustainability_weight * sustainability_penalty)
+        streamflow_score = 1.0 / (1.0 + streamflow_deviation)
+        objective = crop_satisfaction + sustainability_weight * streamflow_score
 
         return cls(
-            objective_score=objective,
+            objective_score=float(objective),
             mean_reward=float(mean_reward),
-            collapse_rate=float(collapse_rate),
-            sustainability_penalty=float(sustainability_penalty),
+            crop_satisfaction=float(crop_satisfaction),
+            streamflow_deviation=float(streamflow_deviation),
+            streamflow_score=float(streamflow_score),
         )

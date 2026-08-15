@@ -39,18 +39,20 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
     ):
         super().__init__(**kwargs)
         env_cfg = ecology_cfg or {}
-        self.sustainability_weight = env_cfg.get("sus_weight", 5.0)
-        self.sustainability_threshold = env_cfg.get("sus_threshold", 0.2)
-        self.max_water = env_cfg.get("max_water", 100.0)
+        self.sustainability_weight = env_cfg.get("sustainability_weight", 5.0)
+
+        # self.max_water = env_cfg.get("max_water", 100.0)
         # Denormalized threshold for visualization
-        self.raw_sustainability_threshold = self.sustainability_threshold * self.max_water
+        # self.raw_sustainability_threshold = self.sustainability_threshold * self.max_water
         self.trajectories: dict[int, list[dict[str, Any]]] = {}
 
-        self.economic_weight = env_cfg.get("economic_weight", 1.0)
-        self.sustainability_weight = env_cfg.get("sustainability_weight", 1.0)
+        # self.economic_weight = env_cfg.get("economic_weight", 1.0)
 
-        target_status = env_cfg.get("aggregation_status", "train")
+        target_status = env_cfg.get("aggregation_status", "eval")
         self.aggregation_status = MechanismStatus(target_status)
+
+        # tail averaging
+        self.fitness_tail_steps = int(env_cfg.get("fitness_tail_steps", 0))
 
     @override(RegulatorEnv)
     def observation(self, obs: ObsType) -> ObsType:
@@ -63,82 +65,174 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
         Implementation mirrors `FisheryRegulatorEnv.aggregate_rewards`.
         """
 
-        # Must be able to get the seed and run the baseline dynamically for the no extraction
+        per_mech_metrics: list[dict[str, float]] = []
         step_ctxs = [
             ctx
             for ctx in ctxs
             if isinstance(ctx.payload, EnvStepContext)
             and ctx.payload.status == self.aggregation_status
         ]
+
         if not step_ctxs:
-            logger.warning("[Regulator] No EnvStepContext received")
+            logger.warning(
+                "[Regulator] No EnvStepContext received — "
+                "inner loop likely produced no steps"
+            )
             return []
     
         by_run: dict[tuple[int, int], list[Context]] = defaultdict(list)
 
-        # TODO group by seed as well
-            # for now we assume aggregation over seed
+        # deduplicate
+        seen_steps: set[tuple[int | None, int | None, int]] = set()
+
         for ctx in step_ctxs:
             s = ctx.payload
+            key = (s.mechanism, s.seed, ctx.step)
+            if key in seen_steps:
+                continue
+            seen_steps.add(key)
             by_run[(s.mechanism, s.seed)].append(ctx)
 
-        economic_by_m: dict[int, list[float]] = defaultdict(list)
-        deviation_by_m: dict[int, list[float]] = defaultdict(list)
-        seeds_by_m: dict[int, list[float]] = defaultdict(list)
+        metrics_by_mechanism: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        self.trajectories = {}
 
-        for (m_idx, seed), steps in by_run.items():
-            steps = sorted(steps, key=lambda c: c.step)
-            rewards = []
-            for ctx in steps:
-                r = ctx.payload.reward
-                # TODO for now we average accross agents but later another solution required!
-                if isinstance(r, dict):
-                    rewards.append(float(np.mean(list(r.values()))))
-                else:
-                    rewards.append(float(r))
-            economic_score = float(np.mean(rewards))
-            deviation = compute_streamflow_deviation_from_step_ctx(
-                steps[-1].payload,
-                streamflow_col="Belwood_Lake (res. inflow) [m3/s]"
-            )["streamflow_deviation"]
-            economic_by_m[m_idx].append(economic_score)
-            deviation_by_m[m_idx].append(deviation)
-            seeds_by_m[m_idx].append(seed)
-            
 
-        # TODO take into consideration economic vs susteinability reward
-        max_idx = max(economic_by_m.keys())
+        # First aggregation level : one metric record per mechanism-seed run
+        for (idx, seed), steps in by_run.items():
+            # Assume env-runner order == step order
+            steps = sorted(steps, key=lambda ctx: ctx.step)
+            num_steps = len(steps)
+
+            rewards = np.empty(num_steps, dtype=np.float32)
+            crop_satisfaction = np.empty(num_steps, dtype=np.float32)
+
+            trajectory: list[dict[str, Any]] = []
+
+            for i, s in enumerate(steps):
+                r = s.payload.reward
+                rewards[i] = np.mean(list(r.values()))
+
+                info = s.payload.info
+                agent_crop_satisfaction = [
+                    float(
+                        agent_info["crop_satisfaction"]
+                    )
+                    for agent_info in info.values()
+                    if isinstance(agent_info, dict)
+                    and "crop_satisfaction" in agent_info
+                ]
+                crop_satisfaction[i] = float(np.mean(agent_crop_satisfaction))
+
+                trajectory.append(
+                    {
+                        "episode": 0, #TODO get episode
+                        "step": s.step, #TODO verify s.step == i
+                        "seed": seed,
+                        "crop_satisfaction": crop_satisfaction[i],
+                        "reward": float(rewards[i]),
+                    }
+                )
+                
+
+
+            tail_steps = min(self.fitness_tail_steps, num_steps)
+            tail_start = num_steps - tail_steps
+            tail_rewards = rewards[tail_start:]
+            tail_crop_satisfaction = (crop_satisfaction[tail_start:])
+
+            # TODO implement proper tailing
+            tail_deviation = compute_streamflow_deviation_from_step_ctx(
+                    steps[-1].payload,
+                    streamflow_col="Belwood_Lake (res. inflow) [m3/s]"
+                )["streamflow_deviation"]
+
+            metrics_by_mechanism[idx].append(
+                {
+                    "seed": seed,
+                    "mean_reward": float(tail_rewards.mean()),
+                    "mean_crop_satisfaction": float(tail_crop_satisfaction.mean()),
+                    "mean_streamflow_deviation": float(tail_deviation),
+                }
+            )
+        max_idx = max(metrics_by_mechanism)
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)
 
-        for m_idx in economic_by_m:
-            mean_economic = float(np.mean(economic_by_m[m_idx]))
-            mean_deviation = float(np.mean(deviation_by_m[m_idx]))
-            sustainability_score = 1.0 / (1.0 + mean_deviation)
-            objective = (
-                self.economic_weight * mean_economic
-                + self.sustainability_weight * sustainability_score
+        for idx, seed_metrics in metrics_by_mechanism.items():
+            mean_reward = float(
+                np.mean([m["mean_reward"] for m in seed_metrics])
             )
-            fitness[m_idx] = objective
+            mean_crop_satisfaction = float(
+                np.mean([
+                    m["mean_crop_satisfaction"]
+                    for m in seed_metrics
+                ])
+            )
+            mean_streamflow_deviation = float(
+                np.mean([
+                    m["mean_streamflow_deviation"]
+                    for m in seed_metrics
+                ])
+            )
+
+
+            fitness_ctx = FitnessContext.from_metrics(
+                mean_reward=mean_reward,
+                crop_satisfaction=mean_crop_satisfaction,
+                streamflow_deviation=mean_streamflow_deviation,
+                sustainability_weight=self.sustainability_weight,
+            )
+
+            objective = float(fitness_ctx.objective_score)
+            fitness[idx] = objective
 
             self._publish(
                 MechanismContext(
-                    index=m_idx,
+                    index=idx,
+                    seed=None,
                     env_id=self.env_id,
-                    seed=seed,
                     status=MechanismStatus.done,
-                    mechanism=None, #TODO add the mechanism object
-                    metrics={
-                        "objective": objective,
-                        "economic_score": mean_economic,
-                        "streamflow_deviation": mean_deviation,
-                        "sustainability_score": sustainability_score,
-                        "economic_weight": self.economic_weight,
-                        "streamflow_weight": self.sustainability_weight,
-                    },
+                    mechanism=None,
+                    metrics=fitness_ctx,
                 )
             )
 
-        return fitness.tolist()
+            per_mech_metrics.append(
+            {
+                "idx": idx,
+                "objective": objective,
+                "mean_reward": mean_reward,
+                "crop_satisfaction": mean_crop_satisfaction,
+                "streamflow_deviation": mean_streamflow_deviation,
+                "streamflow_score": fitness_ctx.streamflow_score,
+                "num_seeds": float(len(seed_metrics)),
+            }
+        )
+
+        objectives = np.asarray(
+            [m["objective"] for m in per_mech_metrics],
+            dtype=np.float32,
+        )
+
+        best_position = int(np.argmax(objectives))
+        worst_position = int(np.argmin(objectives))
+
+        best = per_mech_metrics[best_position]
+        worst = per_mech_metrics[worst_position]
+
+        logger.info(
+            "[Regulator][summary] "
+            "mean_obj=%.4f | best_obj=%.4f (θ=%d) | "
+            "worst_obj=%.4f (θ=%d) | ",
+            float(objectives.mean()),
+            best["objective"],
+            int(best["idx"]),
+            worst["objective"],
+            int(worst["idx"]),
+        )
+
+        self.last_metrics = per_mech_metrics
+
+        return fitness.tolist() 
 
 
 def read_hydrograph_series(

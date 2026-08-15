@@ -578,7 +578,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             ignore=shutil.ignore_patterns(".cache"),
             dirs_exist_ok=False,
         )
-        logger.info("Prepared Raven run at %s", self.run_root)
+        # logger.info("Prepared Raven run at %s", self.run_root)
         return self.run_root
 
     def _append_extraction_to_rvt(
@@ -664,11 +664,20 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         out_dir = "3_Model_output"
         os.makedirs(Path(run_dir) / out_dir, exist_ok=True)
 
-        subprocess.run(
+        result = subprocess.run(
             [self.raven_cmd, "2_Raven/ohms_canshield", "-o", out_dir],
             cwd=run_dir,
             check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
         )
+        if result.returncode != 0:
+            logger.error(
+                "Raven failed with code %d:\n%s",
+                result.returncode,
+                result.stderr,
+            )
     
     def _prepare_no_extraction_baseline(self) -> str:
 
@@ -695,11 +704,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         shutil.copytree(src, baseline_run_root)
 
-        logger.info(
-            "Copied current zero-extraction Raven run as baseline reference: %s -> %s",
-            src,
-            baseline_run_root,
-        )
+        # logger.info(
+        #     "Copied current zero-extraction Raven run as baseline reference: %s -> %s",
+        #     src,
+        #     baseline_run_root,
+        # )
 
         return str(baseline_run_root / "3_Model_output")
 
@@ -731,11 +740,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                 match = next((k for k in row.keys() if k.startswith(column_name)), None)
 
                 if match is None:
-                    logger.warning(
-                        "ReservoirStages CSV missing column '%s'. Available: %s",
-                        column_name,
-                        list(row.keys()),
-                    )
+                    # logger.warning(
+                    #     "ReservoirStages CSV missing column '%s'. Available: %s",
+                    #     column_name,
+                    #     list(row.keys()),
+                    # )
                     return None
 
                 column_name = match
@@ -778,11 +787,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                 )
 
                 if match is None:
-                    logger.warning(
-                        "Hydrographs CSV missing column '%s'. Available: %s",
-                        column_name,
-                        list(row.keys()),
-                    )
+                    # logger.warning(
+                    #     "Hydrographs CSV missing column '%s'. Available: %s",
+                    #     column_name,
+                    #     list(row.keys()),
+                    # )
                     return None
 
                 column_name = match
@@ -834,11 +843,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                     None,
                 )
                 if match is None:
-                    logger.warning(
-                        "Hydrographs CSV missing column '%s'. Available: %s",
-                        column_name,
-                        list(row.keys()),
-                    )
+                    # logger.warning(
+                    #     "Hydrographs CSV missing column '%s'. Available: %s",
+                    #     column_name,
+                    #     list(row.keys()),
+                    # )
                     return None
                 column_name = match
 

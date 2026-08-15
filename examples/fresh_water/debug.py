@@ -30,9 +30,16 @@ bilevel_opt_cfg: BilevelConfig = (
     )
     .mechanism(
         # TODO adding defaults
-        space=WaterMechanismSpace(),
+        space=WaterMechanismSpace(
+            optimize_params=["fixed_quota"],
+            default_fixed_quota=0.56224,
+            default_max_demand_frac=1.0,
+            default_fine_amount=0.20, 
+            default_risk_penalty_scale=0.0,
+            default_risk_penalty_power=1.0,
+        ),
     )
-    .training(outer_iters=100)
+    .training(outer_iters=1000)
     .ray(
         device="cpu",
         num_cpus=4,
@@ -62,13 +69,14 @@ bilevel_opt_cfg: BilevelConfig = (
             env=WaterRegulatorRavenEnv,
             env_config={
                 "ecology_cfg": {
-                    "sus_weight": 1.0,
-                    "sus_threshold": 0.1,
+                    "sustainability_weight": 1.0,
+                    "sustainability_threshold": 0.1,
+                    "fitness_tail_steps": 50,
                     "max_water": 100.0,
                 },
             },
-            horizon=100,
-            train_iters=200,
+            horizon=5,
+            train_iters=10,
         )
         .debugging(
             seed=42,
@@ -92,11 +100,19 @@ bilevel_opt_cfg: BilevelConfig = (
             env_config={
                 "ecology_cfg": {
                     "max_farm_area_m2": 1_000_000.0,
-
                     # TODO move this to Raven helper
                     "full_stage_m": 420.41,
                     "max_depth_m": 11.0,
                     "lake_area_m2": 5756935.89615,
+
+                    # TODO env stochasticity
+                    # "sigma": 0.02,
+                    # "initial_stock_log_sigma": 0.05,
+
+                    # smoothing
+                    "quota_transition_width": 0.05,
+                    "irrigation_transition_width": 0.005,
+                    "violation_transition_width": 0.03,
                 },
                 "use_raven": True,
                 "raven_cwd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven",
@@ -104,15 +120,15 @@ bilevel_opt_cfg: BilevelConfig = (
                 "raven_freq": 1,
                 "seed": 0,
             },
-            horizon=150,
+            horizon=5,
             disable_env_checking=False,
         )
         .env_runners(
             num_env_runners=0,
             num_cpus_per_env_runner=1,
             num_gpus_per_env_runner=0,
-            num_envs_per_env_runner=1,
-            rollout_fragment_length=150,
+            num_envs_per_env_runner=4,
+            rollout_fragment_length=5,
             batch_mode="truncate_episodes",
         )
         .learners(
@@ -131,8 +147,8 @@ bilevel_opt_cfg: BilevelConfig = (
             timeout_s_aggregator_manager=10,
             gamma=0.99,
             lr=0.001,
-            train_batch_size_per_learner=150,
-            minibatch_size=150,
+            train_batch_size_per_learner=5,
+            minibatch_size=5,
             num_epochs=1,
             entropy_coeff=0.001,
             grad_clip=40.0,
@@ -145,9 +161,12 @@ bilevel_opt_cfg: BilevelConfig = (
             evaluation_parallel_to_training=False,
             evaluation_config={
                 "explore": False,
-                "rollout_fragment_length": 150,
+                "rollout_fragment_length": 5,
                 "batch_mode": "complete_episodes",
+                "max_requests_in_flight_per_env_runner": 1,
             },
+            base_seed = 42,
+            num_seeds = 3
         )
         .agents(
             {
@@ -162,32 +181,7 @@ bilevel_opt_cfg: BilevelConfig = (
                         dtype=np.float32,
                     ),
                     "action_space": spaces.Box(
-                        # Action is the fraction of the agent's maximum pull capacity.
-                        #
-                        # action = 0.0 -> requests 0% of max_pull_fraction
-                        # action = 0.5 -> requests 50% of max_pull_fraction
-                        # action = 1.0 -> requests 100% of max_pull_fraction
-                        #
-                        # Actual requested flow:
-                        # requested_m3s = action * max_pull_fraction * current_streamflow
-                        #
-                        # With max_pull_fraction = 0.005:
-                        # action high=1.0 -> up to 0.5% of current streamflow
-                        # action high=0.5 -> up to 0.25% of current streamflow
-                        # action high=0.2 -> up to 0.10% of current streamflow
-                        # action high=0.1 -> up to 0.05% of current streamflow
-                        #
-                        # Rough agent interpretation:
-                        # high=0.05 -> individual/small farm-scale user
-                        # high=0.1  -> large farm / small irrigation user
-                        # high=0.2  -> irrigation district / small utility
-                        # high=0.5  -> municipality / industrial user
-                        # high=1.0  -> large municipality / regional user
-                        #
-                        # NOTE:
-                        # This does not change max_pull_fraction itself. It changes how much
-                        # of that maximum capacity the policy is allowed to request.
-                        low=np.inf,
+                        low=-np.inf,
                         high=np.inf,
                         shape=(1,),
                         dtype=np.float32,
@@ -214,3 +208,32 @@ bilevel_opt = bilevel_opt_cfg.build_optimizer()
 bilevel_opt.run()
 
 ray.shutdown()
+
+
+
+
+                        # Action is the fraction of the agent's maximum pull capacity.
+                        #
+                        # action = 0.0 -> requests 0% of max_pull_fraction
+                        # action = 0.5 -> requests 50% of max_pull_fraction
+                        # action = 1.0 -> requests 100% of max_pull_fraction
+                        #
+                        # Actual requested flow:
+                        # requested_m3s = action * max_pull_fraction * current_streamflow
+                        #
+                        # With max_pull_fraction = 0.005:
+                        # action high=1.0 -> up to 0.5% of current streamflow
+                        # action high=0.5 -> up to 0.25% of current streamflow
+                        # action high=0.2 -> up to 0.10% of current streamflow
+                        # action high=0.1 -> up to 0.05% of current streamflow
+                        #
+                        # Rough agent interpretation:
+                        # high=0.05 -> individual/small farm-scale user
+                        # high=0.1  -> large farm / small irrigation user
+                        # high=0.2  -> irrigation district / small utility
+                        # high=0.5  -> municipality / industrial user
+                        # high=1.0  -> large municipality / regional user
+                        #
+                        # NOTE:
+                        # This does not change max_pull_fraction itself. It changes how much
+                        # of that maximum capacity the policy is allowed to request.
