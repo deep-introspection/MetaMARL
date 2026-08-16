@@ -1,30 +1,89 @@
-from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from abc import ABC, abstractmethod
+from typing import Any, Callable, Self
+
+from core.types import MultiAgentDict
 
 import numpy as np
 
-
-@runtime_checkable
-class Mechanism(Protocol):
+class Mechanism(ABC):
     """Semantic representation of a regulatory mechanism."""
 
-    def to_vector(self) -> list[float]:
-        """Convert semantic mechanism to normalized vector in [0,1]^d."""
+    bindings: dict[str, Callable[[Any], Any]]
+
+    @property
+    @abstractmethod
+    def dimension(self) -> int:
+        """Dimension of this mechanism in optimizer space."""
         ...
 
-    def param_names(self) -> list[str]: ...
+    @abstractmethod
+    def encode(self) -> np.ndarray:
+        """Encode this mechanism into its normalized optimizer representation.""" 
+        ...
 
-    @classmethod
-    def default(cls) -> "Mechanism": ...
+    @abstractmethod
+    def decode(self, x: np.ndarray) -> Self: 
+        """
+        Return the same mechanism structure parameterized by x.
+
+        For composite mechanisms, decoding propagates recursively to children.
+        """
+        ...
+
+    @abstractmethod
+    def clip(self) -> Self: 
+        ...
+
+    @abstractmethod
+    def param_names(self) -> list[str]: 
+        """Names corresponding exactly to encode()."""
+        ...
+
+    @abstractmethod
+    def to_vector(self) -> np.ndarray:
+        """Full semantic representation exposed to agents."""
+        ...
+
+    def _validate(self, x: np.ndarray) -> np.ndarray:
+        x = np.asarray(x, dtype=np.float32)
+
+        if x.shape != (self.dimension,):
+            raise ValueError(f"Expected shape ({self.dimension},), got {x.shape}")
+
+        if not np.isfinite(x).all():
+            raise ValueError(f"Non-finite values in vector: {x}")
+
+        return x
 
 
-@dataclass(frozen=True)
-class VectorMechanism(Mechanism):
-    x: np.ndarray
+    def resolve(
+        self,
+        env: Any, #TODO env should not be any
+    ) -> dict[str, Any]:
+        bindings = getattr(self, "bindings", {})
+        return {name: binding(env) for name, binding in bindings.items()}
 
-    def to_vector(self) -> list[float]:
-        return np.asarray(self.x, dtype=np.float32).ravel().tolist()
 
-    @classmethod
-    def from_vector(cls, v: list[float]) -> "VectorMechanism":
-        return cls(np.asarray(v, dtype=np.float32))
+    def action(
+            self,
+            action_dict: MultiAgentDict,
+            **kwargs,
+    ) -> MultiAgentDict:
+        """Transform agent actions."""
+        return action_dict
+
+    def observation(
+            self,
+            observation_dict: MultiAgentDict,
+            **kwargs,
+    ) -> MultiAgentDict:
+        """Transform agent observations."""
+        return observation_dict
+
+    def reward(
+            self,
+            reward_dict: MultiAgentDict,
+            **kwargs,
+    ) -> MultiAgentDict:
+        """Transform agent rewards."""
+        return reward_dict
