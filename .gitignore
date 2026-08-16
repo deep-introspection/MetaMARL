@@ -110,3 +110,7 @@ CLAUDE.md
 
 # GeoJSONs directory (project-specific large files)
 geojsons/
+
+# deprecated
+deprecated/
+legacy_code/
