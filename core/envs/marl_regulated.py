@@ -1,19 +1,28 @@
 import logging
 from abc import abstractmethod
-from typing import Any, SupportsFloat
+from typing import Any, ClassVar, Optional, SupportsFloat
 
 import numpy as np
+
+# TODO remove ray and gymnasium dependency
 from gymnasium.core import ActType, ObsType
 from gymnasium import spaces
+import ray
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
-from ray.rllib.utils.typing import AgentID, MultiAgentDict
 
 from core.annotations import override
-from core.envs.base import BaseEnv
-from core.envs.regulated import RegulatedEnv
+from core.mechanism.base import Mechanism
+from core.types import AgentID, MultiAgentDict
+from core.utils import sigmoid
 from core.types import OptimizerID
 from core.world.base import World
-from core.world.context import EnvStepContext, MechanismStatus
+from core.world.context import (
+    Context, 
+    ContextSchema, 
+    EnvStepContext, 
+    MechanismStatus,
+    MechanismContext
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,32 +33,97 @@ logger = logging.getLogger(__name__)
 
 # TODO create a reward type
 
-# TODO remove inheritance from regulatedEnv completley
-# class SingleAgentBaseEnv(gym.Env): ...
-# class MultiAgentBaseEnv(MultiAgentEnv): ...
+class MultiAgentRegulatedEnv(MultiAgentEnv):
+    _reset: ClassVar[str | None] = None
+    _action: ClassVar[str | None] = None
+    _reward: ClassVar[str | None] = None
+    _observation: ClassVar[str | None] = None
+    _transition: ClassVar[str | None] = None
 
-# class RegulatedEnv(SingleAgentBaseEnv): ...
-# class MultiAgentRegulatedEnv(MultiAgentBaseEnv): ...
-
-
-class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
     def __init__(
         self,
         *,
+        world: World,
+        opt_id: Optional[OptimizerID] = None,
+        horizon: Optional[int] = None,
+        mechanism_id: str,
+        seed: Optional[int] = None,
+        policy_seed: Optional[int] = None,
+        mode: Optional[str] = "train",
         agents: list[AgentID],
         **kwargs,
     ):
         super().__init__(**kwargs)
+        self.world = world
+        self._opt_id = opt_id
+
+        # training
+        self.horizon = horizon
+        self._t = 0
+        self.env_id = None
+
+        # seeding
+        self.seed = seed
+        self.policy_seed = policy_seed
+        self.rng = np.random.default_rng(seed)
+        self.mode = MechanismStatus(mode) # TODO change name to just Status
+
+        # Mechanism
+        self.mechanism_id = mechanism_id
+        self.m_ctx: MechanismContext = None
+        self.m: Mechanism = None
+        self._using_default_mechanism = True
+
+        # observation map
+        self.obs_map: Optional[dict[int, str]] = None
+        self.observation_spaces = kwargs.get("observation_spaces", {})
+        self.observation_space = spaces.Dict(self.observation_spaces)
+
+        # Multi-agent environment
         self.agents = agents
         self.possible_agents = list(self.agents)
         self.action_spaces = kwargs.get("action_spaces", {})
-        self.observation_spaces = kwargs.get("observation_spaces", {})
-
-        # TODO move this to baseenv later
-        self.observation_space = spaces.Dict(self.observation_spaces)
         self.action_space = spaces.Dict(self.action_spaces)
-
         self._infos : MultiAgentDict = {agent_id: {} for agent_id in self.agents}
+
+    def __init_subclass__(
+            cls,
+            **kwargs,
+        ):
+        super().__init_subclass__(**kwargs)
+
+        for name, func in cls.__dict__.items():
+            if getattr(func, "reset", False): cls._reset = name
+            if getattr(func, "action", False): cls._action = name
+            if getattr(func, "reward", False): cls._reward = name
+            if getattr(func, "observation", False): cls._observation = name  # o_i = O_i(S_t)
+            if getattr(func, "transition", False): cls._transition = name  # S_{t+1} = T(S_t, A_t)
+
+    @property
+    def mechanism(self) -> Mechanism:
+        if self.m is not None:
+            return self.m
+        return self.m_space.default()
+    
+    @property
+    def published_mechanism_assigned(self) -> bool:
+        return self.m is not None and not self._using_default_mechanism
+
+    # Setter
+    def set_opt_id(self, opt_id: OptimizerID) -> None:
+        self._opt_id = opt_id
+
+    # private methods
+    def _publish(self, payload: ContextSchema):
+        ctx = Context(
+            id=None,
+            opt_id=self._opt_id,
+            step=self._t,
+            env=self.__class__.__name__,
+            payload=payload,
+        )
+        ray.get(self.world.append_context.remote(ctx))
+
 
     def _update_infos(self, key: str, values: MultiAgentDict | SupportsFloat):
         values = (
@@ -60,28 +134,71 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         for agent_id, value in values.items():
             self._infos[agent_id][key] = value
 
-    @abstractmethod
-    def _reset(self) -> MultiAgentDict:
-        raise NotImplementedError
+    def _normalize_action(
+        self,
+        action: ActType,
+    ) -> np.ndarray:
+        z = np.asarray(action, dtype=np.float32).reshape(-1)
+        temperature = 4.0
+        return np.asarray([sigmoid(float(value) / temperature) for value in z], dtype=np.float32)
+    
 
     # TODO options doesnt get consumed
     @override(MultiAgentEnv)
     def reset(
-        self, *, seed=None, options=None
+        self, 
+        *, 
+        seed=None, 
+        options=None,
     ) -> tuple[MultiAgentDict, MultiAgentDict]:
         if seed is not None and self.seed is not None and seed != self.seed:
             pass # do not mutate seed after construction
-
-        # if seed is not None and seed != self.seed: 
-        #     self.seed = seed
-        #     self.rng = np.random.default_rng(seed)
         self._t = 0
 
-        effective_seed = self.seed if self.seed is not None else seed
-        
-        self._pre_reset(seed=effective_seed)
-        obs = self._reset()
+        # Try to fetch a new mechanism if one is available (published)
+        # Otherwise keep the current mechanism for subsequent episodes
+        if self.mechanism_id is None:
+            raise RuntimeError(
+                "RegulatedEnv has no mechanism_id. "
+                "mechanism_id must be injected at env creation."
+            )
+
+        if not self.published_mechanism_assigned: 
+            try:
+                new_ctx = ray.get(
+                    self.world.get_mechanism_by_id.remote(
+                        mechanism_id = self.mechanism_id, 
+                        seed=self.policy_seed,
+                        mode=self.mode
+                    )
+                )
+            except Exception as e:
+                self._debug_remote(
+                    "pre_reset_fetch_failed",
+                    {
+                        "error_type": type(e).__name__,
+                        "error_repr": repr(e),
+                    },
+                )
+                raise RuntimeError(
+                    f"Could not fetch mechanism_id={self.mechanism_id} from World."
+                ) from e
+
+            if new_ctx is not None:
+                self.m_ctx = new_ctx
+                self.m = self.m_ctx.mechanism
+                self._using_default_mechanism = False
+
+            # TODO raising error if training started and default mechanism is still on - leads to silent error
+
+        # Optional benchmark Reset hook to initialize state and add to observation
+        if self._reset is not None:
+            self.S_t = getattr(self, self._reset)()
         self._infos = {agent_id: {} for agent_id in self.agents}
+
+        # Start with an empty observation dictionary.
+        # The benchmark hook may construct or transform it.
+        obs = self.observation({})
         return obs, self._infos
 
     @override(MultiAgentEnv)
@@ -90,7 +207,14 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
     ) -> tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
+        # Policy outputs -> normalized semantic actions -> mechanisms.
         actions = self.action(action_dict)
+
+        # Benchmark intrinsic utility using current state + delivered actions.
+        if self._reward is not None:
+            intrinsic_rewards = getattr(self, self._reward)(actions)
+        else:
+            intrinsic_rewards = {agent_id: 0.0 for agent_id in self.agents}
 
         if not self.published_mechanism_assigned:
             obs = {
@@ -108,8 +232,26 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
             self._t += 1
             return obs, rewards, terminated, truncated, self._infos
-        obs, rewards, terminated, truncated, self._infos = self._step(actions)
 
+        # Dynamics
+        S_t = self.S_t.copy()
+
+        if self._transition is not None:
+            self.S_t = getattr(self, self._transition)(A_t=actions, S_t=S_t.copy())
+
+        rewards = self.mechanism.reward(intrinsic_rewards, env=self, action_after=actions)
+
+        obs = self.observation({})
+
+        time_limit = self.horizon is not None and (self._t + 1) >= self.horizon
+
+        terminated = {aid: False for aid in self.agents}
+        terminated["__all__"] = False
+
+        truncated = {aid: time_limit for aid in self.agents}
+        truncated["__all__"] = time_limit
+
+        self._update_infos(key="intrinsic_utility", values=intrinsic_rewards)
 
         self._publish(
             EnvStepContext(
@@ -127,97 +269,63 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         )
         self._t += 1
         return obs, rewards, terminated, truncated, self._infos
-    
-    def _step(
-        self, action_dict: dict[AgentID, ActType]
-    ) -> tuple[
-        MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
-    ]:
-        intrinsic_rewards : MultiAgentDict = self.intrinsic_utility(A_t=action_dict)
-        rewards = self.reward(rewards=intrinsic_rewards, A_t=action_dict)
 
-        self.S_t = self.transition_kernel(A_t=action_dict, S_t=self.S_t.copy())
-
-        obs = {
-            agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
-        }
-
-        time_limit = self._is_truncated()
-
-        terminated = {aid: False for aid in self.agents}
-        terminated["__all__"] = False
-
-        truncated = {aid: time_limit for aid in self.agents}
-        truncated["__all__"] = time_limit
-
-        self._update_infos(key="intrinsic_utility", values=intrinsic_rewards)
-        return obs, rewards, terminated, truncated, self._infos
-
-    @abstractmethod
-    def transition_kernel(
+    @override(MultiAgentEnv)
+    def action(
         self,
-        *,
-        A_t: MultiAgentDict,
-        S_t: dict[str, MultiAgentDict],
-        **kwargs,
-    ) -> dict[str, float]:
-        """S_{t+1} = T(S_t, A_t)"""
-        raise NotImplementedError
+        action_dict: MultiAgentDict,
+    ) -> MultiAgentDict:
+        # apply normalization to action components
+        # TODO provide wrapper hooks for benchmark envs
+        action_dict = {aid: self._normalize_action(action) for aid, action in action_dict.items()}
 
-    @abstractmethod
-    def intrinsic_utility(
-        self, 
-        *,
-        A_t: MultiAgentDict,
-        **kwargs,
-    ) -> SupportsFloat:
-        """u_i = U(a_i, S_t)"""
-        raise NotImplementedError
+        if self._action is not None:
+            action_dict = getattr(self, self._action)(action_dict)
 
-    @abstractmethod
-    def violation_signal(
-        self, 
-        u_i: SupportsFloat, 
-        **kwargs) -> SupportsFloat:
-        """v_i = V(a_i, S_t, M)"""
-        raise NotImplementedError
+        # TODO choose the action components
+        return self.mechanism.action(action_dict, env=self)
 
-    @abstractmethod
-    def penalty(
-        self, 
-        u_i: SupportsFloat, 
-        **kwargs) -> SupportsFloat:
-        """λ = λ(M)"""
-        raise NotImplementedError
-    
-    @abstractmethod
-    def _observation(
-        self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]
-    ) -> ObsType:
-        """o_i = O_i(S_t)"""
-        raise NotImplementedError
-    
-    @abstractmethod
-    def _is_truncated(self) -> bool:
-        raise NotImplementedError
+    @override(MultiAgentEnv)
+    def reward(
+        self,
+        reward_dict: MultiAgentDict,
+    ) -> MultiAgentDict:
+        if self._reward is not None:
+            reward_dict = getattr(self, self._reward)(reward_dict)
 
-    # TODO Restrict Any Type
-    @override(BaseEnv)
-    def observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]) -> Any:
+        # TODO provide wrapper hooks for benchmark envs
+        return self.mechanism.action(
+            reward_dict,
+            env=self,
+        )
+
+    @override(MultiAgentEnv)
+    def observation(
+        self,
+        observation_dict: MultiAgentDict,
+    ) -> MultiAgentDict:
         """o_i = O_i(S_t, theta)"""
-        # TODO may wanna normalize base_obs later
-        base_obs = self._observation(agent_id=agent_id, S_t=S_t)
-        theta = self.mechanism.to_vector()
-        return np.concatenate([base_obs, theta], axis=0)
+        if self._observation is not None:
+            observation_dict = getattr(
+                self,
+                self._observation,
+            )(observation_dict)
 
-    def _aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict:
-        mean_reward = float(np.mean(list(rewards.values())))
-        return {agent_id: mean_reward for agent_id in self.agents}
-    
-    @override(RegulatedEnv)
-    def reward(self, rewards: MultiAgentDict, **kwargs) -> SupportsFloat:
-        rewards = {
-            aid : u_i - self.penalty(u_i, **kwargs) * self.violation_signal(u_i, aid, **kwargs)
-            for aid, u_i in rewards.items()
-        }
-        return self._aggregate_rewards(rewards=rewards)
+        # move this to mechanism
+        theta = self.mechanism.to_vector()
+        obs_with_theta = np.concatenate([observation_dict, theta], axis=0)
+
+        # TODO provide wrapper hooks for benchmark envs
+        return self.mechanism.action(
+            obs_with_theta,
+            env=self,
+        )
+
+    # TODO these could be decorators for sub_envs!
+    # TODO : unnecessary ?
+    # @abstractmethod
+    # def _step(
+    #     self, action: ActType = None
+    # ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
+    #     """Run one timestep of the environment's dynamics using the agent actions."""
+    #     raise NotImplementedError
