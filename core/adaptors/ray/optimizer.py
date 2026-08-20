@@ -7,10 +7,9 @@ import numpy as np
 import ray
 from ray.rllib.utils.typing import AgentID
 from ray.train._internal.checkpoint_manager import _TrainingResult
-from ray.actor import ActorHandle
 from ray.rllib.utils.typing import ResultDict
 
-from core.adaptors.ray.schema import RaySchema
+from core.adaptors.ray.schema import EvalSchema, RaySchema, TrainSchema
 from core.annotations import override
 from core.optimizers.base import Optimizer
 from core.metrics.logger import MetricLogger
@@ -22,6 +21,9 @@ from core.utils import to_float
 
 # TODO temporary
 from core.adaptors.ray.utils import (
+    build_learner,
+    build_performance,
+    build_rollout,
     get_env_steps,
     get_episode_return_mean,
     get_policy_loss_if_present,
@@ -44,7 +46,7 @@ class RayOptimizer(Optimizer):
         # self.algo = algo
 
         # TODO maybe this either needs to be an actor. or atleast have method to serialize data
-        self._metric_logger = MetricLogger.from_schema(RaySchema)
+        self.logger = MetricLogger.from_schema(RaySchema)
 
         # self.eval_episodes = config.eval_episodes
         # TODO fallback if rollout_fragment_length not in eval_cfg
@@ -95,8 +97,28 @@ class RayOptimizer(Optimizer):
             return self.algo.get_policy(policy_id)
 
     # TODO (nadine) : in the future this could be separated into a different class if justified
-    def _to_logger_payload(self, result: ResultDict) -> RaySchema:
-        pass
+    def _to_logger_payload(self, result: ResultDict, is_eval: bool = False) -> RaySchema:
+        if is_eval :
+            evaluation = EvalSchema(
+                rollout=build_rollout(result),
+                performance=build_performance(result),
+            )
+            return RaySchema(train=None, eval=evaluation)
+
+        train = TrainSchema(
+            rollout=build_rollout(result),
+            learner=build_learner(result),
+            performance=build_performance(result)
+        )
+        eval_result = result.get("evaluation")
+        evaluation = None
+
+        if isinstance(eval_result, dict):
+            evaluation = EvalSchema(
+                rollout=build_rollout(eval_result),
+                performance=build_performance(eval_result),
+            )
+        return RaySchema(train=train, eval=evaluation)
     
     @override(Optimizer)
     def run(self) -> None:
@@ -107,6 +129,7 @@ class RayOptimizer(Optimizer):
         # Local inner-loop iteration. This resets for each outer ES round.
         self._inner_iter += 1
         step = self._inner_iter
+        self.logger.push(key=("iter",), value=step)
 
         # RLlib's own lifetime training counter, retained only for debugging.
         rllib_training_iteration = int(
@@ -114,7 +137,7 @@ class RayOptimizer(Optimizer):
         )
 
         metrics = self._to_logger_payload(result)
-        self._metric_logger.push_data(metrics)
+        self.logger.push_data(metrics)
 
         # TODO temporary to be moved to a logger Extract metrics
         ep_return = get_episode_return_mean(result)
@@ -139,14 +162,12 @@ class RayOptimizer(Optimizer):
             f"{policy_loss:.6f}" if np.isfinite(policy_loss) else "NA",
         )
 
-        # TODO adding the couter to this.
-        metrics_reduced = self._metric_logger.reduce()
-        return metrics_reduced
-
     @override(Optimizer)
     def evaluate(self) -> None:
         logger.info("[PPO] Evaluation started")
-        ray.get(self.policy_actor.evaluate.remote())
+        result = ray.get(self.policy_actor.evaluate.remote())
+        metrics = self._to_logger_payload(result, is_eval=True)
+        self.logger.push_data(metrics)
         logger.info("[PPO] Evaluation completed")
 
     @override(Optimizer)
@@ -158,10 +179,12 @@ class RayOptimizer(Optimizer):
         self._inner_iter = 0
         self._es_round += 1
         ray.get(self.policy_actor.reset.remote())
+        self.logger.reset()
 
     @override(Optimizer)
     def stop(self) -> None:
         ray.get(self.policy_actor.stop.remote())
+        return self.logger.reduce(complie=True)
 
     @override(Optimizer)
     def save(self, checkpoint_dir: Optional[str] = None) -> _TrainingResult:

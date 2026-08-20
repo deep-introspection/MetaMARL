@@ -1,66 +1,18 @@
 from pydantic import Field
-from typing import Optional, TypeAlias
+from typing import Generic, Optional, TypeAlias, TypeVar
 from core.metrics.schemas import MetricSchema
 from core.metrics.enums import ReduceProtocol
+from core.envs.schema import EpisodeRolloutSchema
 
 PolicyID: TypeAlias = str
-EnvID: TypeAlias = str
-AgentID: TypeAlias = str
-
-class AgentEnvStepSchema(MetricSchema):
-    """Generic metrics produced for one agent during environment steps."""
-    # statistics collected at env-step level
-    action: float = Field(
-        json_schema_extra={"reduce": ReduceProtocol.SERIES}
-    )  # TODO by agentID
-    observation: float = Field(json_schema_extra={"reduce": ReduceProtocol.SERIES})
-    reward: float = Field(json_schema_extra={"reduce": ReduceProtocol.SERIES})
-    terminated: bool = Field(json_schema_extra={"reduce": ReduceProtocol.SERIES})
-    truncated: bool = Field(json_schema_extra={"reduce": ReduceProtocol.SERIES})
-
-    # calculated stats
-    logp: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
-    )
-    value_pred: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
-    )
-    value_target: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
-    )
-    advantage: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
-    )
-    td_error: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
-    )
-    q_pred: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
-    )
-
-    # TODO is this necessary ?
-    intrinsic_utility: float = Field(
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
-    )
-
-    violation_signal: float = Field(
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
-    )
-
-# TODO add recducer metadata attachment.
-class EnvStepSchema(MetricSchema):  # attention this is aggregate by env not by env step
-    """Generic environment-step metrics."""
-    step: Optional[int] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
-    )
-    # TODO models such as PILCO, Dyna, Qyna-Q
-    by_agent: dict[AgentID, AgentEnvStepSchema] = Field(
-        default_factory=dict,
-    )
-
-
+EpisodeID: TypeAlias = str
+MechanismID: TypeAlias = str
+SeedID: TypeAlias = str
 class PolicyLearnerSchema(MetricSchema):
-    batch_size: int
+    batch_size: Optional[int] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
     # Value, Q, advantage debugging
     total_loss: Optional[float] = Field(
             default=None,
@@ -68,45 +20,53 @@ class PolicyLearnerSchema(MetricSchema):
                 "source": "total_loss"
             }
         )
-    residual_variance: Optional[float] = None
+    residual_variance: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
 
     # TODO this is a callable
-    sample_staleness: Optional[float] = None
+    sample_staleness: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
 
     # Policy (π) debugging
-    policy_loss: float = Field(
+    policy_loss: Optional[float] = Field(
         default=None,
         json_schema_extra={
-            "source": "policy_loss",
             "reduce": ReduceProtocol.MEAN
         }
     )
-    policy_entropy: float = Field(
+    policy_entropy: Optional[float] = Field(
         default=None,
         json_schema_extra={
-            "source": "entropy",
             "reduce": ReduceProtocol.MEAN
         }
     )
-    policy_entropy_coeff: float = Field(
+    policy_entropy_coeff: Optional[float] = Field(
         default=None,
         json_schema_extra={
-            "source": "curr_kl_coeff",
             "reduce": ReduceProtocol.MEAN
         }
     )
-    policy_relative_entropy: float  # inferred
-    policy_kl: float = Field(
+    policy_relative_entropy: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
+    entropy_pressure: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
+    policy_kl: Optional[float] = Field(
         default=None,
         json_schema_extra={
-            "source": "kl",
             "reduce": ReduceProtocol.MEAN
         }
     )
-    policy_kl_coeff: float = Field(
+    policy_kl_coeff: Optional[float] = Field(
         default=None,
         json_schema_extra={
-            "source": "curr_kl_coeff",
             "reduce": ReduceProtocol.MEAN
         }
     )
@@ -116,15 +76,20 @@ class PolicyLearnerSchema(MetricSchema):
     # TODO entropy vs entropy coeff
 
     # Value (V) debgging
-    value_loss: float = Field(
+    value_loss: Optional[float] = Field(
         default=None,
         json_schema_extra={
-            "source": "vf_loss",
             "reduce": ReduceProtocol.MEAN
         }
     )
-    value_mean: float
-    value_target: float
+    value_mean: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
+    value_target: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
 
     # TODO Q-statistics
     # TODO Advantage statistics
@@ -134,97 +99,83 @@ class PolicyLearnerSchema(MetricSchema):
     # Reward metrics. N.B. episode == trajectory
 
     # Gradient debugging
-    gradient_norm: float
-    gradient_noise: float
+    gradient_norm: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
+    gradient_noise: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
 
+class PerformanceSchema(MetricSchema):
+    env_steps_this_iter: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.LAST},
+    )
+    env_steps_lifetime: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.LAST},
+    )
+    agent_steps_this_iter_sum: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.LAST},
+    )
+    agent_steps_lifetime_sum: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.LAST},
+    )
 
-class EpisodeRolloutSchema(MetricSchema):  # Episode rollout = aggregate over env steps
-    # Reward (R) statistics
-    reward_total: Optional[float] = None
-    reward_mean: Optional[float] = Field(
+    env_steps_throughput: Optional[float] = Field(
         default=None,
-        json_schema_extra={
-            "source": "episode_return_mean",
-            "reduce": ReduceProtocol.MEAN
-        }
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    reward_min: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "source": "episode_return_min",
-            "reduce": ReduceProtocol.MEAN
-        }
-    )
-    reward_max: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "source": "episode_return_max",
-            "reduce": ReduceProtocol.MEAN
-        }
-    )
-    reward_per_step: Optional[float] = None
-    reward_terminal: Optional[float] = None
 
-    # Value (V) statistics
-    value_terminal: Optional[float] = None
-    value_penultimate: Optional[float] = None
+    training_iteration_s: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
+    training_step_s: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
+    sample_s: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
+    learner_update_s: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
 
-    # Trajectory info
-    episode_len_mean: Optional[float] = Field(
+    weights_seq_no: Optional[float] = Field(
         default=None,
-        json_schema_extra={
-            "source": "episode_len_mean",
-            "reduce": ReduceProtocol.MEAN
-        }
-    )
-    episode_len_max: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "source": "episode_len_min",
-            "reduce": ReduceProtocol.MEAN
-        }
-    )
-    episode_len_min: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "source": "episode_len_max",
-            "reduce": ReduceProtocol.MEAN
-        }
+        json_schema_extra={"reduce": ReduceProtocol.LAST},
     )
 
 
-class EnvRolloutSchema(MetricSchema):
-    aggregate: EpisodeRolloutSchema
-    step_series: EnvStepSchema
-
+class SeedRolloutSchema(MetricSchema):
+    by_episode: dict[EpisodeID, EpisodeRolloutSchema] = Field(default_factory=dict)
+class MechanismRolloutSchema(MetricSchema):
+    by_seed: dict[SeedID, SeedRolloutSchema] = Field(default_factory=dict)
 class RolloutSchema(MetricSchema):
     aggregate: EpisodeRolloutSchema
-    by_policy: dict[PolicyID, EpisodeRolloutSchema] = Field(default_factory=dict)
-    by_env: dict[EnvID, EnvRolloutSchema] = Field(default_factory=dict)
-
-
+    by_mechanism: dict[MechanismID, MechanismRolloutSchema] = Field(default_factory=dict)
 class LearnerSchema(MetricSchema):
     by_policy: dict[PolicyID, PolicyLearnerSchema] = Field(default_factory=dict)
-
-
 class TrainSchema(MetricSchema):
-    rollout: RolloutSchema = Field(json_schema_extra = {"source" : "env_runners"})
-    learner: LearnerSchema = Field(json_schema_extra = {"source" : "learners"})
+    rollout: RolloutSchema
+    learner: LearnerSchema
+    performance: PerformanceSchema
 
 
 class EvalSchema(MetricSchema):
-    rollout: RolloutSchema = Field(json_schema_extra = {"source" : "env_runners"})
-
+    rollout: RolloutSchema
+    performance: PerformanceSchema
 
 class RaySchema(MetricSchema):
-    train: TrainSchema = Field(
-            default=None,
-            json_schema_extra={
-                "source" : "."
-            }
-        )
-    eval: EvalSchema = Field(json_schema_extra={"source" : "evaluation"})
-
+    train: Optional[TrainSchema] = None
+    eval: Optional[EvalSchema] = None
 
 # TODO 
 # num_env_steps_sampled_lifetime_throughput

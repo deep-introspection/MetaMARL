@@ -65,6 +65,7 @@ def tag_episode_with_env_idx(
 # TODO to be moved to a separate actor in the future for extensibility
 def log_and_report_episode_metrics(
     *,
+    episode: MultiAgentEpisode,
     env_runner: MultiAgentEnvRunner,
     env: VectorMultiAgentEnv,
     env_index: int,
@@ -77,18 +78,10 @@ def log_and_report_episode_metrics(
     env.reporter.report(metrics)
     reduced = env.logger.reduce()
 
-    metrics_logger.log_value(
-        ("metrics", "episodes"),
-        {
-            "env_id": env.env_id,
-            "mechanism_id": env.mechanism_id,
-            "seed": env.seed,
-            "policy_seed": env.policy_seed,
-            "status": env.mode,
-            "metrics": reduced.model_dump(),
-        },
-        reduce="item_series",
-    )
+    episode_id = episode.id_ .partition("|raw=")[0]
+
+    # TODO could we just have the EnvRolloutSchema here ?
+    metrics_logger.log_value(key=("by_episode", episode_id), value=reduced, reduce="item")
 
 def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
     # How many episodes/timesteps do we need to run?
