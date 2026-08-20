@@ -253,14 +253,6 @@ class World:
 
         return ctx.id
 
-    def register_optimizer(self, opt: Optimizer) -> OptimizerID:
-        """
-        Register a new optimizer ID in the world.
-
-        This initializes an empty context set for the optimizer.
-        """
-        return self._set_new_opt_id(opt_id=opt.opt_id)
-
     def _set_new_opt_id(self, opt_id: OptimizerID) -> OptimizerID:
         if opt_id is None:
             opt_id = generate_uuid(registry=self._opt_ctx_map.keys())
