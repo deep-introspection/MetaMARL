@@ -172,7 +172,7 @@ class OptimizerConfig(_Config, ABC):
 
         # register optimizer in world to link contexts to optimizers
         if world is not None:
-            opt_id = ray.get(world.register_optimizer.remote(opt))
+            opt_id = ray.get(world._set_new_opt_id.remote(opt_id=opt.opt_id))
             opt.set_id(opt_id)
 
         env = cfg._env_creator(
@@ -301,7 +301,7 @@ class OptimizerConfig(_Config, ABC):
             self._reporting_schema = schema
         if queries is not None:
             self._reporting_queries = queries
-        return Self
+        return self
 
     # TODO Docstring explanation
     # @abstractmethod
