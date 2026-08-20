@@ -8,12 +8,8 @@ class LastMetric(SeriesMetric):
         self,
         compile: bool = True,
     ) -> PrimitiveType | list[PrimitiveType]:
-        if not compile :
-            return list(self.values)
-
-        if not self.values:
-            return float("nan") if compile else []
-
+        if not compile : return list(self.values)
+        if not self.values: return None
         return self.values[-1]
 
     # TODO move to base cls
@@ -21,11 +17,10 @@ class LastMetric(SeriesMetric):
         self,
         compile: bool = True,
     ) -> float | LastMetric:
+        if not self.values: return None if compile else LastMetric()
         last = self.peek(compile=True)
         self.flush()
-
-        if compile:
-            return last
+        if compile: return last
 
         metric = LastMetric()
         metric.values = [last]
