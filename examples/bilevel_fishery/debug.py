@@ -2,11 +2,13 @@ import numpy as np
 import ray
 from gymnasium import spaces
 
+from core.adaptors.ray.schema import RaySchema
 from core.callbacks import log_and_report_episode_metrics, tag_episode_with_env_idx
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
 from core.optimizers.appo.config import APPOptimizerConfig
 
+from core.optimizers.es.schema import ESSchema
 from core.reporting.query import Query
 from core.reporting.wandb import WandbConfig
 from examples.bilevel_fishery.mechanism_v1 import FisheryMechanismSpace
@@ -118,17 +120,17 @@ bilevel_opt_cfg: BilevelConfig = (
             seed=42,
             num_seeds=1,
         )
-    #     .reporting(
-    #         schema=ESchema,
-    #         queries=[
-    #             Query(
-    #                 title="",
-    #                 x=("generation"),
-    #                 y=("fish_norm_mean")
-    #             ),
-
-    #         ],
-    #     )
+        .reporting(
+            schema=ESSchema,
+            queries=[
+                Query(
+                    title="",
+                    x=("iter",),
+                    y=("fitness_mean",),
+                    # TODO replicate same plots as legacy
+                ),
+            ],
+        )
     )
     .inner(
         APPOptimizerConfig()
@@ -282,20 +284,21 @@ bilevel_opt_cfg: BilevelConfig = (
             seed=42,
             num_seeds=1,
         )
-        # .reporting(
-        #     min_time_s_per_iteration=0,
-        #     min_sample_timesteps_per_iteration=0,
-        #     min_train_timesteps_per_iteration=0,
-        #     schema=RaySchema,
-        #     queries=[
-        #         Query(
-        #             title="",
-        #             x=("train_iter"),
-        #             y=("fish_norm_mean")
-        #         ),
-
-        #     ],
-        # )
+        .reporting(
+            min_time_s_per_iteration=0,
+            min_sample_timesteps_per_iteration=0,
+            min_train_timesteps_per_iteration=0,
+            schema=RaySchema,
+            queries= (
+                Query(
+                    title="Train episode return mean",
+                    x=("iter",),
+                    y=("train", "rollout", "aggregate", "reward_mean",),
+                ),
+            )
+            # TODO test queries agg over mechanisms (or other dynamic fields)
+            # TODO test queries with y keys from reduced (env)
+        )
     )
 )
 

@@ -1,8 +1,8 @@
-from typing import TypeAlias
+from typing import Optional, TypeAlias
 
 from pydantic import Field
 
-from core.adaptors.ray.schema import AgentEnvStepSchema, EnvStepSchema
+from core.envs.schema import AgentEnvStepSchema, EpisodeRolloutSchema
 from core.metrics.enums import ReduceProtocol
 
 AgentID: TypeAlias = str
@@ -10,73 +10,73 @@ AgentID: TypeAlias = str
 class FisheryAgentMetricSchema(AgentEnvStepSchema):
     """Fishery-specific metrics that vary by agent."""
 
-    requested_harvest: float = Field(
+    requested_harvest: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    delivered_harvest: float = Field(
+    delivered_harvest: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    requested_frac: float = Field(
+    requested_frac: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    quota_violation: float = Field(
+    quota_violation: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    quota_penalty: float = Field(
+    quota_penalty: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    risk_penalty: float = Field(
+    risk_penalty: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
 
-class FisheryMetricSchema(EnvStepSchema):
+class FisheryMetricSchema(EpisodeRolloutSchema):
     """Fishery-specific environment-level metrics."""
 
     # TODO move this into logging for mechanism
     # max_demand_frac: float = Field(
     #     json_schema_extra={"reduce": ReduceProtocol.MEAN},
     # )
-    quota_stress: float = Field(
+    quota_stress: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    allowed_harvest: float = Field(
+    allowed_harvest: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    fish_stock: float = Field(
+    fish_stock: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    growth: float = Field(
+    growth: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    growth_noise: float = Field(
+    growth_noise: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    H_attempted: float = Field(
+    H_attempted: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    H_realized: float = Field(
+    H_realized: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    total_usage_norm: float = Field(
+    total_usage_norm: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    B_msy: float = Field(
+    B_msy: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    MSY: float = Field(
+    MSY: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    F_msy: float = Field(
+    F_msy: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
 
-    fish_stock_next: float = Field(
+    fish_stock_next: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    fish_norm: float = Field(
+    fish_norm: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    fish_norm_next: float = Field(
+    fish_norm_next: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
 
