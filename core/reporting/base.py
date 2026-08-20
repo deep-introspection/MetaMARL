@@ -82,7 +82,7 @@ class Reporter(ABC):
         self,
         metrics: MetricSchema,
         query: Query,
-    ) -> tuple[list[PrimitiveType], list[PrimitiveType]]:
+    ) -> tuple[list[PrimitiveType], list[list[PrimitiveType]]]:
         """Resolve a query against a populated metric schema.
 
         Args:
@@ -98,15 +98,16 @@ class Reporter(ABC):
         """
         # Must return x and y series of same length
         x = self._resolve_path(path=query.x, metrics=metrics)
-        y = self._resolve_path(path=query.y, metrics=metrics)
+        ys = [self._resolve_path(path=path, metrics=metrics) for path in query.y_paths]
 
-        if len(x) != len(y):
-            raise ValueError(
-                f"Query series must have equal length: "
-                f"x={query.x} ({len(x)}), "
-                f"y={query.y} ({len(y)})."
-            )
-        return x, y
+        for path, y in zip(query.y_paths, ys):
+            if len(x) != len(y):
+                raise ValueError(
+                    f"Query series must have equal length: "
+                    f"x={query.x} ({len(x)}), "
+                    f"y={path} ({len(y)})."
+                )
+        return x, ys
 
 
     @abstractmethod
@@ -114,7 +115,7 @@ class Reporter(ABC):
         self,
         query: Query,
         x: list[PrimitiveType],
-        y: list[PrimitiveType],
+        ys: list[list[PrimitiveType]],
     ) -> None:
         """Report one resolved query using the concrete reporting backend.
 
@@ -136,8 +137,8 @@ class Reporter(ABC):
             metrics: Reduced metric schema to report.
         """
         for query in self._queries:
-            x, y = self._resolve_query(metrics, query)
-            self._report(query, x, y)
+            x, ys = self._resolve_query(metrics, query)
+            self._report(query, x, ys)
 
     @abstractmethod
     def close(self) -> None:

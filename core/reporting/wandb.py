@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Any, Optional
+import numpy as np
+import plotly.graph_objects as go
 import uuid
 import wandb
 
@@ -9,6 +11,7 @@ from core.metrics.metric.series import SeriesMetric
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig
 from core.reporting.query import Query
+from core.utils import sanitize_key
 
 class WandbConfig(ReporterConfig):
 
@@ -95,29 +98,119 @@ class WandbReporter(Reporter):
                 settings=wandb.Settings(**(self._settings or {})),
             )
 
+    @staticmethod
+    def _path_name(path: tuple[str, ...]) -> str:
+        return "/".join(path)
+
+    @staticmethod
+    def _series_label(path: tuple[str, ...]) -> str:
+        return "/".join(path)
+
+    def _raw_series_figure(self,
+        query: Query,
+        x: list[PrimitiveType],
+        ys: list[list[PrimitiveType]],
+    ) -> go.Figure:
+
+        fig = go.Figure()
+
+        for path, values in zip(
+            query.y_paths,
+            ys,
+        ):
+            fig.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=values,
+                    mode="lines+markers",
+                    name=self._series_label(
+                        path
+                    ),
+                )
+            )
+
+        return fig
+
+    def _mean_figure(
+        self,
+        query: Query,
+        x: list[PrimitiveType],
+        ys: list[list[PrimitiveType]],
+    ) -> go.Figure:
+        fig = go.Figure()
+        values = np.asarray(ys, dtype=np.float64)
+
+        if values.ndim != 2:
+            raise ValueError("Mean reduction expects a 2D collection of y series.")
+
+        mean = np.mean(values, axis=0)
+
+        if query.error == "std":
+            std = np.std(values, axis=0)
+            upper = mean + std
+            lower = mean - std
+            fig.add_trace(
+                go.Scatter(
+                    x=list(x) + list(x)[::-1],
+                    y=upper.tolist() + lower[::-1].tolist(),
+                    mode="lines",
+                    fill="toself",
+                    line=dict(width=0,),
+                    name="±1 std",
+                    hoverinfo="skip",
+                    showlegend=True,
+                )
+            )
+
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=mean.tolist(),
+                mode="lines+markers",
+                line=dict(width=3,),
+                marker=dict(size=4),
+                name="mean",
+            )
+        )
+
+        return fig
+
     def _report(
         self,
         query: Query,
         x: list[PrimitiveType],
-        y: list[PrimitiveType],
+        ys: list[list[PrimitiveType]],
     ) -> None:
+
         self._init_run()
+        if self._run is None:
+            raise RuntimeError("W&B run failed to initialize.")
+        if not ys:
+            return
+        
+        if query.reduce == "none":
+            fig = self._raw_series_figure(query=query, x=x, ys=ys)
+        elif query.reduce == "mean":
+            fig = self._mean_figure(query=query, x=x, y=ys)
+        else: raise ValueError(f"Unknown query reduction: {query.reduce!r}")
 
-        x_name = "/".join(query.x)
-        y_name = "/".join(query.y)
+        x_name = self._path_name(query.x)
 
-        self._run.log({
-            f"{y_name}_vs_{x_name}": wandb.plot.line_series(
-                xs=x,
-                ys=[y],
-                keys=[y_name],
-                title=f"{y_name} vs {x_name}",
-                xname=x_name,
-            )
-        })
+        fig.update_layout(
+            title=query.title,
+            xaxis_title=x_name,
+            yaxis_title="value",
+            hovermode="x unified",
+            template="plotly_white",
+            height=650,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+
+        fig.update_xaxes(rangeslider_visible=False)
+        plot_name = sanitize_key(query.title)
+        self._run.log({f"plots/{plot_name}": fig})
         
     def close(self) -> None:
-        self._init_run()
-        if run is not None:
-            run.finish()
-            run = None
+        if self._run is not None:
+            self._run.finish()
+            self._run = None
