@@ -2,11 +2,14 @@ from abc import ABC, abstractmethod
 from logging import Logger
 from typing import Any, Callable, Optional
 
+# TODO move ray dependencies out of ray optimizer
 from ray.actor import ActorHandle
 from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 
 from core.envs.base import BaseEnv
+from core.metrics.schemas import MetricSchema
 from core.optimizers.config import OptimizerConfig
+from core.reporting.base import Reporter
 from core.reporting.wandb import WandbReporter
 from core.types import OptimizerID
 from core.world.base import World
@@ -38,7 +41,7 @@ class Optimizer(ABC):
         self,
         config: Optional[OptimizerConfig] = None,
         world: Optional[ActorHandle[World]] = None,
-        reporting: Optional[ActorHandle[WandbReporter]] = None,
+        reporting: Optional[Reporter] = None,
         # TODO
         # logger_creator: Optional[Callable[[], Logger]] = None,
         **kwargs,
@@ -48,7 +51,7 @@ class Optimizer(ABC):
         self.config: OptimizerConfig = config
 
         self.world = world  # TODO replace by envFactory
-        self.reporting = reporting
+        self.reporting: Optional[Reporter] = reporting
 
         # Assigned by World or Orchestrator
         self.opt_id: OptimizerID | None = None
@@ -56,11 +59,6 @@ class Optimizer(ABC):
         # Optional environment (may be None for meta-optimizers)
         # TODO review
         self._env: BaseEnv | None = config.env
-
-        # Optional metrics hook
-        self.metrics: MetricsLogger = MetricsLogger(
-            root=True, stats_cls_lookup=config.stats_cls_lookup
-        )
 
         # Optimizer Graph connectivity
         self._downstream: set["Optimizer"] = set()
@@ -140,6 +138,33 @@ class Optimizer(ABC):
     def from_checkpoint(cls, file_path: Any) -> "Optimizer":
         """Restore optimizer from config."""
         raise NotImplementedError
+
+    def reduce_metrics(self) -> MetricSchema:
+        """
+        Destructively reduce and return all accumulated optimizer metrics.
+        """
+        if self.logger is None:
+            raise RuntimeError(
+                f"{type(self).__name__} has no MetricLogger."
+            )
+
+        return self.logger.reduce()
+
+    def flush_metrics(self) -> None:
+        """
+        Flush all accumulated optimizer metrics.
+        """
+        if self.logger is None:
+            return
+
+        self.logger.reset()
+
+    def report_metrics(self) -> None:
+        """
+        plot all accumulated metrics given queries
+        """
+        metrics = self.logger.peek()
+        self.reporting.report(metrics)
 
     # Accessors
     # def __getattribute__(self, name):

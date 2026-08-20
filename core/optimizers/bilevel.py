@@ -186,7 +186,6 @@ class BilevelOptimizer(Optimizer):
 
         self.outer_iter = 0
         self.converged = False
-        self.best_trajectory: list[dict] | None = None
         self.all_trajectories: list[tuple[int, float, list[dict]]] = []
         self.population_history: list[tuple[int, list]] = []
         self.es_metrics_history: list[dict] = []
@@ -210,15 +209,6 @@ class BilevelOptimizer(Optimizer):
             )
 
             outer_metrics = self.outer.run()
-
-            self.metrics.log_dict(
-                {
-                    "bilevel/outer_iter": i,
-                    "bilevel/best_fitness": outer_metrics.get(
-                        "best_fitness", -float("inf")
-                    ),
-                }
-            )
 
             if outer_metrics.get("converged", False):
                 self.converged = True
@@ -247,7 +237,6 @@ class BilevelOptimizer(Optimizer):
             "outer_iters": self.outer_iter + 1,
             "best_fitness": self.outer.best_fitness,
             "best_mechanism": self.outer.best_candidate,
-            "best_trajectory": self.best_trajectory,
             "all_trajectories": self.all_trajectories,
             "population_history": self.population_history,
         }
