@@ -132,7 +132,8 @@ class BaseEnv(Env):
             )
         )
         self._t += 1
-        self.logger.push(key=("iter", ), value=self._t)
+        if self.logger is not None:
+            self.logger.push(key=("iter", ), value=self._t)
         return obs, reward, terminated, truncated, info
 
     @override(Env)

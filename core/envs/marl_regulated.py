@@ -77,6 +77,10 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         #     self.rng = np.random.default_rng(seed)
         self._t = 0
         self.logger.flush(key=("iter",))
+        self.logger.push(key=("env_id",), value=self.env_id)
+        self.logger.push(key=("mechanism_id",), value=self.mechanism_id)
+        self.logger.push(key=("seed",), value=self.seed)
+        self.logger.push(key=("policy_seed",), value=self.policy_seed)
         # TODO only log iter when a metric is counted, meaning pushing a value with its attached 
         # throughput makes logic less fragile
         # self.logger.push(key=("iter",), value=self._t)
@@ -115,6 +119,8 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
             return obs, rewards, terminated, truncated, self._infos
         obs, rewards, terminated, truncated, self._infos = self._step(actions)
 
+        [self.logger.push(key=("by_agent", aid, "reward"), value=r) for aid, r in rewards.items()]
+        self._aggregate_rewards(rewards)
 
         self._publish(
             EnvStepContext(
@@ -218,12 +224,14 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
     def _aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict:
         mean_reward = float(np.mean(list(rewards.values())))
+        self.logger.push(key=("reward_mean",), value=mean_reward)
         return {agent_id: mean_reward for agent_id in self.agents}
     
     @override(RegulatedEnv)
     def reward(self, rewards: MultiAgentDict, **kwargs) -> SupportsFloat:
-        rewards = {
-            aid : u_i - self.penalty(u_i, **kwargs) * self.violation_signal(u_i, aid, **kwargs)
-            for aid, u_i in rewards.items()
-        }
-        return self._aggregate_rewards(rewards=rewards)
+        reward_by_agent: MultiAgentDict = {}
+        for aid, u_i in rewards.items():
+            r = - self.penalty(u_i, **kwargs) * self.violation_signal(u_i, aid, **kwargs)
+            self.logger.push(key=("by_agent", aid, "reward"), value=r)
+            reward_by_agent[aid] = r
+        return self._aggregate_rewards(rewards=reward_by_agent)

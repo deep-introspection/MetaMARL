@@ -93,6 +93,8 @@ class RegulatorEnv(BaseEnv):
         # Train policy for train_iters iterations
         for _ in range(self.train_iters):
             ctx_registry = ray.get(self.world.get_ctx_registry.remote())
+
+            # TODO remove env step contexsts
             ray.get(self.world.flush_ctx.remote(ctx_registry.keys()))
             ray.get(self.world.flush.remote(status=MechanismStatus.eval))
             self.inner.run()
@@ -103,19 +105,25 @@ class RegulatorEnv(BaseEnv):
             # TODO flush all remote mechanisms and env_step ctx.
             # TODO initializing the envs with the seeds from eval_seeds
             # TODO flush all remote mechanisms and env_step ctx.
+            # TODO eval results accumulate in eval and maintain training data !
             self.inner.evaluate()
 
-
-        ctx_registry = ray.get(self.world.get_ctx_registry.remote())
+        # plot results
+        self.inner.report_metrics()
+        metrics = self.inner.logger.peek()
 
         # Aggregate rewards
-        reward = self.aggregate_rewards(ctx_registry.values())
+        reward = self.aggregate_rewards(metrics)
 
         # flush consumed contexts
         ray.get(self.world.flush_ctx.remote(ctx_registry.keys()))
         ray.get(self.world.flush.remote(status=MechanismStatus.eval))
 
-        return None, reward, False, False, {}
+        # return reduced data to outer optimizer
+        # TODO route this through world in future
+        reduced = self.inner.reduce_metrics()
+
+        return None, reward, False, False, {"metrics": reduced}
 
     # @abstractmethod
     # @override(BaseEnv)
