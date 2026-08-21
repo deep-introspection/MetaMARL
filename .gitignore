@@ -112,4 +112,5 @@ CLAUDE.md
 # GeoJSONs directory (project-specific large files)
 geojsons/
 
-!TODO.txt
+!TODO.md
+!tutorials/*
