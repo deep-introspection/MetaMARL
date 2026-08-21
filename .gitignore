@@ -114,3 +114,5 @@ geojsons/
 # deprecated
 deprecated/
 legacy_code/
+
+!tutorials/*
