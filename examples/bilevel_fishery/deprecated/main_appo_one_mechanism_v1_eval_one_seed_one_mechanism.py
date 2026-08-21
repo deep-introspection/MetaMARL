@@ -10,7 +10,7 @@ from core.optimizers.appo.config import APPOptimizerConfig
 
 # Fishery-specific objects
 from examples.bilevel_fishery.mechanism_v1 import FisheryMechanismSpace
-from examples.bilevel_fishery.regulated_env_v2 import FisheryRegulatedEnv
+from examples.bilevel_fishery.deprecated.regulated_env_v2 import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
 # TODO the default mechanism config and fisherman, and observation spaces and action spaces part of config

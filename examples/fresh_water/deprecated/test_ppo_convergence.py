@@ -11,7 +11,7 @@ import ray
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.tune.registry import register_env
 
-from examples.bilevel_fishery.mechanism import FisheryMechanism
+from examples.bilevel_fishery.deprecated.mechanism import FisheryMechanism
 
 EPS = 1e-8
 
