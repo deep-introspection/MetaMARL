@@ -1,3 +1,5 @@
+"""Enumerations of the reporting layer."""
+
 from enum import Enum
 
 

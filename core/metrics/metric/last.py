@@ -1,3 +1,5 @@
+"""Metric reducing to the last pushed value (``LAST``)."""
+
 from __future__ import annotations
 
 from core.metrics.metric.base import PrimitiveType

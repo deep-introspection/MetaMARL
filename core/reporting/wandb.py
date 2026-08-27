@@ -1,3 +1,5 @@
+"""Weights & Biases reporter: one Plotly figure per query, logged to a run."""
+
 from __future__ import annotations
 
 import uuid

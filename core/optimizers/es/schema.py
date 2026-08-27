@@ -1,3 +1,12 @@
+"""Metric schema of one Evolution Strategies generation.
+
+Series fields (``generation``, ``sigma``, ``fitness_mean``, ...) grow by one
+value per generation; ``by_mechanism`` holds each candidate's fitness and
+parameter values, ``search_mean``/``global_best``/``generation_best`` are keyed
+by parameter name, and ``inner`` is the reduced metric schema of the inner
+optimizer, specialized at runtime (``RaySchema`` for RLlib).
+"""
+
 from typing import Optional, TypeAlias
 
 from pydantic import Field

@@ -1,3 +1,5 @@
+"""Map a :class:`ReduceProtocol` to its :class:`Metric` implementation."""
+
 from core.metrics.enums import ReduceProtocol
 from core.metrics.metric.base import Metric
 from core.metrics.metric.last import LastMetric

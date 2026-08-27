@@ -1,3 +1,11 @@
+"""Environment-level metric schemas.
+
+``AgentEnvStepSchema`` holds what is logged per agent at each step;
+``EpisodeRolloutSchema`` holds episode-level statistics plus the ``by_agent``
+dynamic node. Benchmarks subclass both to add their own fields (see
+``examples/bilevel_fishery/metric_schema.py``).
+"""
+
 from typing import Optional, TypeAlias
 
 from pydantic import Field

@@ -1,3 +1,5 @@
+"""Metric reducing to the minimum of numeric values (``MIN``)."""
+
 from __future__ import annotations
 
 from core.annotations import override

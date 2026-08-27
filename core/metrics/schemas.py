@@ -1,3 +1,9 @@
+"""Root of the metric schema hierarchy.
+
+Every logged structure derives from :class:`MetricSchema`; it carries the
+``iter`` counter (last value kept) shared by all loggers.
+"""
+
 from typing import Optional
 
 from pydantic import BaseModel, Field

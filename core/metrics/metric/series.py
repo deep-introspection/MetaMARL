@@ -1,3 +1,5 @@
+"""Metric keeping the full history of pushed values (``SERIES``)."""
+
 from __future__ import annotations
 
 from core.metrics.metric.base import Metric, PrimitiveType

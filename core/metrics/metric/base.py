@@ -1,3 +1,11 @@
+"""Abstract accumulator behind every metric schema leaf.
+
+A ``Metric`` receives raw values through ``push``, exposes them without
+side effects through ``peek`` and collapses them through ``reduce`` according
+to its protocol (mean, sum, ...). ``compile=False`` returns the raw history or a
+copy of the metric instead of the compiled scalar.
+"""
+
 from __future__ import annotations
 
 # TODO what is an ABCMeta

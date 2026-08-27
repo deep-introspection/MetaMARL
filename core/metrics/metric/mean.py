@@ -1,3 +1,5 @@
+"""Metric reducing to the arithmetic mean of numeric values (``MEAN``)."""
+
 from __future__ import annotations
 
 from core.annotations import override

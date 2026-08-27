@@ -1,3 +1,12 @@
+"""Typed view of an RLlib training/evaluation ``ResultDict``.
+
+``RaySchema`` has an optional ``train`` and ``eval`` branch, each with the
+rollout statistics (``aggregate`` plus the ``by_mechanism -> by_seed ->
+by_episode`` grouping of the environment episode schemas), the per-policy
+learner statistics and performance timers. Instances are produced by the
+builders in ``core.adaptors.ray.utils``.
+"""
+
 from typing import Optional, TypeAlias
 
 from pydantic import Field

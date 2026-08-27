@@ -1,3 +1,5 @@
+"""Metric reducing to the sum of numeric values (``SUM``, empty -> 0)."""
+
 from __future__ import annotations
 
 from core.annotations import override

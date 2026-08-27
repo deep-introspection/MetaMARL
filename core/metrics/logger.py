@@ -1,3 +1,19 @@
+"""Typed metric accumulation driven by pydantic schemas.
+
+A ``MetricSchema`` declares *what* is logged: each field is a leaf metric whose
+reducer comes from ``Field(json_schema_extra={"reduce": ReduceProtocol.X})``
+(MEAN by default), a nested ``MetricSchema`` is a static sub-tree, and a
+``dict[ID, MetricSchema]`` is a *dynamic* node whose children are created on
+first use (one per agent, policy, candidate, ...). :class:`MetricLogger` builds
+the matching tree of :class:`~core.metrics.metric.base.Metric` objects,
+accumulates values through :meth:`~MetricLogger.push` / :meth:`~MetricLogger.push_data`,
+and returns populated schema instances through :meth:`~MetricLogger.peek`
+(non-destructive, raw histories) or :meth:`~MetricLogger.reduce` (destructive,
+reduced values). Pushing a *subclass* of a declared schema specializes that
+sub-tree at runtime, which is how an ES logger ends up holding the concrete
+RLlib and environment schemas of the inner level.
+"""
+
 from __future__ import annotations
 
 from abc import ABC

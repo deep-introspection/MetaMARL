@@ -1,3 +1,5 @@
+"""Reduction protocols attachable to metric schema fields."""
+
 from enum import Enum
 
 

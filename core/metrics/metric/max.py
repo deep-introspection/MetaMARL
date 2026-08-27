@@ -1,3 +1,5 @@
+"""Metric reducing to the maximum of numeric values (``MAX``)."""
+
 from __future__ import annotations
 
 from core.annotations import override

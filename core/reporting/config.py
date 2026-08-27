@@ -1,3 +1,10 @@
+"""Reporter configurations: serializable factories for reporter instances.
+
+A ``ReporterConfig`` travels through the optimizer configs and is copied into
+every environment; ``build(label=...)`` creates the backend-specific reporter
+for one owner (an optimizer or an environment instance).
+"""
+
 import copy
 from abc import ABC, abstractmethod
 from typing import Self, Union
