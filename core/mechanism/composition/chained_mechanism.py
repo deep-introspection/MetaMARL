@@ -1,6 +1,13 @@
+"""Sequential composition of mechanisms.
+
+For children ``(f, h, g)`` every channel is the functional composition
+``g(h(f(x)))``: each child receives the previous child's output. Each child
+resolves its own bindings against the environment. The optimizer vector is the
+concatenation of the children's vectors, sliced back on ``decode``.
+"""
+
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
@@ -13,102 +20,92 @@ from core.types import MultiAgentDict
 
 @dataclass(frozen=True)
 class ChainedMechanism(Mechanism):
-    """
-    Functional composition of mechanisms.
+    """Functional composition of mechanisms (see module docstring).
 
-    For children [f, h, g]:
-
-        action(x) = g(h(f(x)))
-
-    The same ordering is used for reward and observation transformations.
+    Parameters
+    ----------
+    children : tuple[Mechanism, ...]
+        Applied in tuple order on every channel.
     """
 
     children: tuple[Mechanism, ...]
 
     bindings: dict[str, Callable[[Any], Any]] = field(
-        default_factory=dict,
-        compare=False,
-        repr=False,
+        default_factory=dict, compare=False, repr=False
     )
 
     def __post_init__(self) -> None:
         if not self.children:
-            raise ValueError(
-                "ChainedMechanism requires at least one child."
-            )
+            raise ValueError("ChainedMechanism requires at least one child.")
+
+    # --- optimizer-space API -------------------------------------------------
 
     @property
     def dimension(self) -> int:
         return sum(child.dimension for child in self.children)
 
-    # TODO replace with __str__
     def param_names(self) -> list[str]:
         names: list[str] = []
         for index, child in enumerate(self.children):
-            prefix = (f"{index}:{type(child).__name__}")
+            prefix = f"{index}:{type(child).__name__}"
             names.extend(f"{prefix}.{name}" for name in child.param_names())
         return names
 
     def encode(self) -> np.ndarray:
-        if self.dimension == 0:
-            return np.empty(0, dtype=np.float32)
+        return _concat(child.encode() for child in self.children)
 
-        return np.concatenate(
-            [child.encode() for child in self.children], 
-            axis=0,
-        ).astype(np.float32, copy=False,)
+    def to_vector(self) -> np.ndarray:
+        return _concat(child.to_vector() for child in self.children)
 
-    def decode(
-        self,
-        x: np.ndarray,
-    ) -> "ChainedMechanism":
+    def decode(self, x: np.ndarray) -> ChainedMechanism:
         x = self._validate(x)
-        decoded_children: list[Mechanism] = []
-        start = 0
-        for child in self.children:
-            stop = (start + child.dimension)
-            decoded_children.append(child.decode(x[start:stop]))
-            start = stop
-        return replace(self, children=tuple(decoded_children))
+        return replace(self, children=tuple(_decode_children(self.children, x)))
+
+    def clip(self) -> ChainedMechanism:
+        return replace(self, children=tuple(child.clip() for child in self.children))
+
+    # --- channels -------------------------------------------------------------
 
     @override(Mechanism)
     def reward(
-        self,
-        reward_dict: MultiAgentDict,
-        *,
-        env: Any,
-        **kwargs,
+        self, reward_dict: MultiAgentDict, *, env: Any, **kwargs
     ) -> MultiAgentDict:
         for child in self.children:
-            context = child.resolve(env)
-            child_kwargs = {**kwargs, **context}
-            reward_dict = child.reward(reward_dict, **child_kwargs)
+            reward_dict = child.reward(reward_dict, **{**kwargs, **child.resolve(env)})
         return reward_dict
 
     @override(Mechanism)
     def action(
-        self,
-        action_dict: MultiAgentDict,
-        *,
-        env: Any,
-        **kwargs,
+        self, action_dict: MultiAgentDict, *, env: Any, **kwargs
     ) -> MultiAgentDict:
         for child in self.children:
-            context = child.resolve(env)
-            child_kwargs = {**kwargs, **context}
-            action_dict = child.action(action_dict, **child_kwargs)
+            action_dict = child.action(action_dict, **{**kwargs, **child.resolve(env)})
         return action_dict
 
     @override(Mechanism)
     def observation(
-        self,
-        observation_dict: MultiAgentDict,
-        *,
-        env: Any,
-        **kwargs,
+        self, observation_dict: MultiAgentDict, *, env: Any, **kwargs
     ) -> MultiAgentDict:
         for child in self.children:
-            context = child.resolve(env)
-            child_kwargs = {**kwargs, **context}
-            observation_dict = child.observation(observation_dict, **child_kwargs)
+            observation_dict = child.observation(
+                observation_dict, **{**kwargs, **child.resolve(env)}
+            )
         return observation_dict
+
+
+def _concat(vectors) -> np.ndarray:
+    parts = [np.asarray(v, dtype=np.float32).reshape(-1) for v in vectors]
+    if not parts:
+        return np.empty(0, dtype=np.float32)
+    return np.concatenate(parts, axis=0).astype(np.float32, copy=False)
+
+
+def _decode_children(children: tuple[Mechanism, ...], x: np.ndarray) -> list[Mechanism]:
+    """Slice ``x`` by child dimension and decode each child."""
+    decoded: list[Mechanism] = []
+    start = 0
+    for child in children:
+        stop = start + child.dimension
+        decoded.append(child.decode(x[start:stop]))
+        start = stop
+    return decoded

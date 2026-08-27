@@ -1,6 +1,5 @@
 from abc import abstractmethod
 from typing import Any, Optional, SupportsFloat
-import uuid
 
 import numpy as np
 import ray
@@ -8,7 +7,7 @@ from gymnasium import Env
 from gymnasium.core import ActType, ObsType, WrapperActType, WrapperObsType
 
 from core.annotations import override
-from core.mechanism.space import MechanismSpace
+from core.mechanism.base import Mechanism
 from core.types import OptimizerID
 from core.world.base import World
 from core.world.context import Context, ContextSchema, EnvStepContext, MechanismStatus
@@ -23,11 +22,11 @@ class BaseEnv(Env):
         world: World,
         opt_id: Optional[OptimizerID] = None,
         horizon: Optional[int] = None,
-        mechanism_space: MechanismSpace = None,
+        mechanism: Optional[Mechanism] = None,
         seed: Optional[int] = None,
         policy_seed: Optional[int] = None,
         mode: Optional[str] = "train",
-        **kwargs
+        **kwargs,
     ) -> None:
         super().__init__()
         self.world = world
@@ -40,11 +39,9 @@ class BaseEnv(Env):
         self.env_id = None
         self.mode = MechanismStatus(mode)
 
-        # Mechanism space
-        if isinstance(mechanism_space, type):
-            self.m_space: MechanismSpace = mechanism_space()
-        else:
-            self.m_space: MechanismSpace = mechanism_space
+        # Mechanism template: defines the optimizer space (dimension, encode/
+        # decode) and the default mechanism when none has been published yet.
+        self.mechanism_template: Optional[Mechanism] = mechanism
 
         # observation map
         self.obs_map: Optional[dict[int, str]] = None
@@ -114,11 +111,11 @@ class BaseEnv(Env):
         # TODO what are the options used for ?
 
         if seed is not None and self.seed is not None and seed != self.seed:
-            pass # do not mutate seed after construction
+            pass  # do not mutate seed after construction
         # if seed is not None and and seed != self.seed;
         #     self.seed = seed
         #     self.rng = np.random.default_rng(seed)
-        self._t = 0        
+        self._t = 0
         self._pre_reset(seed=self.seed)
         obs = self._reset()
         self._publish(

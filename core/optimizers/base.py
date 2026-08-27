@@ -85,11 +85,11 @@ class Optimizer(ABC):
     # @reporting.setter
     # def world(self, reporting: ActorHandle[WandbReporter]) -> None:
     #     self._reporting = reporting
-    
+
     @property
     def env(self) -> BaseEnv | None:
         return self._env
-    
+
     @env.setter
     def env(self, value: BaseEnv | None) -> None:
         self._env = value

@@ -8,13 +8,10 @@ from gymnasium.core import ActType, ObsType
 
 from core.annotations import override
 from core.envs.base import BaseEnv
-from core.mechanism.base import Mechanism, VectorMechanism
+from core.mechanism.base import Mechanism
 from core.optimizers.base import Optimizer
-from core.types import OptimizerID
-from core.world.base import World
 from core.world.context import (
     Context,
-    EnvStepContext,
     MechanismContext,
     MechanismStatus,
 )
@@ -98,13 +95,12 @@ class RegulatorEnv(BaseEnv):
             self.inner.run()
 
         # TODO check if eval mechanisms published. If parallel and sequential eval both turned on
-            # will be a problem
+        # will be a problem
         if self.eval_seeds:
             # TODO flush all remote mechanisms and env_step ctx.
             # TODO initializing the envs with the seeds from eval_seeds
             # TODO flush all remote mechanisms and env_step ctx.
             self.inner.evaluate()
-
 
         ctx_registry = ray.get(self.world.get_ctx_registry.remote())
 
@@ -134,8 +130,8 @@ class RegulatorEnv(BaseEnv):
         if self.inner is None:
             return action
 
-        # 1) Mechanism space path (preferred)
-        if self.m_space is not None:
+        # 1) Mechanism template path (preferred)
+        if self.mechanism_template is not None:
             if isinstance(action, (list, tuple)):
                 action = np.asarray(action, dtype=np.float32)
 
@@ -144,30 +140,22 @@ class RegulatorEnv(BaseEnv):
                     action = action[None, :]  # (d,) -> (1, d)
 
                 # TODO parallelize
-                return [self.m_space.decode(x) for x in action]
+                return [self.mechanism_template.decode(x) for x in action]
 
             if torch.is_tensor(action):
                 return self.action(action.detach().cpu().numpy())
 
             raise TypeError(f"Unsupported action type: {type(action)}")
 
-        # 2) No mechanism_space: still guarantee Mechanism objects
-        if isinstance(action, (list, tuple)):
-            action = np.asarray(action, dtype=np.float32)
-
-        if isinstance(action, np.ndarray):
-            if action.ndim == 1:
-                action = action[None, :]
-            return [VectorMechanism(v) for v in action]
-
-        if torch.is_tensor(action):
-            return self.action(action.detach().cpu().numpy())
-
-        # If someone passed an already-built Mechanism, allow it
-        # (e.g., analytic tests).
-        if hasattr(action, "to_vector"):
-            return [action]  # type: ignore
+        # 2) No mechanism template: only already-built mechanisms are accepted
+        if isinstance(action, Mechanism):
+            return [action]
+        if isinstance(action, (list, tuple)) and all(
+            isinstance(m, Mechanism) for m in action
+        ):
+            return list(action)
 
         raise TypeError(
-            f"Unsupported action type with no mechanism_space: {type(action)}"
+            "RegulatorEnv needs a mechanism template to decode optimizer vectors; "
+            f"got {type(action)} with no template."
         )

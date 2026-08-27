@@ -245,15 +245,15 @@ class OptimizerConfig(_Config, ABC):
             self.disable_env_checking = disable_env_checking
 
         return self
-    
+
     @abstractmethod
     def training(self):
         raise NotImplementedError
-    
+
     def debugging(
         self,
         *,
-        seed: Optional[int] = None, #base seed
+        seed: Optional[int] = None,  # base seed
         num_seeds: int = 3,
     ) -> Self:
         if seed is not None:

@@ -3,16 +3,16 @@
 ``BaseEnv`` implements the template method: public ``step``/``reset`` call the
 abstract ``_step``/``_reset`` hooks, apply the ``action``/``observation``/
 ``reward`` transforms, and publish an ``EnvStepContext`` to the World.
-``RegulatedEnv`` shapes the reward with ``penalty * violation_signal`` and
-``RegulatorEnv`` drives the inner optimizer for ``train_iters`` iterations.
+``RegulatorEnv`` drives the inner optimizer for ``train_iters`` iterations. The
+multi-agent regulated env has its own suite in ``tests/envs/``.
 """
 
 import numpy as np
 import pytest
 
 from core.envs.base import BaseEnv
-from core.envs.regulated import RegulatedEnv
 from core.envs.regulator import RegulatorEnv
+from core.mechanism.algorithms.subsidy import SubsidyMechanism
 from core.world.context import EnvStepContext, MechanismContext
 
 
@@ -74,31 +74,6 @@ def test_base_env_reset_publishes_and_rewinds_time(fake_world):
 
 
 @pytest.mark.unit
-def test_regulated_env_penalty_shapes_reward(fake_world):
-    class DummyRegulated(RegulatedEnv):
-        def _pre_reset(self, seed=None):
-            pass
-
-        def _reset(self):
-            return 0
-
-        def _step(self, action):
-            return 1, 10.0, False, False, {}
-
-        def violation_signal(self, **kwargs):
-            return 2.0
-
-        def penalty(self, **kwargs):
-            return 3.0
-
-    env = DummyRegulated(world=fake_world, mechanism_id=0)
-    obs, reward, *_ = env.step(0)
-
-    assert obs == 1
-    assert reward == 10.0 - 3.0 * 2.0
-
-
-@pytest.mark.unit
 def test_regulator_env_trains_inner_optimizer_and_publishes_mechanisms(fake_world):
     calls = {"run": 0, "reset": 0}
 
@@ -116,13 +91,15 @@ def test_regulator_env_trains_inner_optimizer_and_publishes_mechanisms(fake_worl
         def aggregate_rewards(self, ctxs):
             return 1.0
 
+    template = SubsidyMechanism(subsidy=0.1, cost=0.1)
     env = DummyRegulator(
         world=fake_world,
         optimizer=DummyOptimizer(),
         train_iters=5,
         seeds=[100, 200],
+        mechanism=template,
     )
-    population = np.full((3, 2), 0.5, dtype=np.float32)
+    population = np.array([[0.2], [0.5], [0.8]], dtype=np.float32)
 
     _, reward, *_ = env.step(population)
 
@@ -138,6 +115,9 @@ def test_regulator_env_trains_inner_optimizer_and_publishes_mechanisms(fake_worl
     assert len(mechanism_ctxs) == 3 * 2
     assert sorted({c.index for c in mechanism_ctxs}) == [0, 1, 2]
     assert sorted({c.seed for c in mechanism_ctxs}) == [100, 200]
+    # candidates are decoded through the template
+    assert all(isinstance(c.mechanism, SubsidyMechanism) for c in mechanism_ctxs)
+    assert sorted({round(c.mechanism.subsidy, 3) for c in mechanism_ctxs}) == [0.1, 0.25, 0.4]
 
 
 @pytest.mark.unit

@@ -8,11 +8,10 @@ from ray.actor import ActorHandle
 from core.adaptors.ray.runtime import DeviceType, RayRuntime, RayRuntimeConfig
 from core.annotations import override
 from core.mechanism.base import Mechanism
-from core.mechanism.space import MechanismSpace
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
-from core.reporting.wandb import WandbReporter
 from core.reporting.enums import ReporterType
+from core.reporting.wandb import WandbReporter
 from core.world.base import World
 
 logger = logging.getLogger(__name__)
@@ -29,8 +28,7 @@ class BilevelConfig(OptimizerConfig):
         self.seed = None
         self.world_name: Optional[str] = None
         self.ray_cfg = None
-        self.mechanism_space: Optional[MechanismSpace] = None
-        self.default_mechanism: Optional[Mechanism] = None
+        self.mechanism_template: Optional[Mechanism] = None
         self.output_dir: str | None = None
 
         # TODO generalize
@@ -63,12 +61,19 @@ class BilevelConfig(OptimizerConfig):
             self.world_name = f"{world_name}_{uuid.uuid4().hex[:8]}"
         return self
 
-    def mechanism(
-        self, *, space: MechanismSpace, default: Mechanism = None, **kwargs
-    ) -> Self:
-        if space is not None:
-            self.mechanism_space = space
-            self.default_mechanism = default or space.default()
+    def mechanism(self, *, mechanism: Mechanism, **kwargs) -> Self:
+        """Set the mechanism template shared by the inner and outer optimizers.
+
+        The template fixes the optimizer space (``mechanism.dimension``,
+        ``encode``/``decode``) and acts as the default mechanism of the
+        regulated environments until a candidate is published.
+        """
+        if mechanism is not None:
+            if not isinstance(mechanism, Mechanism):
+                raise TypeError(
+                    f"mechanism must be a Mechanism instance, got {type(mechanism).__name__}"
+                )
+            self.mechanism_template = mechanism
         return self
 
     def training(
@@ -144,14 +149,14 @@ class BilevelConfig(OptimizerConfig):
 
         inner_cfg = self.inner_cfg.copy()
         outer_cfg = self.outer_cfg.copy()
-        
-        if self.mechanism_space is not None:
-            outer_cfg.dimension = self.mechanism_space.dimension
-            inner_cfg = inner_cfg._merge_env_config(
-                {
-                    "mechanism_space": self.mechanism_space,
-                }
+
+        if self.mechanism_template is None:
+            raise ValueError(
+                "BilevelConfig requires .mechanism(mechanism=...) to be set"
             )
+
+        outer_cfg.dimension = self.mechanism_template.dimension
+        inner_cfg = inner_cfg._merge_env_config({"mechanism": self.mechanism_template})
 
         # Assign see to outer cfg for looping
         if inner_cfg.seeds is not None:
@@ -169,20 +174,13 @@ class BilevelConfig(OptimizerConfig):
                 }
             )
 
-        outer_cfg = outer_cfg._merge_env_config(
-            {
-                "mechanism_space": self.mechanism_space,
-                "default_mechanism": self.default_mechanism, #TODO remove deprecated
-            }
-        )
+        outer_cfg = outer_cfg._merge_env_config({"mechanism": self.mechanism_template})
 
         inner_opt = inner_cfg.build_optimizer(
             world=world, world_name=self.world_name, reporting=self.reporter
         )
         outer_opt = outer_cfg.build_optimizer(
-            world=world, 
-            inner_opt=inner_opt, 
-            reporting=self.reporter
+            world=world, inner_opt=inner_opt, reporting=self.reporter
         )
 
         # what if outer_opt does not have that property ??
@@ -201,7 +199,7 @@ class BilevelOptimizer(Optimizer):
         self.outer = outer
         self.inner = inner
         self.output_dir = config.output_dir
-        self.mechanism_space = config.mechanism_space
+        self.mechanism_template = config.mechanism_template
 
         self.outer_iter = 0
         self.converged = False

@@ -1,42 +1,90 @@
-from dataclasses import dataclass
+"""Restoration subsidy acting on the reward channel.
+
+For agent ``i`` with restoration effort ``e_i`` (one action component in
+``[0, 1]``), subsidy rate ``sigma`` and quadratic effort cost ``c``:
+
+    r*_i = r_i + sigma * e_i - c * e_i**2
+
+The subsidy rate is the optimized parameter, normalized by ``MAX_SUBSIDY``; the
+cost is a fixed benchmark parameter. Ecological effects of restoration belong
+to the benchmark transition, not to this mechanism.
+"""
+
+from dataclasses import dataclass, replace
+from typing import Self
 
 import numpy as np
 
+from core.annotations import override
 from core.mechanism.base import Mechanism
 from core.types import MultiAgentDict
+
+MAX_SUBSIDY = 0.5
+"""Upper bound of the subsidy rate; ``encode()`` divides by it."""
 
 
 @dataclass(frozen=True)
 class SubsidyMechanism(Mechanism):
+    """Reward-channel subsidy on restoration effort (see module docstring).
+
+    Parameters
+    ----------
+    subsidy : float
+        Subsidy rate in ``[0, MAX_SUBSIDY]``. Optimized (``dimension == 1``).
+    cost : float
+        Quadratic effort cost in ``[0, 1]``. Fixed.
+    action_component : int
+        Index of the action component holding the restoration effort.
+
+    The reward transform reads the delivered actions from the keyword argument
+    ``action_after`` supplied by the environment.
+    """
+
     subsidy: float
     cost: float
     action_component: int = 1
 
-    # default_cost = 
-
     def __post_init__(self) -> None:
-        assert 0.0 <= self.subsidy <= 0.5
-        assert 0.0 <= self.cost <= 1.0 # TODO
+        if not 0.0 <= self.subsidy <= MAX_SUBSIDY:
+            raise ValueError(
+                f"subsidy must be in [0, {MAX_SUBSIDY}], got {self.subsidy}"
+            )
+        if not 0.0 <= self.cost <= 1.0:
+            raise ValueError(f"cost must be in [0, 1], got {self.cost}")
 
-    def to_vector(self) -> np.ndarray:
-        return np.array([self.subsidy / 0.5], dtype=np.float32)
+    # --- optimizer-space API -------------------------------------------------
+
+    @property
+    def dimension(self) -> int:
+        return 1
+
+    def encode(self) -> np.ndarray:
+        return np.array([self.subsidy / MAX_SUBSIDY], dtype=np.float32)
+
+    def decode(self, x: np.ndarray) -> Self:
+        x = self._validate(x)
+        return replace(self, subsidy=float(x[0]) * MAX_SUBSIDY)
+
+    def clip(self) -> Self:
+        return replace(self, subsidy=float(np.clip(self.subsidy, 0.0, MAX_SUBSIDY)))
 
     def param_names(self) -> list[str]:
         return ["restoration_subsidy"]
 
-    def reward(
-        self,
-        rewards: MultiAgentDict,
-        **kwargs,
-    ) -> MultiAgentDict:
-        actions = kwargs["action_after"] # TODO fix this, passing action after and before
+    def to_vector(self) -> np.ndarray:
+        return self.encode()
 
-        return {
-            agent_id: 
-            reward 
-            + self.subsidy 
-            * actions[agent_id][self.action_component]
-            - self.cost 
-            * actions[agent_id[self.action_component]] ** 2
-            for agent_id, reward in rewards.items()
-        }
+    # --- channels -------------------------------------------------------------
+
+    @override(Mechanism)
+    def reward(self, reward_dict: MultiAgentDict, **kwargs) -> MultiAgentDict:
+        actions = kwargs["action_after"]
+        shaped: MultiAgentDict = {}
+        for agent_id, reward in reward_dict.items():
+            effort = float(
+                np.asarray(actions[agent_id]).reshape(-1)[self.action_component]
+            )
+            shaped[agent_id] = float(
+                reward + self.subsidy * effort - self.cost * effort**2
+            )
+        return shaped

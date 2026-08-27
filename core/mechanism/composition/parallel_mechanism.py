@@ -1,3 +1,19 @@
+"""Parallel composition of mechanisms.
+
+Given children ``(f, h, g)``, every child receives a deep copy of the same
+original input and the outputs are merged::
+
+                    -> f(x) --
+                   /           |
+        x --------> h(x) ------+--> merge(x, (f(x), h(x), g(x)))
+                   \\           |
+                    -> g(x) --
+
+One merge function per channel decides how the outputs combine (e.g. sum the
+reward shaping terms, concatenate observation augmentations). The optimizer
+vector is the concatenation of the children's vectors.
+"""
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -6,33 +22,25 @@ from typing import Any, Callable
 
 import numpy as np
 
+from core.annotations import override
 from core.mechanism.base import Mechanism
+from core.mechanism.composition.chained_mechanism import _concat, _decode_children
 from core.types import MultiAgentDict
 
-
-MergeFn = Callable[
-    [
-        MultiAgentDict,
-        tuple[MultiAgentDict, ...],
-    ],
-    MultiAgentDict,
-]
+MergeFn = Callable[[MultiAgentDict, tuple[MultiAgentDict, ...]], MultiAgentDict]
+"""``merge(original, outputs) -> merged``; ``outputs`` follow child order."""
 
 
 @dataclass(frozen=True)
 class ParallelMechanism(Mechanism):
-    """
-    Parallel composition of mechanisms.
+    """Parallel composition of mechanisms (see module docstring).
 
-    Given children [f, h, g]:
-
-                    -> f(x) --
-                   /           |
-        x --------> h(x) ------+--> merge
-                   \\           |
-                    -> g(x) --
-
-    Each child receives the same original input.
+    Parameters
+    ----------
+    children : tuple[Mechanism, ...]
+        Each receives the same original input.
+    action_merge, reward_merge, observation_merge : MergeFn
+        Combine ``(original, tuple_of_child_outputs)`` for each channel.
     """
 
     children: tuple[Mechanism, ...]
@@ -42,133 +50,70 @@ class ParallelMechanism(Mechanism):
     observation_merge: MergeFn
 
     bindings: dict[str, Callable[[Any], Any]] = field(
-        default_factory=dict,
-        compare=False,
-        repr=False,
+        default_factory=dict, compare=False, repr=False
     )
 
     def __post_init__(self) -> None:
         if not self.children:
-            raise ValueError(
-                "ParallelMechanism requires at least one child."
-            )
+            raise ValueError("ParallelMechanism requires at least one child.")
+
+    # --- optimizer-space API -------------------------------------------------
 
     @property
     def dimension(self) -> int:
-        return sum(
-            child.dimension
-            for child in self.children
-        )
+        return sum(child.dimension for child in self.children)
 
     def param_names(self) -> list[str]:
         names: list[str] = []
-
         for index, child in enumerate(self.children):
             prefix = f"{index}:{type(child).__name__}"
-
-            names.extend(
-                f"{prefix}.{name}"
-                for name in child.param_names()
-            )
-
+            names.extend(f"{prefix}.{name}" for name in child.param_names())
         return names
 
     def encode(self) -> np.ndarray:
-        if self.dimension == 0:
-            return np.empty(
-                0,
-                dtype=np.float32,
-            )
+        return _concat(child.encode() for child in self.children)
 
-        return np.concatenate(
-            [
-                child.encode()
-                for child in self.children
-            ],
-            axis=0,
-        ).astype(
-            np.float32,
-            copy=False,
-        )
+    def to_vector(self) -> np.ndarray:
+        return _concat(child.to_vector() for child in self.children)
 
-    def decode(
-        self,
-        x: np.ndarray,
-    ) -> "ParallelMechanism":
+    def decode(self, x: np.ndarray) -> ParallelMechanism:
         x = self._validate(x)
+        return replace(self, children=tuple(_decode_children(self.children, x)))
 
-        children: list[Mechanism] = []
-        start = 0
+    def clip(self) -> ParallelMechanism:
+        return replace(self, children=tuple(child.clip() for child in self.children))
 
-        for child in self.children:
-            stop = start + child.dimension
+    # --- channels -------------------------------------------------------------
 
-            children.append(
-                child.decode(
-                    x[start:stop]
-                )
-            )
-
-            start = stop
-
-        return replace(
-            self,
-            children=tuple(children),
-        )
-
-    def apply_action(
-        self,
-        action_dict: MultiAgentDict,
-        *,
-        env: Any,
-    ) -> MultiAgentDict:
-        outputs = tuple(
-            child.apply_action(
-                deepcopy(action_dict),
-                env=env,
-            )
+    def _fan_out(
+        self, channel: str, value: MultiAgentDict, env: Any, kwargs: dict
+    ) -> tuple:
+        return tuple(
+            getattr(child, channel)(deepcopy(value), **{**kwargs, **child.resolve(env)})
             for child in self.children
         )
 
+    @override(Mechanism)
+    def action(
+        self, action_dict: MultiAgentDict, *, env: Any, **kwargs
+    ) -> MultiAgentDict:
         return self.action_merge(
-            action_dict,
-            outputs,
+            action_dict, self._fan_out("action", action_dict, env, kwargs)
         )
 
-    def apply_reward(
-        self,
-        reward_dict: MultiAgentDict,
-        *,
-        env: Any,
+    @override(Mechanism)
+    def reward(
+        self, reward_dict: MultiAgentDict, *, env: Any, **kwargs
     ) -> MultiAgentDict:
-        outputs = tuple(
-            child.apply_reward(
-                deepcopy(reward_dict),
-                env=env,
-            )
-            for child in self.children
-        )
-
         return self.reward_merge(
-            reward_dict,
-            outputs,
+            reward_dict, self._fan_out("reward", reward_dict, env, kwargs)
         )
 
-    def apply_observation(
-        self,
-        observation_dict: MultiAgentDict,
-        *,
-        env: Any,
+    @override(Mechanism)
+    def observation(
+        self, observation_dict: MultiAgentDict, *, env: Any, **kwargs
     ) -> MultiAgentDict:
-        outputs = tuple(
-            child.apply_observation(
-                deepcopy(observation_dict),
-                env=env,
-            )
-            for child in self.children
-        )
-
         return self.observation_merge(
             observation_dict,
-            outputs,
+            self._fan_out("observation", observation_dict, env, kwargs),
         )

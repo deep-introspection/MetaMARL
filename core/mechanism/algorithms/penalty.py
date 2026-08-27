@@ -1,17 +1,37 @@
+"""Smooth threshold penalty acting on the reward channel.
+
+When the normalized resource level ``b`` falls below ``threshold``, every agent
+loses up to ``penalty_amount``:
+
+    r*_i = r_i - penalty_amount / (1 + exp((b - threshold) / transition_width))
+
+The penalty is a fixed regulatory rule (``dimension == 0``).
+"""
+
 from dataclasses import dataclass, field
 from typing import Any, Callable, Self
 
 import numpy as np
 
+from core.annotations import override
 from core.mechanism.base import Mechanism
 from core.types import MultiAgentDict
 
 
 @dataclass(frozen=True)
 class ThresholdPenaltyMechanism(Mechanism):
-    """
-    Smoothly penalize rewards when a normalized signal falls below
-    a specified threshold.
+    """Logistic penalty below a resource threshold (see module docstring).
+
+    Parameters
+    ----------
+    threshold : float
+        Resource level in ``[0, 1]`` below which the penalty applies.
+    penalty_amount : float
+        Maximal reward deduction, non-negative.
+    transition_width : float
+        Width of the logistic transition, positive.
+    bindings : dict
+        Must provide ``"resource_level"``: ``env -> float`` in ``[0, 1]``.
     """
 
     threshold: float = 0.20
@@ -19,85 +39,59 @@ class ThresholdPenaltyMechanism(Mechanism):
     transition_width: float = 0.03
 
     bindings: dict[str, Callable[[Any], Any]] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
+        default_factory=dict, repr=False, compare=False
     )
 
     def __post_init__(self) -> None:
         if "resource_level" not in self.bindings:
             raise ValueError(
-                "ThresholdPenaltyMechanism requires a "
-                "'resource_level' binding."
+                "ThresholdPenaltyMechanism requires a 'resource_level' binding."
             )
-
         if not 0.0 <= self.threshold <= 1.0:
-            raise ValueError(
-                "threshold must be in [0, 1]."
-            )
-
+            raise ValueError("threshold must be in [0, 1].")
         if self.penalty_amount < 0.0:
-            raise ValueError(
-                "penalty_amount must be non-negative."
-            )
-
+            raise ValueError("penalty_amount must be non-negative.")
         if self.transition_width <= 0.0:
-            raise ValueError(
-                "transition_width must be positive."
-            )
+            raise ValueError("transition_width must be positive.")
+
+    # --- optimizer-space API -------------------------------------------------
 
     @property
     def dimension(self) -> int:
-        # Fixed regulatory algorithm for now.
+        # Fixed regulatory rule: nothing is optimized.
         return 0
 
     def encode(self) -> np.ndarray:
-        return np.empty(
-            0,
-            dtype=np.float32,
-        )
+        return np.empty(0, dtype=np.float32)
 
-    def decode(
-        self,
-        x: np.ndarray,
-    ) -> Self:
+    def decode(self, x: np.ndarray) -> Self:
         self._validate(x)
+        return self
+
+    def clip(self) -> Self:
         return self
 
     def param_names(self) -> list[str]:
         return []
 
-    def reward(
-        self,
-        reward_dict: MultiAgentDict,
-        **kwargs,
-    ) -> MultiAgentDict:
-        resource_level = float(
-            kwargs["resource_level"]
-        )
+    def to_vector(self) -> np.ndarray:
+        return np.array([self.threshold, self.penalty_amount], dtype=np.float32)
 
-        penalty = (
-            self.penalty_amount
-            / (
-                1.0
-                + np.exp(
-                    np.clip(
-                        (
-                            resource_level
-                            - self.threshold
-                        )
-                        / self.transition_width,
-                        -60.0,
-                        60.0,
-                    )
-                )
-            )
-        )
+    # --- channels -------------------------------------------------------------
 
+    def penalty(self, resource_level: float) -> float:
+        """Reward deduction for a normalized resource level."""
+        z = np.clip(
+            (float(resource_level) - self.threshold) / self.transition_width,
+            -60.0,
+            60.0,
+        )
+        return float(self.penalty_amount / (1.0 + np.exp(z)))
+
+    @override(Mechanism)
+    def reward(self, reward_dict: MultiAgentDict, **kwargs) -> MultiAgentDict:
+        penalty = self.penalty(kwargs["resource_level"])
         return {
-            agent_id: float(
-                reward - penalty
-            )
-            for agent_id, reward
-            in reward_dict.items()
+            agent_id: float(reward - penalty)
+            for agent_id, reward in reward_dict.items()
         }
