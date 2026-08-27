@@ -14,7 +14,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --group dev
-      - run: uv run ruff check .
+      # examples/fresh_water is pending a cleanup decision and is linted separately
+      - run: uv run ruff check core tests examples/bilevel_fishery examples/cartpole examples/dummy tutorials
       - run: uv run ruff format --check .
 
   unit:
