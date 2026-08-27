@@ -58,7 +58,7 @@ bilevel_opt_cfg: BilevelConfig = (
             default_max_demand_frac=1.0,
             default_restoration_subsidy=0.10,
 
-            default_fine_amount=0.20, 
+            default_fine_amount=0.00, 
             default_risk_penalty_scale=0.0, #1.0
             default_risk_penalty_power=1.0,
 
