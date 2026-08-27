@@ -127,6 +127,13 @@ class BilevelConfig(OptimizerConfig):
 
     @override(OptimizerConfig)
     def build_optimizer(self):
+        if self.mechanism_template is None:
+            raise ValueError(
+                "BilevelConfig requires .mechanism(mechanism=...) to be set"
+            )
+        if self.inner_cfg is None or self.outer_cfg is None:
+            raise ValueError("BilevelConfig requires both .inner(...) and .outer(...)")
+
         RayRuntime.ensure_initialized(self.ray_cfg or RayRuntimeConfig())
 
         if self.wandb_cfg:
