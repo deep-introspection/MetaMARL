@@ -44,9 +44,9 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug
 ```
 
 Run scripts as modules (`python -m ...`) from the repository root so that the
-`core` and `examples` packages import. See `QUICKSTART.md` (on the feature
-branches) for a short configuration that finishes in about a minute, and the
-`tutorials/` notebooks for a guided tour of the concepts.
+`core` and `examples` packages import. See `QUICKSTART.md` for a short
+configuration that finishes in about a minute, and the `tutorials/` notebooks
+for a guided tour of the concepts.
 
 ## Repository layout
 
@@ -86,6 +86,21 @@ docs/                     ARCHITECTURE.md, REPRISE.md (resume file), MERGE_NOTES
 
 `docs/ARCHITECTURE.md` walks through the same flow with the class names and
 the invariants to respect when extending the framework.
+
+## Metrics and reporting (this branch)
+
+Every level logs into a typed `MetricLogger` built from a pydantic
+`MetricSchema` (`core/metrics/`): the regulated environment logs per-step
+values (`FisheryMetricSchema`), the inner optimizer the RLlib results
+(`RaySchema`), the outer optimizer one record per generation (`ESSchema`, whose
+`inner` field carries the reduced inner schema). `Query` objects
+(`core/reporting/query.py`) select an x path and y paths in those schemas —
+with `"*"` for runtime ids and `reduce="mean", error="std"` for grouped
+averages — and a `Reporter` backend renders the resolved `Series`: Weights &
+Biases (Plotly figures), CSV (long-form files) or TensorBoard (scalars,
+`uv sync --extra tensorboard`). `examples/bilevel_fishery/queries.py` holds the
+reference query bundles; `QUICKSTART.md` shows the outputs; `TODO.md` tracks
+what remains (episode-level grouping, ES scatter/parallel coordinates).
 
 ## Development
 
