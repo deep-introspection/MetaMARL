@@ -1,3 +1,22 @@
+"""Evolution Strategies over mechanism parameters in ``[0, 1]^d``.
+
+The optimizer keeps a search distribution over the normalized mechanism
+vector: a mean in ``(0, 1)^d`` handled in logit space (so candidates never
+leave the unit cube) and a scalar standard deviation ``sigma``. Each
+generation samples an antithetic population, asks the ``RegulatorEnv`` for one
+fitness per candidate and moves the mean along the fitness-weighted noise
+directions (natural evolution strategies estimator of Salimans et al., 2017,
+https://arxiv.org/abs/1703.03864). ``sigma`` expands after a worse generation
+and contracts after a better one.
+
+Three regimes share the same ``run()``:
+
+- population mode (``batch_capacity >= 2``): antithetic ES update;
+- single-candidate mode (``batch_capacity == 1``): sequential (1+1)-ES;
+- fixed mode (``dimension == 0``): no parameters, the fixed mechanism is
+  simply evaluated and reported.
+"""
+
 from __future__ import annotations
 
 import logging

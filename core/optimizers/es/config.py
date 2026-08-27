@@ -1,3 +1,5 @@
+"""Hyperparameters of the Evolution Strategies outer optimizer."""
+
 from typing import Optional, Self
 
 from core.annotations import override
@@ -6,6 +8,13 @@ from core.optimizers.es.optimizer import ESOptimizer
 
 
 class ESConfig(OptimizerConfig):
+    """Configuration of :class:`~core.optimizers.es.optimizer.ESOptimizer`.
+
+    The search dimension (``dimension``) and the population size are not set
+    here: ``BilevelConfig`` derives them from the mechanism template and from
+    the inner optimizer's batch capacity.
+    """
+
     def __init__(self, opt_class=None):
         super().__init__(opt_class=opt_class or ESOptimizer)
 
@@ -41,22 +50,33 @@ class ESConfig(OptimizerConfig):
         initial_mean: Optional[list[float]] = None,
         **kwargs,
     ) -> Self:
-        """Sets the training related configs for Evolution Strategies (ES).
+        """Set the ES search hyperparameters. Unset arguments keep their current value.
 
-        Args:
-            pop_size: Number of candidate solutions sampled per ES generation. Larger population
-                provide more stable gradient estimates at the cost of increased computation.
-            sigma: Initial standard deviation (std) of the search distribution.
-            mean_lr: Learning rate for updating the mean of the search distribution which sets
-                how aggressively the optimizer shifts the center of the distribution towards
-                higer performing candidates.
-            min_sigma: Lower bound on the std. Prevents premature convergence by ensuring a min
-                level of exploration is maintained.
-            max_sigma: Upper bound on the std. Prevents excessive large exploration steps that
-                can destabilize training.
+        Parameters
+        ----------
+        sigma : float
+            Initial standard deviation of the search distribution in logit space.
+        mean_lr : float
+            Step size applied to the estimated gradient when moving the mean.
+        sigma_lr : float
+            Strength of the sigma adaptation (``0`` disables it).
+        sigma_decay : float
+            Base multiplicative factor of the sigma adaptation, in ``(0, 1]``.
+        min_sigma, max_sigma : float
+            Bounds of sigma: a floor keeps exploring, a ceiling avoids
+            destabilizing jumps.
+        break_symmetry : bool
+            Replace one mirrored sample by an independent one so the population
+            is not strictly antithetic (allows odd population sizes).
+        convergence_eps, convergence_patience : float, int
+            Convergence criterion on the mean displacement.
+        initial_mean : list[float], optional
+            Starting point in ``[0, 1]^dimension`` (default ``0.5`` everywhere).
 
-        Returns:
-            This updated OptimizerConfig object.
+        Returns
+        -------
+        ESConfig
+            ``self``, for chaining.
         """
 
         if sigma is not None:
@@ -83,15 +103,3 @@ class ESConfig(OptimizerConfig):
             self.initial_mean = initial_mean
 
         return self
-
-    # @override(OptimizerConfig)
-    # def evaluation(
-    #     self, *, evaluation_best_fitness, evaluation_best_candidate, **kwargs
-    # ) -> Self:
-    #     raise NotImplementedError
-
-    # # TODO this is where the random seed goes
-    # # TODO do we put rng here ?
-    # @override(OptimizerConfig)
-    # def fault_tolerance(self, *, rng: Optional[float] = None, **kwargs) -> Self:
-    #     return super().fault_tolerance()

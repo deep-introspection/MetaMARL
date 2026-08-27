@@ -1,3 +1,30 @@
+"""Bilevel optimizer: an outer mechanism search wrapping an inner policy optimizer.
+
+The outer level (``ESConfig`` / ``ESOptimizer``) searches the mechanism
+parameters; the inner level (``APPOptimizerConfig`` / ``RayOptimizer``) trains
+the agents' policies against each candidate mechanism. Both share one
+``World`` Ray actor through which candidates and step records are exchanged.
+
+``BilevelConfig`` is the composition root: it starts Ray, creates the
+reporting and World actors, injects the mechanism template and the seeds
+into both levels, builds them and ties the ES population size to the number
+of inner environments. ``BilevelOptimizer.run`` is the outer loop.
+
+Example
+-------
+>>> cfg = (
+...     BilevelConfig()
+...     .world(world_name="fishery")
+...     .mechanism(mechanism=ChainedMechanism(children=(quota, subsidy)))
+...     .training(outer_iters=100)
+...     .outer(ESConfig().training(sigma=0.15).environment(env=FisheryRegulatorEnv, ...))
+...     .inner(APPOptimizerConfig().environment(env=FisheryRegulatedEnv, ...))
+... )
+>>> result = cfg.build_optimizer().run()
+
+See ``examples/bilevel_fishery/debug.py`` for a complete configuration.
+"""
+
 import logging
 import uuid
 from typing import Any, Literal, Optional, Self
@@ -18,6 +45,13 @@ logger = logging.getLogger(__name__)
 
 
 class BilevelConfig(OptimizerConfig):
+    """Fluent configuration of a bilevel run (see module docstring).
+
+    Builder methods: :meth:`world`, :meth:`mechanism`, :meth:`training`,
+    :meth:`ray`, :meth:`reporting`, :meth:`inner`, :meth:`outer`. Every
+    method returns ``self``.
+    """
+
     def __init__(self, opt_class=None):
         super().__init__(opt_class=opt_class or BilevelOptimizer)
         self.outer_cfg = None
@@ -57,6 +91,7 @@ class BilevelConfig(OptimizerConfig):
         return self
 
     def world(self, *, world_name: str, **kwargs) -> Self:
+        """Name the shared ``World`` actor (a random suffix keeps runs distinct)."""
         if world_name is not None:
             self.world_name = f"{world_name}_{uuid.uuid4().hex[:8]}"
         return self
@@ -79,6 +114,7 @@ class BilevelConfig(OptimizerConfig):
     def training(
         self, *, outer_iters: int, output_dir: str | None = None, **kwargs
     ) -> Self:
+        """Set the number of outer (ES) generations and an optional output directory."""
         if outer_iters is not None:
             self.outer_iters = outer_iters
         self.output_dir = output_dir
@@ -95,6 +131,7 @@ class BilevelConfig(OptimizerConfig):
         runtime_env: Optional[dict] = None,
         **kwargs,
     ) -> Self:
+        """Configure the local Ray runtime (device, CPU/GPU counts, runtime env)."""
         self.ray_cfg = RayRuntimeConfig(
             device=device,
             num_cpus=num_cpus,
@@ -114,6 +151,7 @@ class BilevelConfig(OptimizerConfig):
         config: Optional[dict[str, Any]] = None,
         settings_dict: Optional[dict[str, Any]] = None,
     ) -> Self:
+        """Select the reporting backend. Only Weights & Biases is available."""
         if ReporterType(reporter) == ReporterType.wandb:
             self.wandb_cfg = {
                 "project_name": project_name,
@@ -127,6 +165,12 @@ class BilevelConfig(OptimizerConfig):
 
     @override(OptimizerConfig)
     def build_optimizer(self):
+        """Start Ray, create the actors, build both levels and return a ``BilevelOptimizer``.
+
+        The ES population size is set to the inner optimizer's ``batch_capacity``
+        (number of regulated environments divided by the number of seeds), so
+        every candidate is evaluated by exactly one environment per seed.
+        """
         if self.mechanism_template is None:
             raise ValueError(
                 "BilevelConfig requires .mechanism(mechanism=...) to be set"
@@ -198,6 +242,18 @@ class BilevelConfig(OptimizerConfig):
 
 
 class BilevelOptimizer(Optimizer):
+    """Outer loop: run the outer optimizer ``outer_iters`` times, stop early on convergence.
+
+    Parameters
+    ----------
+    config : BilevelConfig
+    outer : Optimizer
+        Optimizer whose ``run()`` returns a dict with ``best_fitness`` and an
+        optional ``converged`` flag (the ES).
+    inner : Optimizer
+        Inner optimizer, driven by the outer env; kept for lifecycle access.
+    """
+
     def __init__(self, config: BilevelConfig, outer: Optimizer, inner: Optimizer):
         super().__init__(config)
 
@@ -219,7 +275,17 @@ class BilevelOptimizer(Optimizer):
         # self.wandb_run.define_metric("ppo/ppo_step")
         # self.wandb_run.define_metric("ppo/*", step_metric="ppo/ppo_step")
 
-    def run(self) -> None:
+    def run(self) -> dict[str, Any]:
+        """Run the outer generations and return a summary dict.
+
+        Returns
+        -------
+        dict
+            ``converged``, ``outer_iters`` (generations actually run),
+            ``best_fitness``, ``best_mechanism`` (encoded vector) and history
+            fields (``best_trajectory``, ``all_trajectories``,
+            ``population_history``).
+        """
         logger.info(
             "[Bilevel] Starting run | max_outer_iters=%d | world=%s",
             self.max_outer_iters,
