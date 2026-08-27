@@ -138,6 +138,20 @@ Decisions taken for you:
    `examples/bilevel_fishery/queries.py` and `debug.py` is an argparse script
    (`--reporter wandb|csv`).
 
+8. **Wildcards and grouping (your TODO §2–§3)** are implemented in the base
+   `Reporter`: `"*"` expands at dynamic nodes in sorted order, x and y are
+   aligned by their bindings (no Cartesian product), `reduce="mean"` groups
+   by the first wildcard when there are two or more levels and averages the
+   rest; with a single level it averages across matches. Backends now receive
+   labeled `Series(label, x, y, error)` instead of `(x, ys)`, so W&B, CSV and
+   TensorBoard only render. `SeedRolloutSchema.aggregate` (§3.1): option B,
+   no schema change.
+9. Episode-level wildcard queries over `by_episode` (§3, §4) are not usable
+   yet: episode ids are unique while the inner logger accumulates per
+   training iteration, so those series have length 1 against an `iter` axis
+   of length `train_iters`. Aligning them needs an episode-to-iteration key —
+   your call.
+
 Known and left as is: `FisheryRegulatorEnv.aggregate_rewards` sets
 `mean_fines` to `tail_fish.mean()` (copy-paste; `dev` used the violation
 signal). It only feeds `FitnessContext.total_fines`, which the objective does
