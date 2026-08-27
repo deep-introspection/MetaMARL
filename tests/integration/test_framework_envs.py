@@ -1,9 +1,8 @@
 """Integration tests for the optimizer <-> environment <-> World plumbing.
 
-These tests use the real ``World`` Ray actor and a ``FakeReporter`` actor in
-place of Weights & Biases. They check that an outer ES optimizer built from
-``ESConfig`` drives a ``RegulatorEnv`` through the World and converges on an
-analytic fitness landscape.
+These tests use the real ``World`` Ray actor. They check that an outer ES optimizer built from ``ESConfig`` drives a
+``RegulatorEnv`` through the World, converges on an analytic fitness landscape
+and accumulates one ``ESSchema`` record per generation.
 """
 
 import uuid
@@ -17,13 +16,11 @@ from core.annotations import override
 from core.envs.regulator import RegulatorEnv
 from core.optimizers.es.config import ESConfig
 from core.world.base import World
-from tests.conftest import FakeReporter
 
 
 @pytest.mark.integration
 def test_es_regulator_loop(ray_session):
     world = World.options(name=f"world_{uuid.uuid4().hex[:8]}").remote()
-    reporter = FakeReporter.remote()
 
     optimum = np.array([0.8, 0.2, 0.6], dtype=np.float32)
 
@@ -70,7 +67,7 @@ def test_es_regulator_loop(ray_session):
     )
     es_cfg.dimension = optimum.shape[0]
 
-    es = es_cfg.build_optimizer(world=world, reporting=reporter)
+    es = es_cfg.build_optimizer(world=world)
     es.batch_capacity = 16
 
     initial_dist = np.linalg.norm(es.mean - optimum)
@@ -82,7 +79,8 @@ def test_es_regulator_loop(ray_session):
     assert final_dist < 0.5 * initial_dist
     # every generation publishes one EnvStepContext for this optimizer
     assert len(ray.get(world.get_opt_ctx_ids.remote(es.id))) == 30
-    assert ray.get(reporter.get_calls.remote())["plot_es_population"] == 30
+    assert es.reporting is None  # no reporter configured on this branch
+    assert len(es.logger.peek().generation) == 30
 
 
 @pytest.mark.integration

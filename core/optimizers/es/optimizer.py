@@ -739,7 +739,7 @@ class ESOptimizer(Optimizer):
         self.generation += 1
 
         metrics = self._to_logger_payload(
-            inner=info["metrics"],
+            inner=info.get("metrics") if isinstance(info, dict) else None,
             population=population,
             fitness=fitness,
             mean=pre_update_mean,
@@ -747,8 +747,7 @@ class ESOptimizer(Optimizer):
         )
 
         self.logger.push_data(metrics)
-        metrics = self.logger.peek()
-        self.reporting.report(metrics)
+        self.report_metrics()
 
         logger.info(
             "[ES] gen=%d | best=%.4f | mean=%.4f+/-%.4f | var=%.4f | sigma=%.4f",
