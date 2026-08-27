@@ -81,7 +81,9 @@ def test_rewards_logged_once_and_penalty_subtracts_from_utility(fake_world):
 
     env.step({"a": np.array([0.8]), "b": np.array([0.4])})
     peeked = env.logger.peek()
-    assert peeked.by_agent["a"].reward == pytest.approx([0.35, 0.35])  # one entry per step
+    assert peeked.by_agent["a"].reward == pytest.approx(
+        [0.35, 0.35]
+    )  # one entry per step
     assert peeked.reward_mean == pytest.approx([0.35, 0.35])
     assert peeked.stock == pytest.approx([0.8, 0.6])
     assert peeked.iter == [1, 2]  # no iter at reset: aligned with per-step metrics

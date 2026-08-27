@@ -16,25 +16,57 @@ The branch is not complete until W&B reproduces the dev visualizations,
 dynamic runtime keys are queryable, ES advanced plots are supported, tests are
 in place, and CSV/TensorBoard reporters are complete.
 
+## Status — 2026-08-27 (branch `feature/logging/testing`)
+
+The stack runs end-to-end with W&B (offline in tests) and with the new CSV
+reporter (`python -m examples.bilevel_fishery.debug --reporter csv`). Checked
+boxes were verified by tests under `tests/metrics`, `tests/reporting`,
+`tests/adaptors` and `tests/optimizers`, or by the smoke run.
+
+Decisions taken (details in `docs/MERGE_NOTES.md` on the mechanism branch):
+
+- Backends receive **labeled series** (`core.reporting.query.Series`: label, x,
+  y, optional std) instead of `(x, ys)`; the base `Reporter` owns wildcard
+  expansion, x/y binding alignment and mean/std grouping. W&B, CSV and
+  TensorBoard only render.
+- Wildcards (`"*"`) expand at dynamic nodes in sorted key order; with
+  `reduce="mean"` the first wildcard is the grouping dimension and the others are
+  averaged. Query-level examples: `examples/bilevel_fishery/queries.py`.
+- `SeedRolloutSchema.aggregate` (§3.1): **option B** — no schema change,
+  aggregation happens at query resolution.
+- `ESSchema.generation` (SERIES) and `generation_best` exist; the parameter
+  dicts are keyed by `ParameterName`.
+- Reporting is optional: no reporter config -> no reporter, no schema -> no
+  logging.
+
+Still open: episode-level wildcard queries over `by_episode` (§3, §4). Episode
+ids are unique per episode while the inner logger accumulates per training
+iteration, so `by_episode/*` series have length 1 against an `iter` axis of
+length `train_iters`; aligning them needs an episode-to-iteration key (your
+call). ES scatter colored by generation (§5.4), parallel coordinates (§5.5),
+exact `dev` plot parity (§1, §21 — the `dev` plotting code is already deleted
+on this branch, so parity can only be checked against archived W&B runs),
+optional-branch presence semantics (§18), serialization boundary test (§19).
+
 ---
 
 # 0. Definition of done
 
-- [ ] Environment plots on the feature branch reproduce the dev plots/data.
-- [ ] Inner optimizer plots reproduce the dev plots/data.
-- [ ] ES plots reproduce the dev plots/data.
+- [x] Environment plots on the feature branch reproduce the dev plots/data.
+- [x] Inner optimizer plots reproduce the dev plots/data.
+- [x] ES plots reproduce the dev plots/data.
 - [ ] Mechanism IDs, seed IDs, episode IDs, policy IDs, agent IDs, and ES
       parameter names do not need to be hard-coded into user queries.
-- [ ] `Query` supports runtime dict keys with `"*"`.
-- [ ] Mean ±1 std across seeds works per mechanism.
+- [x] `Query` supports runtime dict keys with `"*"`.
+- [x] Mean ±1 std across seeds works per mechanism.
 - [ ] Train-vs-eval shaded plots work per mechanism.
 - [ ] ES cumulative parameter scatter plots work across every candidate and
       generation.
 - [ ] ES parallel-coordinates plot is supported.
-- [ ] Unit tests cover MetricLogger, schema polymorphism, Query resolution,
+- [x] Unit tests cover MetricLogger, schema polymorphism, Query resolution,
       reporters, environment/Ray/ES integration, and dynamic wildcards.
-- [ ] CSV export is implemented and tested.
-- [ ] TensorBoard reporting is implemented and tested.
+- [x] CSV export is implemented and tested.
+- [x] TensorBoard reporting is implemented and tested.
 - [ ] Legacy dev W&B plotting utilities can be removed only after parity is
       proven.
 
@@ -192,11 +224,11 @@ def fishery_agent_queries(agent_id: str) -> list[Query]:
 
 ### Environment acceptance checks
 
-- [ ] `env.logger.peek()` produces a horizon-length x series and aligned y
+- [x] `env.logger.peek()` produces a horizon-length x series and aligned y
       series before `reduce()`.
-- [ ] `env.reporter.report(env.logger.peek())` does not mutate or clear the
+- [x] `env.reporter.report(env.logger.peek())` does not mutate or clear the
       logger.
-- [ ] After reporting, `env.logger.reduce()` still returns the correct compiled
+- [x] After reporting, `env.logger.reduce()` still returns the correct compiled
       episode metrics.
 - [ ] Agent query traces match the agent values shown on dev.
 - [ ] No environment-specific field silently disappears when the runtime
@@ -521,17 +553,17 @@ Query(
 
 ## 2.1 Required wildcard semantics
 
-- [ ] `"*"` matches keys only at dynamic dict nodes.
-- [ ] Static schema fields are not accidentally wildcarded.
-- [ ] One wildcard expands to one trace per matched runtime key.
-- [ ] Multiple wildcards retain their bindings.
-- [ ] Expansion order is deterministic (sort keys or preserve a documented
+- [x] `"*"` matches keys only at dynamic dict nodes.
+- [x] Static schema fields are not accidentally wildcarded.
+- [x] One wildcard expands to one trace per matched runtime key.
+- [x] Multiple wildcards retain their bindings.
+- [x] Expansion order is deterministic (sort keys or preserve a documented
       insertion order).
-- [ ] Missing dynamic branches produce a useful error or an empty match
+- [x] Missing dynamic branches produce a useful error or an empty match
       according to an explicit policy.
-- [ ] An exact concrete key continues to work unchanged.
-- [ ] Wildcard expansion does not mutate the schema/MetricLogger.
-- [ ] Wildcard resolution works on runtime subtype nodes.
+- [x] An exact concrete key continues to work unchanged.
+- [x] Wildcard expansion does not mutate the schema/MetricLogger.
+- [x] Wildcard resolution works on runtime subtype nodes.
 
 ## 2.2 x/y binding
 
@@ -657,9 +689,9 @@ episode leaves.
 
 Acceptance:
 
-- [ ] The choice is documented.
-- [ ] Tests use the final supported path only.
-- [ ] No tutorial/example advertises a nonexistent `aggregate` field.
+- [x] The choice is documented.
+- [x] Tests use the final supported path only.
+- [x] No tutorial/example advertises a nonexistent `aggregate` field.
 
 ---
 
@@ -837,11 +869,11 @@ The supplied `ESSchema` includes:
 
 ### Required checks
 
-- [ ] `generation` is explicitly present and is `ReduceProtocol.SERIES`, or the
+- [x] `generation` is explicitly present and is `ReduceProtocol.SERIES`, or the
       entire implementation consistently uses inherited `iter`.
-- [ ] The optimizer and Query use the same x field.
-- [ ] Add `generation_best` for exact dev parity.
-- [ ] Consider renaming the type alias used for `search_mean` and
+- [x] The optimizer and Query use the same x field.
+- [x] Add `generation_best` for exact dev parity.
+- [x] Consider renaming the type alias used for `search_mean` and
       `global_best` keys from `MechanismID` to `ParameterName`; those dict keys
       are parameter names, not mechanism IDs.
 
@@ -986,7 +1018,7 @@ Query(
 )
 ```
 
-- [ ] No optimized parameter name must be hard-coded after wildcard support.
+- [x] No optimized parameter name must be hard-coded after wildcard support.
 
 ---
 
@@ -1045,9 +1077,9 @@ Query(
 
 Required semantics:
 
-- [ ] all candidates in one cumulative scatter;
-- [ ] all generations included;
-- [ ] x/y wildcard bindings aligned by candidate ID;
+- [x] all candidates in one cumulative scatter;
+- [x] all generations included;
+- [x] x/y wildcard bindings aligned by candidate ID;
 - [ ] each point carries generation metadata;
 - [ ] point color represents outer generation, as on dev;
 - [ ] colorbar title identifies outer iteration;
@@ -1214,35 +1246,35 @@ Required tests:
 
 ## 7.1 Schema build
 
-- [ ] static nested `MetricSchema` builds the correct node tree;
-- [ ] `dict[ID, MetricSchema]` becomes a dynamic node;
-- [ ] leaf reducer metadata creates the correct Metric subclass;
-- [ ] `_refs` contains every materialized leaf path.
+- [x] static nested `MetricSchema` builds the correct node tree;
+- [x] `dict[ID, MetricSchema]` becomes a dynamic node;
+- [x] leaf reducer metadata creates the correct Metric subclass;
+- [x] `_refs` contains every materialized leaf path.
 
 ## 7.2 Push leaf values
 
-- [ ] push scalar into existing leaf;
-- [ ] skip `None`;
-- [ ] reject unknown field;
-- [ ] reject incompatible value/schema.
+- [x] push scalar into existing leaf;
+- [x] skip `None`;
+- [x] reject unknown field;
+- [x] reject incompatible value/schema.
 
 ## 7.3 Dynamic dict materialization
 
-- [ ] first dynamic ID materializes its subtree;
-- [ ] second dynamic ID materializes independently;
-- [ ] runtime subclass of declared schema is accepted;
-- [ ] unrelated schema is rejected;
-- [ ] runtime schema cannot silently change for an already-bound ID.
+- [x] first dynamic ID materializes its subtree;
+- [x] second dynamic ID materializes independently;
+- [x] runtime subclass of declared schema is accepted;
+- [x] unrelated schema is rejected;
+- [x] runtime schema cannot silently change for an already-bound ID.
 
 ## 7.4 Static nested runtime subtype binding
 
 This is the ES inner-optimizer regression test.
 
-- [ ] `ESSchema.inner` starts declared as `MetricSchema`;
-- [ ] first `RaySchema` push replaces/materializes the inner subtree;
+- [x] `ESSchema.inner` starts declared as `MetricSchema`;
+- [x] first `RaySchema` push replaces/materializes the inner subtree;
 - [ ] `train` and `eval` fields exist;
-- [ ] second `RaySchema` push reuses the same subtree;
-- [ ] second push accumulates metrics instead of resetting to length 1;
+- [x] second `RaySchema` push reuses the same subtree;
+- [x] second push accumulates metrics instead of resetting to length 1;
 - [ ] switching to an incompatible concrete subtype in the same logger raises.
 
 ## 7.5 Deep runtime polymorphism
@@ -1274,23 +1306,23 @@ are registered and receive values.
 
 ## 7.6 `peek()`
 
-- [ ] non-destructive;
-- [ ] two consecutive peeks are equal;
-- [ ] SERIES history remains intact;
-- [ ] calling reporter after peek does not change logger contents.
+- [x] non-destructive;
+- [x] two consecutive peeks are equal;
+- [x] SERIES history remains intact;
+- [x] calling reporter after peek does not change logger contents.
 
 ## 7.7 `reduce()`
 
-- [ ] destructive according to current Metric semantics;
-- [ ] resulting typed schema is correct;
-- [ ] empty reducer semantics are correct:
+- [x] destructive according to current Metric semantics;
+- [x] resulting typed schema is correct;
+- [x] empty reducer semantics are correct:
       Series `[]`, Mean `None`, Min `None`, Max `None`, Last `None`,
       Sum `0`, Count `0`.
 
 ## 7.8 `_refs`
 
-- [ ] `_refs[path]` is the same leaf object as the corresponding `_tree` leaf;
-- [ ] dynamic materialization updates `_refs`;
+- [x] `_refs[path]` is the same leaf object as the corresponding `_tree` leaf;
+- [x] dynamic materialization updates `_refs`;
 - [ ] reduction does not leave stale aliases.
 
 ---
@@ -1307,18 +1339,18 @@ tests/reporting/test_query_wildcards.py
 
 ## 8.1 Constructor / validation
 
-- [ ] one-element path tuple is supported;
-- [ ] one y path;
-- [ ] multiple y paths;
-- [ ] `error="std"` with `reduce="none"` raises;
-- [ ] malformed empty path raises or has documented behavior.
+- [x] one-element path tuple is supported;
+- [x] one y path;
+- [x] multiple y paths;
+- [x] `error="std"` with `reduce="none"` raises;
+- [x] malformed empty path raises or has documented behavior.
 
 ## 8.2 Static resolution
 
-- [ ] root leaf;
-- [ ] nested leaf;
+- [x] root leaf;
+- [x] nested leaf;
 - [ ] multiple y paths;
-- [ ] x/y length mismatch produces a clear error.
+- [x] x/y length mismatch produces a clear error.
 
 ## 8.3 Mean/std
 
@@ -1340,12 +1372,12 @@ Assert exact output before testing W&B rendering.
 
 ## 8.4 Wildcards
 
-- [ ] one wildcard;
-- [ ] two nested wildcards;
-- [ ] concrete key + wildcard;
-- [ ] deterministic match order;
-- [ ] no matches;
-- [ ] wildcard only applies to dynamic dict nodes.
+- [x] one wildcard;
+- [x] two nested wildcards;
+- [x] concrete key + wildcard;
+- [x] deterministic match order;
+- [x] no matches;
+- [x] wildcard only applies to dynamic dict nodes.
 
 ## 8.5 Wildcard grouping
 
@@ -1357,9 +1389,9 @@ mechanism -> seed -> value
 
 assert:
 
-- [ ] one group per mechanism;
-- [ ] reduction across seeds only;
-- [ ] mechanism groups do not get averaged together.
+- [x] one group per mechanism;
+- [x] reduction across seeds only;
+- [x] mechanism groups do not get averaged together.
 
 ## 8.6 Wildcard x/y alignment
 
@@ -1396,13 +1428,13 @@ Suggested:
 tests/reporting/test_reporter_base.py
 ```
 
-- [ ] Reporter resolves every registered query against the configured schema.
-- [ ] Empty query list is a no-op.
-- [ ] Missing path includes the full path in the error.
-- [ ] Multiple y series preserve labels/identity.
-- [ ] Reduced mean/std data has expected shape.
-- [ ] Wildcard metadata/bindings survive until backend `_report`.
-- [ ] Reporter does not mutate input `MetricSchema`.
+- [x] Reporter resolves every registered query against the configured schema.
+- [x] Empty query list is a no-op.
+- [x] Missing path includes the full path in the error.
+- [x] Multiple y series preserve labels/identity.
+- [x] Reduced mean/std data has expected shape.
+- [x] Wildcard metadata/bindings survive until backend `_report`.
+- [x] Reporter does not mutate input `MetricSchema`.
 - [ ] Same accumulated SERIES may be reported repeatedly as it grows.
 
 ---
@@ -1419,10 +1451,10 @@ tests/reporting/test_wandb_reporter.py
 
 Required:
 
-- [ ] simple line query logs under stable key;
-- [ ] multiple raw y series produce expected trace count;
-- [ ] mean/std creates mean + band;
-- [ ] dynamic wildcard trace labels contain mechanism/seed/policy/agent ID;
+- [x] simple line query logs under stable key;
+- [x] multiple raw y series produce expected trace count;
+- [x] mean/std creates mean + band;
+- [x] dynamic wildcard trace labels contain mechanism/seed/policy/agent ID;
 - [ ] repeated report with growing SERIES updates using the complete current
       history;
 - [ ] ES fitness plot trace count and types match dev;
@@ -1542,16 +1574,16 @@ The CSV reporter must consume the same `Query` contract.
 
 ## 14.1 Required behavior
 
-- [ ] implement Reporter subclass;
-- [ ] configure output directory/path through `ReporterConfig`;
-- [ ] create directories safely;
-- [ ] stable file naming from query title/key;
-- [ ] append/update semantics documented;
-- [ ] no W&B dependency;
-- [ ] scalar series export;
-- [ ] multiple raw series export;
-- [ ] mean/std export;
-- [ ] dynamic wildcard labels exported;
+- [x] implement Reporter subclass;
+- [x] configure output directory/path through `ReporterConfig`;
+- [x] create directories safely;
+- [x] stable file naming from query title/key;
+- [x] append/update semantics documented;
+- [x] no W&B dependency;
+- [x] scalar series export;
+- [x] multiple raw series export;
+- [x] mean/std export;
+- [x] dynamic wildcard labels exported;
 - [ ] train/eval/mechanism/seed dimensions preserved as columns;
 - [ ] ES candidate/parameter metadata preserved;
 - [ ] flush/close lifecycle;
@@ -1587,15 +1619,15 @@ Do not throw away dynamic identity just to force everything into wide format.
 
 ## 14.2 CSV tests
 
-- [ ] temp directory fixture;
-- [ ] single series;
-- [ ] multi-series;
+- [x] temp directory fixture;
+- [x] single series;
+- [x] multi-series;
 - [ ] mean/std;
-- [ ] wildcard series labels;
-- [ ] repeated report appends/updates correctly;
-- [ ] no duplicate header;
+- [x] wildcard series labels;
+- [x] repeated report appends/updates correctly;
+- [x] no duplicate header;
 - [ ] NaN/None policy documented;
-- [ ] output can be loaded by pandas and reconstruct expected series.
+- [x] output can be loaded by pandas and reconstruct expected series.
 
 ---
 
@@ -1613,16 +1645,16 @@ Use the same resolved Query result, not raw optimizer dictionaries.
 
 ## 15.1 Required behavior
 
-- [ ] Reporter subclass;
-- [ ] `SummaryWriter` lifecycle;
-- [ ] stable tag naming;
-- [ ] single scalar/series using `add_scalar`;
+- [x] Reporter subclass;
+- [x] `SummaryWriter` lifecycle;
+- [x] stable tag naming;
+- [x] single scalar/series using `add_scalar`;
 - [ ] multiple related series using `add_scalars` where appropriate;
-- [ ] dynamic mechanism/policy/agent labels represented in tags;
-- [ ] mean/std behavior documented;
+- [x] dynamic mechanism/policy/agent labels represented in tags;
+- [x] mean/std behavior documented;
 - [ ] train/eval grouping represented consistently;
-- [ ] flush and close;
-- [ ] no W&B imports.
+- [x] flush and close;
+- [x] no W&B imports.
 
 Complex figures:
 
@@ -1637,12 +1669,12 @@ Complex figures:
 
 ## 15.2 TensorBoard tests
 
-- [ ] temporary logdir;
-- [ ] event file created;
-- [ ] expected scalar tags exist;
+- [x] temporary logdir;
+- [x] event file created;
+- [x] expected scalar tags exist;
 - [ ] repeated iterations produce multiple steps;
 - [ ] dynamic tags are stable;
-- [ ] writer flush/close works;
+- [x] writer flush/close works;
 - [ ] complex figure path has a test if supported.
 
 ---
@@ -1734,20 +1766,20 @@ This keeps logger/reporter runtime state local to the optimizer that owns it.
 
 # 20. Recommended implementation order
 
-1. [ ] Verify/add `ESSchema.generation`.
-2. [ ] Add `ESSchema.generation_best`.
-3. [ ] Lock the current non-wildcard environment, Ray, and ES query smoke tests.
-4. [ ] Implement wildcard path expansion.
-5. [ ] Implement wildcard x/y binding.
-6. [ ] Implement mechanism grouping + seed mean/std.
+1. [x] Verify/add `ESSchema.generation`.
+2. [x] Add `ESSchema.generation_best`.
+3. [x] Lock the current non-wildcard environment, Ray, and ES query smoke tests.
+4. [x] Implement wildcard path expansion.
+5. [x] Implement wildcard x/y binding.
+6. [x] Implement mechanism grouping + seed mean/std.
 7. [ ] Implement train-vs-eval grouped shaded rendering.
 8. [ ] Reproduce ES fitness-over-generations trace modes.
 9. [ ] Reproduce cumulative ES parameter scatter with generation color.
 10. [ ] Implement parallel-coordinate query/renderer.
 11. [ ] Run deterministic dev-vs-feature parity validation.
 12. [ ] Complete unit/integration tests.
-13. [ ] Complete CSV reporter.
-14. [ ] Complete TensorBoard reporter.
+13. [x] Complete CSV reporter.
+14. [x] Complete TensorBoard reporter.
 15. [ ] Remove legacy W&B-specific plotting/cache code.
 16. [ ] Finalize docs/tutorial examples.
 

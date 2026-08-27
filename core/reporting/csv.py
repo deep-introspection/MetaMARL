@@ -1,9 +1,9 @@
 """CSV reporter: one long-form file per query, rewritten on every report.
 
-Each row is ``(query, x, series, value)``; ``series`` is the ``/``-joined
-metric path of the y series so that multi-series queries stay distinguishable
-when reloaded with pandas. Mean/std reductions are written as two series,
-``mean`` and ``std``.
+Each row is ``(query, x, series, value, error)``; ``series`` is the label of
+the resolved series (metric path with wildcards bound, or the group id of a
+reduced series) and ``error`` the standard deviation when the query asked for
+one (empty otherwise).
 """
 
 from __future__ import annotations
@@ -12,12 +12,9 @@ import csv
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
-
-from core.metrics.metric.base import PrimitiveType
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig
-from core.reporting.query import Query
+from core.reporting.query import Query, Series
 from core.utils import sanitize_key
 
 
@@ -36,7 +33,7 @@ class CSVConfig(ReporterConfig):
 class CSVReporter(Reporter):
     """Write every resolved query to ``<output_dir>/<query title>.csv``."""
 
-    HEADER = ("query", "x", "series", "value")
+    HEADER = ("query", "x", "series", "value", "error")
 
     def __init__(self, *, output_dir: Path) -> None:
         self._output_dir = Path(output_dir)
@@ -49,36 +46,20 @@ class CSVReporter(Reporter):
     def path_for(self, query: Query) -> Path:
         return self._output_dir / f"{sanitize_key(query.title)}.csv"
 
-    def _rows(
-        self, query: Query, x: list[PrimitiveType], ys: list[list[PrimitiveType]]
-    ):
-        if query.reduce == "none":
-            for path, values in zip(query.y_paths, ys, strict=True):
-                series = "/".join(path)
-                for x_value, y_value in zip(x, values, strict=True):
-                    yield (query.title, x_value, series, y_value)
-            return
+    @staticmethod
+    def _rows(query: Query, series: list[Series]):
+        for s in series:
+            errors = s.error if s.error is not None else [""] * len(s.y)
+            for x_value, y_value, err in zip(s.x, s.y, errors, strict=True):
+                yield (query.title, x_value, s.label, y_value, err)
 
-        values = np.asarray(ys, dtype=np.float64)
-        if values.ndim != 2:
-            raise ValueError("Mean reduction expects a 2D collection of y series.")
-        mean = values.mean(axis=0)
-        for x_value, m in zip(x, mean.tolist(), strict=True):
-            yield (query.title, x_value, "mean", m)
-        if query.error == "std":
-            std = values.std(axis=0)
-            for x_value, s in zip(x, std.tolist(), strict=True):
-                yield (query.title, x_value, "std", s)
-
-    def _report(
-        self, query: Query, x: list[PrimitiveType], ys: list[list[PrimitiveType]]
-    ) -> None:
-        if not ys:
+    def _report(self, query: Query, series: list[Series]) -> None:
+        if not series:
             return
         with self.path_for(query).open("w", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
             writer.writerow(self.HEADER)
-            writer.writerows(self._rows(query, x, ys))
+            writer.writerows(self._rows(query, series))
 
     def close(self) -> None:
         pass

@@ -121,7 +121,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 queries=queries.ES_QUERIES
                 + queries.es_parameter_queries(OPTIMIZED)
                 + queries.es_candidate_fitness_queries(args.num_candidates)
-                + queries.es_parameter_fitness_queries(args.num_candidates, OPTIMIZED),
+                + queries.es_parameter_fitness_queries(OPTIMIZED),
             )
         )
         .inner(
@@ -161,7 +161,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 disable_env_checking=False,
                 schema=FisheryMetricSchema,
                 queries=queries.FISHERY_ENV_QUERIES
-                + queries.fishery_agent_queries("utilizer:0"),
+                + queries.FISHERY_ALL_AGENTS_QUERIES,
             )
             .env_runners(
                 num_env_runners=0,

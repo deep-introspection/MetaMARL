@@ -7,10 +7,9 @@ import numpy as np
 import plotly.graph_objects as go
 
 import wandb
-from core.metrics.metric.base import PrimitiveType
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig
-from core.reporting.query import Query
+from core.reporting.query import Query, Series
 from core.utils import sanitize_key
 
 
@@ -95,106 +94,47 @@ class WandbReporter(Reporter):
         return "/".join(path)
 
     @staticmethod
-    def _series_label(path: tuple[str, ...]) -> str:
-        return "/".join(path)
-
-    def _raw_series_figure(
-        self,
-        query: Query,
-        x: list[PrimitiveType],
-        ys: list[list[PrimitiveType]],
-    ) -> go.Figure:
-
+    def _figure(query: Query, series: list[Series]) -> go.Figure:
         fig = go.Figure()
-
-        for path, values in zip(
-            query.y_paths,
-            ys,
-        ):
+        for s in series:
+            if s.error is not None:
+                upper = (np.asarray(s.y) + np.asarray(s.error)).tolist()
+                lower = (np.asarray(s.y) - np.asarray(s.error)).tolist()
+                fig.add_trace(
+                    go.Scatter(
+                        x=list(s.x) + list(s.x)[::-1],
+                        y=upper + lower[::-1],
+                        mode="lines",
+                        fill="toself",
+                        line=dict(width=0),
+                        name=f"{s.label} ±1 std",
+                        hoverinfo="skip",
+                        showlegend=True,
+                    )
+                )
             fig.add_trace(
                 go.Scatter(
-                    x=x,
-                    y=values,
+                    x=s.x,
+                    y=s.y,
                     mode="lines+markers",
-                    name=self._series_label(path),
+                    line=dict(width=3 if s.error is not None else 2),
+                    marker=dict(size=4),
+                    name=s.label,
                 )
             )
-
         return fig
 
-    def _mean_figure(
-        self,
-        query: Query,
-        x: list[PrimitiveType],
-        ys: list[list[PrimitiveType]],
-    ) -> go.Figure:
-        fig = go.Figure()
-        values = np.asarray(ys, dtype=np.float64)
-
-        if values.ndim != 2:
-            raise ValueError("Mean reduction expects a 2D collection of y series.")
-
-        mean = np.mean(values, axis=0)
-
-        if query.error == "std":
-            std = np.std(values, axis=0)
-            upper = mean + std
-            lower = mean - std
-            fig.add_trace(
-                go.Scatter(
-                    x=list(x) + list(x)[::-1],
-                    y=upper.tolist() + lower[::-1].tolist(),
-                    mode="lines",
-                    fill="toself",
-                    line=dict(
-                        width=0,
-                    ),
-                    name="±1 std",
-                    hoverinfo="skip",
-                    showlegend=True,
-                )
-            )
-
-        fig.add_trace(
-            go.Scatter(
-                x=x,
-                y=mean.tolist(),
-                mode="lines+markers",
-                line=dict(
-                    width=3,
-                ),
-                marker=dict(size=4),
-                name="mean",
-            )
-        )
-
-        return fig
-
-    def _report(
-        self,
-        query: Query,
-        x: list[PrimitiveType],
-        ys: list[list[PrimitiveType]],
-    ) -> None:
-
+    def _report(self, query: Query, series: list[Series]) -> None:
+        if not series:
+            return
         self._init_run()
         if self._run is None:
             raise RuntimeError("W&B run failed to initialize.")
-        if not ys:
-            return
 
-        if query.reduce == "none":
-            fig = self._raw_series_figure(query=query, x=x, ys=ys)
-        elif query.reduce == "mean":
-            fig = self._mean_figure(query=query, x=x, ys=ys)
-        else:
-            raise ValueError(f"Unknown query reduction: {query.reduce!r}")
-
-        x_name = self._path_name(query.x)
-
+        fig = self._figure(query, series)
         fig.update_layout(
             title=query.title,
-            xaxis_title=x_name,
+            xaxis_title=self._path_name(query.x),
             yaxis_title="value",
             hovermode="x unified",
             template="plotly_white",
@@ -203,10 +143,8 @@ class WandbReporter(Reporter):
                 orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
             ),
         )
-
         fig.update_xaxes(rangeslider_visible=False)
-        plot_name = sanitize_key(query.title)
-        self._run.log({f"plots/{plot_name}": fig})
+        self._run.log({f"plots/{sanitize_key(query.title)}": fig})
 
     def close(self) -> None:
         if self._run is not None:

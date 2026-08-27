@@ -25,8 +25,8 @@ class RecordingReporter(Reporter):
         self.label = label
         self.reports = []
 
-    def _report(self, query, x, ys):
-        self.reports.append((query.title, x, ys))
+    def _report(self, query, series):
+        self.reports.append((query.title, series[0].x, [s.y for s in series]))
 
     def close(self):
         pass

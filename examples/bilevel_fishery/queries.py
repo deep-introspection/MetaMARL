@@ -10,8 +10,9 @@ bundle:
 - the outer ES optimizer (``ESSchema``): one value per generation
   (``ES_QUERIES``, ``es_parameter_fitness_queries``).
 
-Queries name concrete runtime ids (agent, policy, candidate); wildcard queries
-(``"*"``) are on the roadmap in ``TODO.md`` §2.
+Runtime ids (agent, policy, candidate) can be named explicitly or matched with
+the wildcard ``"*"`` (one series per id, sorted; with ``reduce="mean"`` the
+first wildcard groups and the others are averaged).
 """
 
 from core.reporting.query import Query
@@ -52,6 +53,23 @@ def fishery_agent_queries(agent_id: str) -> tuple[Query, ...]:
             ("Risk penalty", "risk_penalty"),
         )
     )
+
+
+FISHERY_ALL_AGENTS_QUERIES = (
+    Query(title="Reward — all agents", x=("iter",), y=("by_agent", "*", "reward")),
+    Query(
+        title="Delivered harvest — all agents",
+        x=("iter",),
+        y=("by_agent", "*", "delivered_harvest"),
+    ),
+    Query(
+        title="Mean reward across agents ±1 std",
+        x=("iter",),
+        y=("by_agent", "*", "reward"),
+        reduce="mean",
+        error="std",
+    ),
+)
 
 
 # --- inner optimizer: one value per RLlib training iteration --------------------
@@ -103,6 +121,20 @@ RAY_PERFORMANCE_QUERIES = (
 )
 
 
+RAY_ALL_POLICIES_QUERIES = (
+    Query(
+        title="Total loss — all policies",
+        x=("iter",),
+        y=("train", "learner", "by_policy", "*", "total_loss"),
+    ),
+    Query(
+        title="Policy entropy — all policies",
+        x=("iter",),
+        y=("train", "learner", "by_policy", "*", "policy_entropy"),
+    ),
+)
+
+
 def ray_policy_queries(policy_id: str) -> tuple[Query, ...]:
     """Learner series for one RLModule ``policy_id``."""
     base = ("train", "learner", "by_policy", policy_id)
@@ -119,7 +151,7 @@ def ray_policy_queries(policy_id: str) -> tuple[Query, ...]:
     )
 
 
-RAY_QUERIES = RAY_ROLLOUT_QUERIES + RAY_PERFORMANCE_QUERIES
+RAY_QUERIES = RAY_ROLLOUT_QUERIES + RAY_PERFORMANCE_QUERIES + RAY_ALL_POLICIES_QUERIES
 
 # --- outer optimizer: one value per ES generation --------------------------------
 
@@ -128,6 +160,18 @@ ES_QUERIES = (
         title="Fitness over generations",
         x=("generation",),
         y=(("fitness_mean",), ("fitness_best",), ("best_fitness_global",)),
+    ),
+    Query(
+        title="Candidate fitness (all candidates)",
+        x=("generation",),
+        y=("by_mechanism", "*", "fitness"),
+    ),
+    Query(
+        title="Mean candidate fitness ±1 std",
+        x=("generation",),
+        y=("by_mechanism", "*", "fitness"),
+        reduce="mean",
+        error="std",
     ),
     Query(title="ES sigma", x=("generation",), y=("sigma",)),
     Query(title="ES population size", x=("generation",), y=("population_size",)),
@@ -166,16 +210,17 @@ def es_candidate_fitness_queries(num_candidates: int) -> tuple[Query, ...]:
     )
 
 
-def es_parameter_fitness_queries(
-    num_candidates: int, parameter_names: tuple[str, ...]
-) -> tuple[Query, ...]:
-    """Fitness against parameter value, one query per (parameter, candidate)."""
+def es_parameter_fitness_queries(parameter_names: tuple[str, ...]) -> tuple[Query, ...]:
+    """Fitness against parameter value, all candidates in one query per parameter.
+
+    The wildcard binds the same candidate on the x and y sides, so each series
+    is one candidate's (parameter value, fitness) trajectory over generations.
+    """
     return tuple(
         Query(
-            title=f"Fitness vs {name} — candidate {i}",
-            x=("by_mechanism", str(i), "by_parameter", name, "value"),
-            y=("by_mechanism", str(i), "fitness"),
+            title=f"Fitness vs {name}",
+            x=("by_mechanism", "*", "by_parameter", name, "value"),
+            y=("by_mechanism", "*", "fitness"),
         )
         for name in parameter_names
-        for i in range(num_candidates)
     )

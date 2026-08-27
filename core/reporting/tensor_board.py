@@ -1,8 +1,8 @@
 """TensorBoard reporter: one scalar tag per y series, indexed by the integer x.
 
 Requires the optional ``tensorboard`` package (``uv sync --extra tensorboard``).
-Multi-series queries become one tag per series (``<title>/<series path>``);
-mean/std reductions become ``<title>/mean`` and ``<title>/std``.
+Each resolved series becomes the tag ``<title>/<series label>``; a standard
+deviation band adds ``<title>/<series label>/std``.
 """
 
 from __future__ import annotations
@@ -10,12 +10,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-import numpy as np
-
 from core.metrics.metric.base import PrimitiveType
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig
-from core.reporting.query import Query
+from core.reporting.query import Query, Series
 from core.utils import sanitize_key
 
 if TYPE_CHECKING:
@@ -66,37 +64,26 @@ class TensorBoardReporter(Reporter):
             )
         return step
 
-    def _series(
-        self, query: Query, ys: list[list[PrimitiveType]]
-    ) -> dict[str, list[float]]:
-        if query.reduce == "none":
-            return {
-                "/".join(path): list(values)
-                for path, values in zip(query.y_paths, ys, strict=True)
-            }
-        values = np.asarray(ys, dtype=np.float64)
-        if values.ndim != 2:
-            raise ValueError("Mean reduction expects a 2D collection of y series.")
-        series = {"mean": values.mean(axis=0).tolist()}
-        if query.error == "std":
-            series["std"] = values.std(axis=0).tolist()
-        return series
-
-    def _report(
-        self, query: Query, x: list[PrimitiveType], ys: list[list[PrimitiveType]]
-    ) -> None:
-        if not ys:
+    def _report(self, query: Query, series: list[Series]) -> None:
+        if not series:
             return
         writer = self._get_writer()
         title = sanitize_key(query.title)
-        for name, values in self._series(query, ys).items():
-            tag = f"{title}/{name}"
-            for x_value, y_value in zip(x, values, strict=True):
+        for s in series:
+            tag = f"{title}/{s.label}"
+            for x_value, y_value in zip(s.x, s.y, strict=True):
                 writer.add_scalar(
                     tag=tag,
                     scalar_value=y_value,
                     global_step=self._step(x_value, query),
                 )
+            if s.error is not None:
+                for x_value, err in zip(s.x, s.error, strict=True):
+                    writer.add_scalar(
+                        tag=f"{tag}/std",
+                        scalar_value=err,
+                        global_step=self._step(x_value, query),
+                    )
         writer.flush()
 
     def close(self) -> None:
