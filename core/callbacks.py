@@ -1,19 +1,11 @@
 import logging
 import time
-from typing import Any
 
-from ray.rllib.algorithms.algorithm import Algorithm
-from ray.rllib.env.env_runner_group import EnvRunnerGroup
+from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.rllib.env.vector.vector_multi_agent_env import VectorMultiAgentEnv
-from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
 from ray.rllib.evaluation.metrics import summarize_episodes
-
-from ray.rllib.utils.metrics import (
-    ENV_RUNNER_RESULTS,
-    EVALUATION_RESULTS,
-    NUM_EPISODES
-)
+from ray.rllib.utils.metrics import ENV_RUNNER_RESULTS, EVALUATION_RESULTS, NUM_EPISODES
 
 logger = logging.getLogger(__name__)
 
@@ -23,37 +15,38 @@ from core.envs.base import BaseEnv
 #     episode_id = episode.id_
 #     episode.id_ = f"{env_index}|{episode_id}"
 
+
 # def tag_episode_with_env_identity(
 def tag_episode_with_env_idx(
-        *, 
-        episode: MultiAgentEpisode, 
-        env_runner: MultiAgentEnvRunner, 
-        env: VectorMultiAgentEnv, 
-        env_index: int, 
-        **kwargs):
-    
+    *,
+    episode: MultiAgentEpisode,
+    env_runner: MultiAgentEnvRunner,
+    env: VectorMultiAgentEnv,
+    env_index: int,
+    **kwargs,
+):
+
     # Get env identity
     env: BaseEnv = env_runner.env.envs[env_index].unwrapped
 
     # Access env seed and mechanism id
-    if getattr(env, "mechanism_id", None) is None :
-        raise RuntimeError("Env has no mechanism_id. It must be assigned at construction.")
-    if getattr(env, "seed", None) is None :
+    if getattr(env, "mechanism_id", None) is None:
+        raise RuntimeError(
+            "Env has no mechanism_id. It must be assigned at construction."
+        )
+    if getattr(env, "seed", None) is None:
         raise RuntimeError("Env has no seed. It must be assigned at construction.")
-    if getattr(env, "env_id", None) is None : 
+    if getattr(env, "env_id", None) is None:
         env.env_id = env_index
     elif env.env_id != env_index:
-        raise RuntimeError(
-            f"Immutable env_id changed: {env.env_id}, new={env_index}"
-        )
-    
+        raise RuntimeError(f"Immutable env_id changed: {env.env_id}, new={env_index}")
+
     mechanism_id = env.mechanism_id
     seed = env.seed
     policy_seed = env.policy_seed
 
     # set env id
     raw_episode_id = episode.id_
-    
 
     # Store structured metadata for policy mapping / logging.
     if not raw_episode_id.startswith("env="):
@@ -77,9 +70,7 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
         # to save time. Also return the iteration to check, whether we should
         # discard and outdated result (from a slow worker).
         episodes = worker.sample(
-            num_timesteps=(
-                num[worker.worker_index] if unit == "timesteps" else None
-            ),
+            num_timesteps=(num[worker.worker_index] if unit == "timesteps" else None),
             num_episodes=(num[worker.worker_index] if unit == "episodes" else None),
             force_reset=_force_reset and round == 0,
         )
@@ -118,18 +109,16 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
                 for i in range(1, num_workers + 1)
             ]
 
-            results = (
-                eval_env_runner_group.foreach_env_runner(
-                    func=_env_runner_remote,
-                    kwargs={
-                        "num": _num,
-                        "round": _round,
-                        "iter": algo_iteration,
-                        "_force_reset": force_reset,
-                    },
-                    local_env_runner=False,
-                    timeout_seconds=time_out,
-                )
+            results = eval_env_runner_group.foreach_env_runner(
+                func=_env_runner_remote,
+                kwargs={
+                    "num": _num,
+                    "round": _round,
+                    "iter": algo_iteration,
+                    "_force_reset": force_reset,
+                },
+                local_env_runner=False,
+                timeout_seconds=time_out,
             )
 
             # CHANGED
@@ -154,9 +143,7 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
                 num_units_done += (
                     (met[NUM_EPISODES].peek() if NUM_EPISODES in met else 0)
                     if unit == "episodes"
-                    else (
-                        env_s if algo.config.count_steps_by == "env_steps" else ag_s
-                    )
+                    else (env_s if algo.config.count_steps_by == "env_steps" else ag_s)
                 )
             if num_units_done != algo.config.evaluation_duration:
                 raise RuntimeError(
@@ -171,8 +158,7 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
             units_per_healthy_remote_worker = (
                 1
                 if unit == "episodes"
-                else eval_cfg.rollout_fragment_length
-                * eval_cfg.num_envs_per_env_runner
+                else eval_cfg.rollout_fragment_length * eval_cfg.num_envs_per_env_runner
             )
             # Select proper number of evaluation workers for this round.
             selected_eval_worker_ids = [
@@ -183,12 +169,10 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
                 if i * units_per_healthy_remote_worker < units_left_to_do
             ]
 
-            results = (
-                algo.eval_env_runner_group.foreach_env_runner_async_fetch_ready(
-                    func=lambda w: (w.sample(), w.get_metrics(), algo_iteration),
-                    remote_worker_ids=selected_eval_worker_ids,
-                    tag="env_runner_sample_and_get_metrics",
-                )
+            results = algo.eval_env_runner_group.foreach_env_runner_async_fetch_ready(
+                func=lambda w: (w.sample(), w.get_metrics(), algo_iteration),
+                remote_worker_ids=selected_eval_worker_ids,
+                tag="env_runner_sample_and_get_metrics",
             )
             # Make sure we properly time out if we have not received any results
             # for more than `time_out` seconds.
@@ -220,9 +204,7 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
                 )
 
         # Update correct number of healthy remote workers.
-        num_healthy_workers = (
-            algo.eval_env_runner_group.num_healthy_remote_workers()
-        )
+        num_healthy_workers = algo.eval_env_runner_group.num_healthy_remote_workers()
 
     if num_healthy_workers == 0:
         logger.warning(

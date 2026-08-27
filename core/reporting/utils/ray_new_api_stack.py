@@ -5,14 +5,14 @@ import re  # MODIFIED: needed to extract mechanism ids like m0/m1 from policy na
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-import wandb
-from wandb.sdk.wandb_run import Run
 
 # MODIFIED: Plotly is used because wandb.plot.line_series does not support shaded error regions.
 # W&B can log Plotly figures directly.
 import plotly.graph_objects as go
+from wandb.sdk.wandb_run import Run
 
-from core.utils import safe_ratio, to_float, finite, sanitize_key
+import wandb
+from core.utils import finite, safe_ratio, sanitize_key, to_float
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ def _global_step(outer_iter: int, train_step: int) -> int:
     # monotonic across outer iters
     # TODO find a way to reduce outer iterations
     return int(outer_iter) * 1_000_000 + int(train_step)
+
 
 # MODIFIED: helper to extract mechanism identity from seeded policy ids.
 # Example:
@@ -298,6 +299,7 @@ def _log_mechanism_shaded_error_plot(
         commit=False,
     )
 
+
 def _log_train_eval_return_by_mechanism_plot(
     *,
     wandb_run: Run,
@@ -408,33 +410,34 @@ def _log_train_eval_return_by_mechanism_plot(
         commit=False,
     )
 
+
 def extract_episode_metrics_newstack(
     results: Dict[str, Any],
 ) -> Dict[str, Optional[float]]:
     """
-        RLlib raw episode metric.
+    RLlib raw episode metric.
 
-        This is useful as a sanity/debug metric, but NOT as the main mechanism
-        comparison metric.
+    This is useful as a sanity/debug metric, but NOT as the main mechanism
+    comparison metric.
 
-        In MARL, episode_return_mean is:
+    In MARL, episode_return_mean is:
 
-            mean over completed episodes of:
-               sum over timesteps:
-                   sum over agents:
-                       reward_t_agent
-        
-        Therefore it scales with:
-          - number of agents
-          - episode length
-          - reward scale
-        
-        It can also mix mechanisms/seeds if multiple envs are sampled together.
-        
-        Main reporting metric should come from extract_series_returns_newstack(),
-        which returns reward_per_agent_per_step by module/policy.
+        mean over completed episodes of:
+           sum over timesteps:
+               sum over agents:
+                   reward_t_agent
+
+    Therefore it scales with:
+      - number of agents
+      - episode length
+      - reward scale
+
+    It can also mix mechanisms/seeds if multiple envs are sampled together.
+
+    Main reporting metric should come from extract_series_returns_newstack(),
+    which returns reward_per_agent_per_step by module/policy.
     """
-    
+
     env = results.get("env_runners", {}) or {}
 
     # new-stack first, fallback to old-stack names if present
@@ -544,9 +547,7 @@ def extract_series_returns_newstack(results: Dict[str, Any]) -> Dict[str, Any]:
             # MODIFIED:
             # Normalize cumulative module return into mean reward per agent
             # per environment step.
-            reward_per_agent_per_step = (
-                episode_reward_mean / module_env_steps
-            )
+            reward_per_agent_per_step = episode_reward_mean / module_env_steps
 
             normalized[module_id] = reward_per_agent_per_step
 
@@ -899,10 +900,7 @@ def plot_training_results_new_stack(
         f"{prefix}/perf/learner_update_s": perf["learner_update_s"],
         f"{prefix}/perf/weights_seq_no": perf["weights_seq_no"],
     }
-    custom = (
-        results.get("env_runners", {})
-        .get("custom_metrics", {})
-    )
+    custom = results.get("env_runners", {}).get("custom_metrics", {})
 
     water_metrics = [
         "reservoir_stage_m",
@@ -928,7 +926,9 @@ def plot_training_results_new_stack(
                 f"{prefix}/rllib_raw/episode_len_min": eps["episode_len_min"],
                 f"{prefix}/rllib_raw/episode_len_max": eps["episode_len_max"],
                 f"{prefix}/rllib_raw/num_episodes": eps["num_episodes"],
-                f"{prefix}/rllib_raw/num_episodes_lifetime": eps["num_episodes_lifetime"],
+                f"{prefix}/rllib_raw/num_episodes_lifetime": eps[
+                    "num_episodes_lifetime"
+                ],
             }
         )
 

@@ -3,8 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import wandb
-
-from core.utils import sanitize_key, to_float, flatten_numeric
+from core.utils import flatten_numeric, sanitize_key, to_float
 from core.world.context import Context, EnvStepContext
 
 

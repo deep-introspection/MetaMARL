@@ -1,6 +1,6 @@
-from collections.abc import Mapping
 import re
 import uuid
+from collections.abc import Mapping
 from typing import AbstractSet, Any, Optional
 
 import numpy as np
@@ -9,6 +9,7 @@ import numpy as np
 
 # TODO restrict Any type annotation.
 EPS = 1e-8
+
 
 def generate_uuid(registry: AbstractSet[Any]) -> str:
     """
@@ -78,7 +79,8 @@ def smooth_positive(x: float, width: float) -> float:
     width = max(float(width), EPS)
 
     return float(
-        width * np.logaddexp(
+        width
+        * np.logaddexp(
             0.0,
             float(x) / width,
         )
@@ -97,15 +99,14 @@ def smooth_min(
 
     weight_on_b = sigmoid((a - b) / width)
 
-    return float(
-        (1.0 - weight_on_b) * a
-        + weight_on_b * b
-    )
+    return float((1.0 - weight_on_b) * a + weight_on_b * b)
+
 
 def smooth_cap_01(x: float) -> float:
     """Smooth saturation of a non-negative value into [0, 1)."""
     x = float(x)
     return float(1.0 - np.exp(-x))
+
 
 def smooth_positive_zero_at_origin(
     x: float,
@@ -116,9 +117,6 @@ def smooth_positive_zero_at_origin(
     """
     width = max(float(width), EPS)
 
-    value = width * (
-        np.logaddexp(0.0, float(x) / width)
-        - np.log(2.0)
-    )
+    value = width * (np.logaddexp(0.0, float(x) / width) - np.log(2.0))
 
     return float(max(0.0, value))

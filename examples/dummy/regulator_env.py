@@ -1,6 +1,5 @@
 import logging
 from collections import defaultdict
-from typing import Any
 
 import numpy as np
 from gymnasium.core import ObsType

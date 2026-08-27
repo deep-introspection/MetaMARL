@@ -40,9 +40,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
         self.sustainability_threshold = ecology_cfg.get("sustainability_threshold", 0.1)
         self.K = ecology_cfg.get("K")
         # Denormalized threshold for visualization
-        self.raw_sustainability_threshold = (
-            self.sustainability_threshold * self.K
-        )
+        self.raw_sustainability_threshold = self.sustainability_threshold * self.K
         self.trajectories: dict[int, list[dict[str, Any]]] = {}
         self.last_metrics: list[dict[str, float]] = []
 
@@ -50,9 +48,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
         self.aggregation_status = MechanismStatus(target_status)
 
         # tail averaging
-        self.fitness_tail_steps = int(
-            ecology_cfg.get("fitness_tail_steps", 50)
-        )
+        self.fitness_tail_steps = int(ecology_cfg.get("fitness_tail_steps", 50))
 
     @override(RegulatorEnv)
     def observation(self, obs: ObsType) -> ObsType:
@@ -96,7 +92,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
         # deduplicate
         seen_steps: set[tuple[int | None, int | None, int]] = set()
-
 
         for ctx in step_ctxs:
             s = ctx.payload
@@ -164,7 +159,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
                 fish[i] = float(first_info["fish_norm_next"])
                 fish_current = float(first_info["fish"])
 
-                
                 # Extract fines from info dict
                 # TODO this is the mean however this is not good representation for late learning mechanisms
                 agent_penalties = [
@@ -173,20 +167,16 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     if isinstance(agent_info, dict)
                 ]
 
-                step_fines = (
-                    float(np.mean(agent_penalties))
-                    if agent_penalties
-                    else 0.0
-                )
+                step_fines = float(np.mean(agent_penalties)) if agent_penalties else 0.0
                 fines[i] = step_fines
 
                 # Denormalize for trajectory storage (visualization uses raw values)
                 trajectory.append(
                     {
-                        "episode": 0, #TODO get episode
-                        "step": s.step, #TODO verify s.step == i
+                        "episode": 0,  # TODO get episode
+                        "step": s.step,  # TODO verify s.step == i
                         "seed": seed,
-                        "fish_population": fish_current, # TODO do we want fish norm or fish current ?
+                        "fish_population": fish_current,  # TODO do we want fish norm or fish current ?
                         "realized_harvest": float(realized_harvest[i]),
                         "harvest_score": float(harvest_scores[i]),
                         "reward": float(rewards[i]),
@@ -225,9 +215,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     "collapse_rate": float(
                         (tail_fish < self.sustainability_threshold).mean()
                     ),
-                    "sustainability_penalty": float(
-                        sustainability_penalties.mean()
-                    ),
+                    "sustainability_penalty": float(sustainability_penalties.mean()),
                     "min_fish": float(tail_fish.min()),
                     "mean_fish": float(tail_fish.mean()),
                     "mean_fines": float(tail_fines.mean()),
@@ -238,41 +226,20 @@ class FisheryRegulatorEnv(RegulatorEnv):
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)
 
         for idx, seed_metrics in metrics_by_mechanism.items():
-            mean_reward = float(
-                np.mean([m["mean_reward"] for m in seed_metrics])
-            )
-            reward_std = float(
-                np.mean([m["reward_std"] for m in seed_metrics])
-            )
+            mean_reward = float(np.mean([m["mean_reward"] for m in seed_metrics]))
+            reward_std = float(np.mean([m["reward_std"] for m in seed_metrics]))
             mean_realized_harvest = float(
-                np.mean([
-                    m["mean_realized_harvest"]
-                    for m in seed_metrics
-                ])
+                np.mean([m["mean_realized_harvest"] for m in seed_metrics])
             )
 
-            harvest_score = float(
-                np.mean([
-                    m["harvest_score"]
-                    for m in seed_metrics
-                ])
-            )
-            collapse_rate = float(
-                np.mean([m["collapse_rate"] for m in seed_metrics])
-            )
+            harvest_score = float(np.mean([m["harvest_score"] for m in seed_metrics]))
+            collapse_rate = float(np.mean([m["collapse_rate"] for m in seed_metrics]))
             sustainability_penalty = float(
                 np.mean([m["sustainability_penalty"] for m in seed_metrics])
             )
-            min_fish = float(
-                np.mean([m["min_fish"] for m in seed_metrics])
-            )
-            mean_fish = float(
-                np.mean([m["mean_fish"] for m in seed_metrics])
-            )
-            mean_fines = float(
-                np.mean([m["mean_fines"] for m in seed_metrics])
-            )
-
+            min_fish = float(np.mean([m["min_fish"] for m in seed_metrics]))
+            mean_fish = float(np.mean([m["mean_fish"] for m in seed_metrics]))
+            mean_fines = float(np.mean([m["mean_fines"] for m in seed_metrics]))
 
             fitness_ctx = FitnessContext.from_metrics(
                 mean_reward=mean_reward,
@@ -301,20 +268,20 @@ class FisheryRegulatorEnv(RegulatorEnv):
             )
 
             per_mech_metrics.append(
-            {
-                "idx": idx,
-                "objective": objective,
-                "mean_reward": mean_reward,
-                "reward_std": reward_std,
-                "mean_realized_harvest": mean_realized_harvest,
-                "harvest_score": harvest_score,
-                "collapse_rate": collapse_rate,
-                "min_fish": min_fish,
-                "mean_fish": mean_fish,
-                "total_fines": mean_fines,
-                "num_seeds": float(len(seed_metrics)),
-            }
-        )
+                {
+                    "idx": idx,
+                    "objective": objective,
+                    "mean_reward": mean_reward,
+                    "reward_std": reward_std,
+                    "mean_realized_harvest": mean_realized_harvest,
+                    "harvest_score": harvest_score,
+                    "collapse_rate": collapse_rate,
+                    "min_fish": min_fish,
+                    "mean_fish": mean_fish,
+                    "total_fines": mean_fines,
+                    "num_seeds": float(len(seed_metrics)),
+                }
+            )
 
         objectives = np.asarray(
             [m["objective"] for m in per_mech_metrics],
@@ -347,4 +314,4 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
         self.last_metrics = per_mech_metrics
 
-        return fitness.tolist() 
+        return fitness.tolist()

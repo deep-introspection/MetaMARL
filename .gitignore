@@ -112,7 +112,5 @@ CLAUDE.md
 geojsons/
 
 # deprecated
-deprecated/
-legacy_code/
 
 !tutorials/*

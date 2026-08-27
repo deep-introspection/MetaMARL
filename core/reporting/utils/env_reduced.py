@@ -5,12 +5,11 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 import plotly.graph_objects as go
-import wandb
 
+import wandb
+from core.reporting.utils.env_step_context import _extract_info_series
 from core.utils import sanitize_key, to_float
 from core.world.context import Context, EnvStepContext, MechanismStatus
-from core.reporting.utils.env_step_context import _extract_info_series
-
 
 _ENV_REDUCED_ITER_TABLES: dict[tuple[int, str], wandb.Table] = {}
 
@@ -25,7 +24,7 @@ class ReductionSpec:
 
 def build_default_fishery_reduction_specs() -> list[ReductionSpec]:
     return [ReductionSpec(name="auto_env_metrics")]
- 
+
 
 def _global_step(outer_iter: int, train_step: int) -> int:
     return int(outer_iter) * 1_000_000 + int(train_step)
@@ -109,7 +108,6 @@ def _ctx_to_metric_rows(ctx: Context) -> list[dict[str, Any]]:
         "info/farm_area_m2_p95",
         "info/farm_area_m2_p99",
         "info/farm_area_m2_max",
-
         "info/farm_area_ha",
         "info/farm_area_ha_std",
         "info/farm_area_ha_min",
@@ -121,7 +119,6 @@ def _ctx_to_metric_rows(ctx: Context) -> list[dict[str, Any]]:
         "info/farm_area_ha_p95",
         "info/farm_area_ha_p99",
         "info/farm_area_ha_max",
-
         "info/fish",
         "info/fish_next",
         "info/fish_norm",
@@ -584,7 +581,6 @@ def _rows_to_iteration_metric_rows(
                 "West_Montrose_streamflow_m3s_observed",
                 "release_pressure",
                 "residence_time_days",
-
                 # fishery state variables
                 "fish",
                 "fish_next",
@@ -601,6 +597,7 @@ def _rows_to_iteration_metric_rows(
             else:
                 add(phase, mechanism, seed, f"{clean_name}_mean", float(np.mean(arr)))
     return out
+
 
 def _log_02GA041_observed_vs_simulated(
     *,
@@ -662,6 +659,7 @@ def _log_02GA041_observed_vs_simulated(
         commit=False,
     )
 
+
 def _log_02GA014_observed_vs_simulated(
     *,
     wandb_run,
@@ -721,6 +719,7 @@ def _log_02GA014_observed_vs_simulated(
         step=step,
         commit=False,
     )
+
 
 def _log_West_Montrose_observed_vs_simulated(
     *,
@@ -782,6 +781,7 @@ def _log_West_Montrose_observed_vs_simulated(
         commit=False,
     )
 
+
 def plot_env_reduced(
     *,
     wandb_run,
@@ -803,7 +803,7 @@ def plot_env_reduced(
 
     if not rows:
         return
-    
+
     # ============================================================
     # RAW TABLES FOR POST-HOC ANALYSIS
     # ============================================================
@@ -816,11 +816,7 @@ def plot_env_reduced(
     raw_env_df = pd.DataFrame(rows)
 
     wandb_run.log(
-        {
-            f"{prefix}/tables/raw_env_steps": wandb.Table(
-                dataframe=raw_env_df
-            )
-        },
+        {f"{prefix}/tables/raw_env_steps": wandb.Table(dataframe=raw_env_df)},
         step=gs,
         commit=False,
     )
@@ -850,16 +846,10 @@ def plot_env_reduced(
 
         wide_rows[key][row["metric"]] = row["value"]
 
-    wide_df = pd.DataFrame(
-        list(wide_rows.values())
-    )
+    wide_df = pd.DataFrame(list(wide_rows.values()))
 
     wandb_run.log(
-        {
-            f"{prefix}/tables/raw_env_steps_wide": wandb.Table(
-                dataframe=wide_df
-            )
-        },
+        {f"{prefix}/tables/raw_env_steps_wide": wandb.Table(dataframe=wide_df)},
         step=gs,
         commit=False,
     )
@@ -872,31 +862,24 @@ def plot_env_reduced(
         "info_requested_m3_day" in wide_df.columns
         and "info_allowed_m3_day" in wide_df.columns
     ):
-        wide_df["requested_over_allowed"] = (
-            wide_df["info_requested_m3_day"]
-            / np.maximum(
-                EPS,
-                wide_df["info_allowed_m3_day"],
-            )
+        wide_df["requested_over_allowed"] = wide_df[
+            "info_requested_m3_day"
+        ] / np.maximum(
+            EPS,
+            wide_df["info_allowed_m3_day"],
         )
 
     if (
         "info_streamflow_m3s" in wide_df.columns
         and "info_total_usage_m3s" in wide_df.columns
     ):
-        wide_df["usage_over_streamflow"] = (
-            wide_df["info_total_usage_m3s"]
-            / np.maximum(
-                EPS,
-                wide_df["info_streamflow_m3s"],
-            )
+        wide_df["usage_over_streamflow"] = wide_df["info_total_usage_m3s"] / np.maximum(
+            EPS,
+            wide_df["info_streamflow_m3s"],
         )
 
     wandb_run.log(
-        {
-            f"{prefix}/tables/raw_env_steps_wide_derived":
-                wandb.Table(dataframe=wide_df)
-        },
+        {f"{prefix}/tables/raw_env_steps_wide_derived": wandb.Table(dataframe=wide_df)},
         step=gs,
         commit=False,
     )
@@ -912,24 +895,15 @@ def plot_env_reduced(
         "env_step",
     }
 
-    numeric_cols = [
-        c
-        for c in wide_df.columns
-        if c not in exclude_cols
-    ]
+    numeric_cols = [c for c in wide_df.columns if c not in exclude_cols]
 
-    corr_df = (
-        wide_df[numeric_cols]
-        .apply(pd.to_numeric, errors="coerce")
-        .corr()
-    )
+    corr_df = wide_df[numeric_cols].apply(pd.to_numeric, errors="coerce").corr()
 
     wandb_run.log(
         {
-            f"{prefix}/tables/correlation_matrix":
-                wandb.Table(
-                    dataframe=corr_df.reset_index()
-                )
+            f"{prefix}/tables/correlation_matrix": wandb.Table(
+                dataframe=corr_df.reset_index()
+            )
         },
         step=gs,
         commit=False,
@@ -969,12 +943,7 @@ def plot_env_reduced(
     summary_df = pd.DataFrame(summary_rows)
 
     wandb_run.log(
-        {
-            f"{prefix}/tables/distribution_summary":
-                wandb.Table(
-                    dataframe=summary_df
-                )
-        },
+        {f"{prefix}/tables/distribution_summary": wandb.Table(dataframe=summary_df)},
         step=gs,
         commit=False,
     )
@@ -1025,10 +994,7 @@ def plot_env_reduced(
     iter_df = pd.DataFrame(iter_rows)
 
     wandb_run.log(
-        {
-            f"{prefix}/tables/training_metrics":
-                wandb.Table(dataframe=iter_df)
-        },
+        {f"{prefix}/tables/training_metrics": wandb.Table(dataframe=iter_df)},
         step=gs,
         commit=False,
     )

@@ -117,7 +117,11 @@ def test_regulator_env_trains_inner_optimizer_and_publishes_mechanisms(fake_worl
     assert sorted({c.seed for c in mechanism_ctxs}) == [100, 200]
     # candidates are decoded through the template
     assert all(isinstance(c.mechanism, SubsidyMechanism) for c in mechanism_ctxs)
-    assert sorted({round(c.mechanism.subsidy, 3) for c in mechanism_ctxs}) == [0.1, 0.25, 0.4]
+    assert sorted({round(c.mechanism.subsidy, 3) for c in mechanism_ctxs}) == [
+        0.1,
+        0.25,
+        0.4,
+    ]
 
 
 @pytest.mark.unit

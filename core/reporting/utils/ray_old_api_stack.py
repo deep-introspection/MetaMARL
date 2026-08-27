@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
-import numpy as np
-import wandb
-from wandb.sdk.wandb_run import Run
-from typing import Any, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
+from wandb.sdk.wandb_run import Run
 
+import wandb
 
 """Visualization module for bilevel fishery experiments.
 

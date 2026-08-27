@@ -1,21 +1,12 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-import matplotlib.pyplot as plt
 import numpy as np
 import ray
 from ray.rllib.utils.typing import AgentID
 from ray.train._internal.checkpoint_manager import _TrainingResult
-from ray.actor import ActorHandle
-
-from core.annotations import override
-from core.optimizers.base import Optimizer
-from core.world.base import World
-from core.reporting.wandb import WandbReporter
-from core.utils import to_float
 
 # TODO temporary
 from core.adaptors.ray.utils import (
@@ -23,10 +14,13 @@ from core.adaptors.ray.utils import (
     get_episode_return_mean,
     get_policy_loss_if_present,
 )
+from core.annotations import override
+from core.optimizers.base import Optimizer
 from core.reporting.utils.env_reduced import (
     ReductionSpec,
     build_default_fishery_reduction_specs,
 )
+from core.utils import to_float
 
 logger = logging.getLogger(__name__)
 
@@ -110,9 +104,7 @@ class RayOptimizer(Optimizer):
         step = self._inner_iter
 
         # RLlib's own lifetime training counter, retained only for debugging.
-        rllib_training_iteration = int(
-            to_float(result.get("training_iteration")) or 0
-        )
+        rllib_training_iteration = int(to_float(result.get("training_iteration")) or 0)
 
         # TODO make this more dynamic NEW_STACK
         # TODO move this to world

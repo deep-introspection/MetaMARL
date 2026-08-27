@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-import ray
-import wandb
 import numpy as np
+import ray
 
-from core.world.context import Context
-from core.reporting.utils.es_population import plot_es_population as plot_es_population_util
-from core.reporting.utils.ray_new_api_stack import plot_training_results_new_stack
+import wandb
+from core.reporting.utils.env_reduced import ReductionSpec, plot_env_reduced
 from core.reporting.utils.env_step_context import plot_env_step_context
-from core.reporting.utils.env_reduced import plot_env_reduced, ReductionSpec
+from core.reporting.utils.es_population import (
+    plot_es_population as plot_es_population_util,
+)
+from core.reporting.utils.ray_new_api_stack import plot_training_results_new_stack
+from core.world.context import Context
 
 
 # TODO inherits from abstract reporter

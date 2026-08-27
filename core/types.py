@@ -30,13 +30,6 @@ OptimizerIDs are expected to be stable for the lifetime of an experiment.
 """
 
 
-# TODO create the WorldEnv
-# TODO in ray there are different types of envs : BaseEnv, ExternalEnv, ExternalMultiAgentEnv
-# TODO i really dont like any because it is not restricting enough. but I want ability to accomodate other environments in the future
-# TODO WorldEnv should be also a gymnasium Env with the added feature to have sub envs
-
-# WorldType = Union[Any, Env]
-# """
 # Represents a gymnasium Env, a MultiAgentEnv, WorldEnv.
 # """
 

@@ -4,10 +4,9 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 import plotly.graph_objects as go
+
 import wandb
-
 from core.utils import sanitize_key
-
 
 # One accumulated history table for each W&B run and reporting prefix.
 _ES_HISTORY_TABLES: dict[tuple[int, str], wandb.Table] = {}
@@ -168,9 +167,7 @@ def _make_fitness_over_generations_figure(
         mechanism_idx = int(row[mechanism_idx_col])
         mechanism_fitness = float(row[fitness_col])
 
-        fitness_by_generation.setdefault(generation, []).append(
-            mechanism_fitness
-        )
+        fitness_by_generation.setdefault(generation, []).append(mechanism_fitness)
 
         candidate_generations.append(generation)
         candidate_indices.append(mechanism_idx)
@@ -179,13 +176,11 @@ def _make_fitness_over_generations_figure(
     generations = sorted(fitness_by_generation)
 
     mean_fitness = [
-        float(np.mean(fitness_by_generation[generation]))
-        for generation in generations
+        float(np.mean(fitness_by_generation[generation])) for generation in generations
     ]
 
     best_fitness = [
-        float(np.max(fitness_by_generation[generation]))
-        for generation in generations
+        float(np.max(fitness_by_generation[generation])) for generation in generations
     ]
 
     candidate_customdata = np.asarray(
@@ -222,9 +217,7 @@ def _make_fitness_over_generations_figure(
             mode="lines+markers",
             name="Generation mean",
             hovertemplate=(
-                "outer iteration=%{x}"
-                "<br>mean fitness=%{y:.6f}"
-                "<extra></extra>"
+                "outer iteration=%{x}<br>mean fitness=%{y:.6f}<extra></extra>"
             ),
         )
     )
@@ -236,9 +229,7 @@ def _make_fitness_over_generations_figure(
             mode="lines+markers",
             name="Generation best",
             hovertemplate=(
-                "outer iteration=%{x}"
-                "<br>best fitness=%{y:.6f}"
-                "<extra></extra>"
+                "outer iteration=%{x}<br>best fitness=%{y:.6f}<extra></extra>"
             ),
         )
     )
@@ -255,6 +246,7 @@ def _make_fitness_over_generations_figure(
     figure.update_xaxes(rangeslider_visible=False)
 
     return figure
+
 
 def _padded_range(
     values: Sequence[float],
@@ -399,6 +391,7 @@ def _make_parameter_fitness_figure(
 
     return figure
 
+
 def _make_parallel_coordinates_figure(
     *,
     history_table: wandb.Table,
@@ -434,10 +427,7 @@ def _make_parallel_coordinates_figure(
         return go.Figure()
 
     fitness_values = np.asarray(
-        [
-            float(row[fitness_col])
-            for row in ordered_rows
-        ],
+        [float(row[fitness_col]) for row in ordered_rows],
         dtype=np.float64,
     )
 
@@ -472,10 +462,7 @@ def _make_parallel_coordinates_figure(
         parameter_col = parameter_cols[parameter_name]
 
         parameter_values = np.asarray(
-            [
-                float(row[parameter_col])
-                for row in ordered_rows
-            ],
+            [float(row[parameter_col]) for row in ordered_rows],
             dtype=np.float64,
         )
 
@@ -528,10 +515,7 @@ def _make_parallel_coordinates_figure(
                     "showscale": True,
                     "colorbar": {
                         "title": {
-                            "text": (
-                                "Fitness<br>"
-                                "(higher is better)"
-                            ),
+                            "text": ("Fitness<br>(higher is better)"),
                         },
                         "thickness": 18,
                         "len": 0.80,
@@ -557,9 +541,7 @@ def _make_parallel_coordinates_figure(
 
     figure.update_layout(
         title={
-            "text": (
-                "Parallel coordinates of evaluated mechanisms"
-            ),
+            "text": ("Parallel coordinates of evaluated mechanisms"),
             "x": 0.5,
             "xanchor": "center",
             "y": 0.98,
@@ -578,6 +560,7 @@ def _make_parallel_coordinates_figure(
     )
 
     return figure
+
 
 def plot_es_population(
     *,
@@ -664,17 +647,13 @@ def plot_es_population(
         sigma = float(sigma)
 
         if not np.isfinite(sigma):
-            raise ValueError(
-                "ES sigma contains NaN or an infinite value"
-            )
+            raise ValueError("ES sigma contains NaN or an infinite value")
 
     if best_fitness_global is not None:
         best_fitness_global = float(best_fitness_global)
 
         if not np.isfinite(best_fitness_global):
-            raise ValueError(
-                "Global-best fitness contains NaN or an infinite value"
-            )
+            raise ValueError("Global-best fitness contains NaN or an infinite value")
 
     history_table = _get_or_create_history_table(
         wandb_run=wandb_run,
@@ -696,9 +675,7 @@ def plot_es_population(
 
     generation_mean_fitness = float(np.mean(fitness_array))
     generation_best_position = int(np.argmax(fitness_array))
-    generation_best_fitness = float(
-        fitness_array[generation_best_position]
-    )
+    generation_best_fitness = float(fitness_array[generation_best_position])
 
     payload: dict[str, Any] = {
         f"{prefix}/generation": generation,
@@ -722,16 +699,12 @@ def plot_es_population(
         payload[f"{prefix}/sigma"] = sigma
 
     if best_fitness_global is not None:
-        payload[
-            f"{prefix}/best_fitness_global"
-        ] = best_fitness_global
+        payload[f"{prefix}/best_fitness_global"] = best_fitness_global
 
     for parameter_idx, parameter_name in enumerate(parameter_names):
         clean_name = sanitize_key(parameter_name)
 
-        payload[
-            f"{prefix}/plots/fitness_vs_parameter/{clean_name}"
-        ] = wandb.Plotly(
+        payload[f"{prefix}/plots/fitness_vs_parameter/{clean_name}"] = wandb.Plotly(
             _make_parameter_fitness_figure(
                 history_table=history_table,
                 parameter_name=parameter_name,
@@ -749,9 +722,7 @@ def plot_es_population(
             )
 
         # Log the best candidate from this generation separately.
-        payload[
-            f"{prefix}/generation_best/{clean_name}"
-        ] = float(
+        payload[f"{prefix}/generation_best/{clean_name}"] = float(
             population[
                 generation_best_position,
                 parameter_idx,

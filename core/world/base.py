@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, KeysView, Optional
 
 import ray
+
 from core.reporting.wandb import WandbReporter
 from core.types import ContextID, OptimizerID
 from core.utils import generate_uuid
@@ -134,7 +135,7 @@ class World:
 
         latest.reverse()
         return latest
-    
+
     def get_new_env_step_contexts(
         self,
         opt_id: Optional[OptimizerID] = None,
@@ -173,26 +174,28 @@ class World:
         raise RuntimeError("no available mechanisms to train")
 
     # Use the contextID as mechanismID
-    def get_mechanism_by_id(self, mechanism_id: int, seed: int, mode: MechanismStatus) -> MechanismContext:
+    def get_mechanism_by_id(
+        self, mechanism_id: int, seed: int, mode: MechanismStatus
+    ) -> MechanismContext:
         required_status = {
-            MechanismStatus.train : {MechanismStatus.published},
-            MechanismStatus.eval : {
+            MechanismStatus.train: {MechanismStatus.published},
+            MechanismStatus.eval: {
                 MechanismStatus.train,
                 MechanismStatus.eval,
             },
         }
         target_prev_status = required_status.get(mode)
-        
+
         for m_ctx in self._mechanism_registry.values():
             if (
-                mechanism_id == m_ctx.index and 
-                seed == m_ctx.seed and 
-                m_ctx.status in target_prev_status
+                mechanism_id == m_ctx.index
+                and seed == m_ctx.seed
+                and m_ctx.status in target_prev_status
             ):
                 m_ctx.status = mode
                 return m_ctx
         return None
-    
+
     def try_get_mechanism(self) -> MechanismContext | None:
         """Try to get a published mechanism, return None if none available."""
         for m_ctx in self._mechanism_registry.values():

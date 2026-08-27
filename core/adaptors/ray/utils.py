@@ -2,6 +2,7 @@ import hashlib
 
 import numpy as np
 import torch
+
 from core.utils import to_float
 
 
@@ -41,6 +42,7 @@ def get_policy_loss_if_present(result: dict) -> float:
             if v is not None:
                 losses.append(v)
     return float(np.mean(losses)) if losses else float("nan")
+
 
 def hash_weights(weights) -> str:
     h = hashlib.sha256()
