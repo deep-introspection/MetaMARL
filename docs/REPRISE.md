@@ -36,7 +36,7 @@ Scope decisions (with Rémy, 2026-08-27):
 - Keep `transformers`, `peft`, `bitsandbytes`, etc. in the dependencies even
   though nothing imports them (likely a planned LLM-policy project); flag only.
 
-## Phase 0 — `chore/cleanup-base` (in progress)
+## Phase 0 — `chore/cleanup-base` (done 2026-08-27)
 
 Done:
 
@@ -92,9 +92,56 @@ Waiting on Rémy:
   `_v3.py`, `_v4_no_quota.py`, `regulated_env_raven.py`) and
   `examples/fresh_water/deprecated/` (still imported by `core/registry.py`).
 
-Next step: commit the config/CI/deletion lot, then create
-`feature/social-influence/testing` and start Phase 1 (make the branch
-importable — see the plan).
+## Phase 1 — `feature/social-influence/testing` (in progress)
+
+Branch = `origin/feature/social-influence` + merge of `chore/cleanup-base`
+(one conflict on `debug.py`, resolved in favor of the feature branch since the
+script was rewritten anyway).
+
+Done (commits `cf74dce`, `a821086`, and the integration lot):
+
+- The branch imports and the fishery benchmark runs end-to-end:
+  `WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters 2
+  --train-iters 2 --num-agents 2 --horizon 20 --num-candidates 2 --num-eval-seeds 1`
+  finishes in a few seconds (ES over quota + subsidy, social observation on,
+  APPO inner loop, evaluation). Run it as a module (`-m`): as a script,
+  `examples` is not importable.
+- All six mechanism classes are concrete (`dimension/encode/decode/clip/
+  param_names/to_vector`), validated with `ValueError`. Subsidy indexing,
+  ParallelMechanism API, `K` NameError, dict/array concatenation, wrong-channel
+  dispatch, undefined `_debug_remote`, `@override(MultiAgentEnv)` NameError are
+  fixed. `MechanismSpace` is replaced by the mechanism template everywhere
+  (`BilevelConfig.mechanism(mechanism=...)`).
+- Fishery: 2-component action decomposed (harvest fraction, restoration
+  effort), restoration feeds the dynamics through
+  `ecology_cfg["restoration_effectiveness"]` (default 0.0, `debug.py` uses 20.0
+  — heuristic scale, to confirm with Nadine), intrinsic-reward hook added
+  (delivered harvest fraction, same semantics as `dev`).
+- Tests: 100 unit tests (`tests/mechanism`, `tests/envs`, `tests/examples`,
+  `tests/unit`) + 4 fishery integration tests (env-only and bilevel smoke, with
+  and without the social mechanism). Coverage of `core/mechanism` 92–100 %,
+  `core/envs/marl_regulated.py` 95 %, `core/envs/regulator.py` 67 %.
+- Ray + `uv run` trap fixed in `RayRuntimeConfig.initialize()` (Ray's uv-run
+  hook injected a local `working_dir` rejected by `local_mode`). Both
+  `uv run python -m ...` and `.venv/bin/python -m ...` work now.
+- `TODO.md` updated: dated status section, verified boxes checked.
+
+Open on this branch:
+
+- Tutorial notebooks (`tutorials/mechanism_algorithms.ipynb`,
+  `tutorials/custom_benchmark_creation.ipynb`): still 90 % commented-out code;
+  to be made executable on the final API and run through nbconvert.
+- Docstrings on the modules not touched yet (`core/optimizers/*`,
+  `core/adaptors/ray/*`, `core/world/*`), README/AGENTS/QUICKSTART (Phase 3).
+- Decisions for Rémy: `violation_transition_width` (quota) was unused and has
+  been removed — restore if a violation channel is planned; restoration
+  effectiveness default; whether `previous_actions` should be reset to zeros
+  or to the last episode's actions at `reset`.
+- Coverage of `core/optimizers/es/optimizer.py` (`run()` fixed-mode branch,
+  plotting) and `core/envs/regulator.py` decode path under the 90 % target.
+
+Next step: notebooks (Phase 1e), then create `feature/logging/testing`
+(Phase 2).
 
 ## Commands
 
