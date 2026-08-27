@@ -1,13 +1,12 @@
 """Test if PPO learns meaningful fishing behavior with current settings."""
 
-import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
 
 import gymnasium as gym
-from gymnasium import spaces
-
+import matplotlib.pyplot as plt
+import numpy as np
 import ray
+from gymnasium import spaces
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.tune.registry import register_env
 

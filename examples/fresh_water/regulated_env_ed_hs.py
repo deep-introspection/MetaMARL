@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import subprocess
+from datetime import datetime, timedelta
 from pathlib import Path
 from time import time
 from typing import Optional, SupportsFloat
@@ -11,7 +12,6 @@ from typing import Optional, SupportsFloat
 import numpy as np
 from gymnasium.core import ActType
 from ray.rllib.utils.typing import AgentID, MultiAgentDict
-from datetime import datetime, timedelta
 
 from core.annotations import override
 from core.envs.marl_regulated import MultiAgentRegulatedEnv
@@ -36,7 +36,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
     ):
         super().__init__(**kwargs)
 
-        
         self.inflow_rate = ecology_cfg.get("inflow_rate", 1.0)
         self.dt = ecology_cfg.get("dt", 1.0)
 
@@ -55,7 +54,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         # This is not the legal quota. The mechanism parameters fixed_quota and
         # prop_quota define regulation. max_pull_fraction only defines how much
         # the agent could physically request before regulation is applied.
-        # large scale farmer - 
+        # large scale farmer -
         # increase water pull when there is percipitation otherwise consume water
         self.max_pull_fraction = ecology_cfg.get("max_pull_fraction", 0.005)
 
@@ -74,7 +73,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         # West_Montrose [m3/s]
         # West_Montrose (observed) [m3/s]
-        
+
         self.min_required_demand_m3s = ecology_cfg.get("min_required_demand_m3s", 0.02)
         self.lake_elevation = ecology_cfg.get("lake_elevation", 420.41)
         self.max_depth = ecology_cfg.get("max_depth", 11.0)
@@ -118,8 +117,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         }
 
         obs = {
-            agent_id: self.observation(agent_id, self.S_t)
-            for agent_id in self.agents
+            agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
         }
         return obs
 
@@ -132,21 +130,21 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         # Q: Water allocation is indexed here as percentage of the total active storage capacity.
         # Q: The volume of water pumps depends on the max capacity
         # Q: perhaps we should integrate the maximum pump capacity ?
-            # Example solution :
-            # max_pump_capacity = 0.05
-            # max_step_extraction = self.max_water * max_pump_capacity
-            # return {
-            #     agent_id: (action.item() * max_step_extraction) / self.max_water
-            #     for agent_id, action in A_t.items()
-            # }
+        # Example solution :
+        # max_pump_capacity = 0.05
+        # max_step_extraction = self.max_water * max_pump_capacity
+        # return {
+        #     agent_id: (action.item() * max_step_extraction) / self.max_water
+        #     for agent_id, action in A_t.items()
+        # }
 
         # fixed level - dependent on the tater level - hyperparameter to slide between both
         # lake height relative to sea level
         # water_lake = lake_level - elevation (.rvh) / 11 (.rvh)
 
         # Action is the requested fraction of max allowable streamflow extraction.
-        # constant value - constant demand > threshold * stream flow. then limit by ability to pull 
-        # water. 
+        # constant value - constant demand > threshold * stream flow. then limit by ability to pull
+        # water.
 
         return {
             agent_id: float(action.item()) * self.max_pull_fraction
@@ -163,15 +161,13 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
     ) -> SupportsFloat:
         reservoir_level_norm = self.S_t["reservoir_level_norm"]
         current_streamflow = self.S_t["streamflow"]
-        
+
         # What the agent wants based on stable depand capacity
-        # cap it and then if it goes 
-        requested_m3s = u_i * current_streamflow #m3s = cubic meters / second
-        
+        # cap it and then if it goes
+        requested_m3s = u_i * current_streamflow  # m3s = cubic meters / second
 
         # requested = need_crop_value - percipitation
         # read stream flows but do not use them in multiplication
-
 
         # allowed_fraction must be normalized by number of agents !
         allowed_fraction = min(
@@ -182,15 +178,18 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         allowed_m3s = allowed_fraction * current_streamflow
 
         # TODO : issue if the total pull of agents together exceeds the allowed m3s
-        # Q : normalize the allowed_m3s by the number of agents 
-        # crop yield - for wtv square meter of corn if the - if you water the crop wtv 
+        # Q : normalize the allowed_m3s by the number of agents
+        # crop yield - for wtv square meter of corn if the - if you water the crop wtv
         # if the crop is watered - positive reinforement, if its not watered enough - negative
-        # if its overwatered 
+        # if its overwatered
         # reward is based on crop yield.
         # corn, soybeans, potatoes
 
         quota_violation_m3s = max(0.0, requested_m3s - allowed_m3s)
-        quota_penalty = min(1.0, self.mechanism.fine_amount * (quota_violation_m3s / max(EPS, allowed_m3s)))
+        quota_penalty = min(
+            1.0,
+            self.mechanism.fine_amount * (quota_violation_m3s / max(EPS, allowed_m3s)),
+        )
         # quota_penalty = 0
         # Q: No water zone creates a binary cliff of good and bad behaviour - messes up gradients
         # Q : If the basin is below the safe stock then choosing an action of 0 creates no penalty
@@ -224,7 +223,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         #     0.0,
         #     self.mechanism.min_stock - reservoir_level_norm,
         # )
-
 
         total_penalty = min(
             1.0,
@@ -302,15 +300,15 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                     f"streamflow={streamflow}",
                 )
                 # Q : Problem - we are clipping lake_level to normalized capacity percentage
-                # Q : what is the unit of lake_level ? can we establish a maximum quantity ? 
-                    # like max elevation level ?
-                # stream flow - normalize reservoir storage 
+                # Q : what is the unit of lake_level ? can we establish a maximum quantity ?
+                # like max elevation level ?
+                # stream flow - normalize reservoir storage
                 # rvc file - profile of the r
-                # max_depth - 
+                # max_depth -
                 # reservoir stage vs time
-                # stream flow vs time (discharge) vs time 
-                # optional 
-                # stream temperature 
+                # stream flow vs time (discharge) vs time
+                # optional
+                # stream temperature
                 # water quality
                 if lake_level is not None:
                     # reservoir_level_next_norm = (
@@ -324,9 +322,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                         reservoir_stage_m - self.lake_elevation,
                     )
 
-                    reservoir_level_next_norm = (
-                        reservoir_depth_m
-                        / max(EPS, self.max_depth)
+                    reservoir_level_next_norm = reservoir_depth_m / max(
+                        EPS, self.max_depth
                     )
 
                     reservoir_level_next_norm = float(
@@ -369,7 +366,9 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                     )
 
             except Exception:
-                logger.exception("Raven integration failed; falling back to internal dynamics")
+                logger.exception(
+                    "Raven integration failed; falling back to internal dynamics"
+                )
 
         if reservoir_level_next_norm is None:
             reservoir_level_next_norm = (
@@ -377,7 +376,9 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                 + self.dt * (self.inflow_rate / self.streamflow_init)
                 - (total_usage / self.streamflow_init)
             )
-            reservoir_level_next_norm = float(np.clip(reservoir_level_next_norm, 0.0, 1.0))
+            reservoir_level_next_norm = float(
+                np.clip(reservoir_level_next_norm, 0.0, 1.0)
+            )
 
         new_state = {
             "reservoir_level_norm": max(EPS, reservoir_level_next_norm),
@@ -422,10 +423,10 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         streamflow = self.S_t["streamflow"]
 
         desired_norm = self.intrinsic_utility(A_t=A_t)
-        
+
         # Q : the pull of several agents at the same time will affect each other ?
-        # max_water = maximum flow rate 
-        # water = stream - cubic meters/ s 
+        # max_water = maximum flow rate
+        # water = stream - cubic meters/ s
         # what we are pulling is a stream rate
         # amount of flow rate
         # precipitation
@@ -434,8 +435,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         scale = min(1.0, 1.0 / max(EPS, total_desired_norm))
 
         realized_usage = {
-            agent_id: desired_norm[agent_id] * scale
-            for agent_id in self.agents
+            agent_id: desired_norm[agent_id] * scale for agent_id in self.agents
         }
 
         total_usage_norm = sum(realized_usage.values())
@@ -494,17 +494,20 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         lines = rvt_path.read_text(encoding="utf-8").splitlines()
 
         header_idx = next(
-            i for i, line in enumerate(lines)
+            i
+            for i, line in enumerate(lines)
             if line.strip().startswith("1980-01-01 00:00:00")
         )
 
         end_idx = next(
-            i for i in range(header_idx + 1, len(lines))
+            i
+            for i in range(header_idx + 1, len(lines))
             if lines[i].strip() in [":EndObservationData", ":EndData"]
         )
 
         old_values = [
-            line for line in lines[header_idx + 1:end_idx]
+            line
+            for line in lines[header_idx + 1 : end_idx]
             if line.strip() and not line.strip().startswith("#")
         ]
 
@@ -513,16 +516,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         lines[header_idx] = f"\t1980-01-01 00:00:00\t1\t{n_values}"
 
-        new_lines = (
-            lines[: header_idx + 1]
-            + values
-            + [":EndData"]
-        )
+        new_lines = lines[: header_idx + 1] + values + [":EndData"]
 
         rvt_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
         return n_values
-
 
     def _patch_raven_end_date(self, run_dir: str, n_days: int) -> None:
         rvi_path = Path(run_dir) / "2_Raven" / "ohms_canshield.rvi"
@@ -542,7 +540,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         rvi_path.write_text("\n".join(patched) + "\n", encoding="utf-8")
 
-
     def _run_raven(self, usage: float) -> None:
         if not self.use_raven:
             return
@@ -557,7 +554,9 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         # Debugging
         print("=" * 80)
         print("Raven cwd:", run_dir)
-        print("RVI exists:", (Path(run_dir) / "2_Raven" / "ohms_canshield.rvi").exists())
+        print(
+            "RVI exists:", (Path(run_dir) / "2_Raven" / "ohms_canshield.rvi").exists()
+        )
         print("Extraction exists:", extraction_path.exists())
         print("Raven duration days:", n_days)
 
@@ -620,7 +619,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         except Exception:
             logger.exception("Failed to read Raven ReservoirStages CSV")
             return None
-        
+
     def _read_raven_streamflow(self, column_name: str) -> Optional[float]:
         if self.run_root is None:
             return None
@@ -648,10 +647,14 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
             print(
                 "READ STREAMFLOW",
-                "t=", self._t,
-                "idx=", idx,
-                "col=", column_name,
-                "raw=", row.get(column_name),
+                "t=",
+                self._t,
+                "idx=",
+                idx,
+                "col=",
+                column_name,
+                "raw=",
+                row.get(column_name),
             )
 
             if column_name not in row:

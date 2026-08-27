@@ -1,19 +1,15 @@
-import logging
-from time import time
-from typing import SupportsFloat
-
-import numpy as np
-import subprocess
 import csv
-import os
-from typing import Optional
-import shutil
-import tempfile
-from typing import Dict
 import hashlib
 import json
+import logging
+import os
+import shutil
+import tempfile
+from time import time
+from typing import Dict, Optional, SupportsFloat
+
+import numpy as np
 from gymnasium.core import ActType
-from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.typing import AgentID, MultiAgentDict
 
 from core.annotations import override
@@ -132,7 +128,9 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
             "water": max(EPS, self.rng.lognormal(np.log(self.water_init), 0.05)),
         }
 
-        obs = {agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents}
+        obs = {
+            agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
+        }
         return obs
 
     def _is_terminated(self) -> bool:
@@ -150,7 +148,13 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
         self, agent_id: AgentID, u_i: SupportsFloat, S_t: dict[str, MultiAgentDict]
     ) -> SupportsFloat:
         # quota-like violation and resource-level ban
-        quota = max(0.0, u_i - min(self.m.fixed_quota, self.m.prop_quota * S_t["water"] / self.max_water))
+        quota = max(
+            0.0,
+            u_i
+            - min(
+                self.m.fixed_quota, self.m.prop_quota * S_t["water"] / self.max_water
+            ),
+        )
         restriction = float(S_t["water"] / self.max_water < self.m.min_stock) * u_i
         v = float(quota + restriction)
         return v
@@ -165,12 +169,16 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
 
         # compute agents' desired usage (same as before)
         desired = {
-            agent_id: self.intrinsic_utility(agent_id=agent_id, action=A_t[agent_id], S_t=S_t)
+            agent_id: self.intrinsic_utility(
+                agent_id=agent_id, action=A_t[agent_id], S_t=S_t
+            )
             for agent_id in self.agents
         }
         total_desired = sum(desired.values())
         scale = min(1.0, water / max(EPS, total_desired))
-        usage = self.max_water * sum(desired[agent_id] * scale for agent_id in self.agents)
+        usage = self.max_water * sum(
+            desired[agent_id] * scale for agent_id in self.agents
+        )
 
         # If Raven integration is enabled, try to run Raven (periodically) and read the
         # reservoir stage CSV to obtain a model-driven water state. If anything fails,
@@ -186,7 +194,9 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
                     # Keep value within bounds
                     water_next = float(np.clip(lake_level, 0.0, self.max_water))
             except Exception:
-                logger.exception("Raven integration failed; falling back to internal dynamics")
+                logger.exception(
+                    "Raven integration failed; falling back to internal dynamics"
+                )
 
         # fallback if Raven wasn't used or failed
         if water_next is None:
@@ -195,7 +205,9 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
 
         return {"water": water_next}
 
-    def _run_raven(self, key: str, overrides: Dict[str, Dict[str, float]] | None = None) -> None:
+    def _run_raven(
+        self, key: str, overrides: Dict[str, Dict[str, float]] | None = None
+    ) -> None:
         """Wrapper that forwards overrides into the prepared run and executes Raven."""
         # No-op if Raven integration disabled
         if not self.use_raven:
@@ -214,7 +226,9 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
         logger.info("Running Raven: %s (cwd=%s)", cmd, run_dir)
         # subprocess.run(cmd, shell=True, check=True, cwd=run_dir)
 
-    def _prepare_raven_run(self, overrides: Dict[str, Dict[str, float]] | None = None) -> str:
+    def _prepare_raven_run(
+        self, overrides: Dict[str, Dict[str, float]] | None = None
+    ) -> str:
         """Copy the Raven input folder into a temporary directory and apply simple overrides.
 
         Currently supports overrides for ':InitialReservoirStage' via
@@ -229,11 +243,15 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
         # If overrides provided, use a cache directory keyed by the overrides to
         # avoid repeatedly copying and editing inputs.
         if overrides:
-            cache_root = os.path.abspath(os.path.join(self.raven_cwd, ".cache", "prepared_runs"))
+            cache_root = os.path.abspath(
+                os.path.join(self.raven_cwd, ".cache", "prepared_runs")
+            )
             os.makedirs(cache_root, exist_ok=True)
             # create a stable key from overrides dict
             try:
-                key = hashlib.sha256(json.dumps(overrides, sort_keys=True).encode("utf-8")).hexdigest()
+                key = hashlib.sha256(
+                    json.dumps(overrides, sort_keys=True).encode("utf-8")
+                ).hexdigest()
             except Exception:
                 # fallback to repr-based key
                 key = hashlib.sha256(repr(overrides).encode("utf-8")).hexdigest()
@@ -276,7 +294,9 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
                                 rid = parts[1]
                                 if rid in overrides["InitialReservoirStage"]:
                                     val = overrides["InitialReservoirStage"][rid]
-                                    new_lines.append(f":InitialReservoirStage {rid} {val}\n")
+                                    new_lines.append(
+                                        f":InitialReservoirStage {rid} {val}\n"
+                                    )
                                     continue
                         new_lines.append(ln)
 
@@ -290,13 +310,15 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
     def _read_raven_reservoir_stage(self, column_name: str) -> Optional[float]:
         """Read the ReservoirStages CSV produced by Raven and return the value for
         the configured time index (self._t). Returns None on failure."""
-        csv_path = os.path.join(self.raven_cwd, "3_Model_output", "ohms_canshield_ReservoirStages.csv")
+        csv_path = os.path.join(
+            self.raven_cwd, "3_Model_output", "ohms_canshield_ReservoirStages.csv"
+        )
         if not os.path.exists(csv_path):
             logger.warning("Raven output not found: %s", csv_path)
             return None
 
         try:
-            with open(csv_path, newline='') as fh:
+            with open(csv_path, newline="") as fh:
                 reader = csv.DictReader(fh)
                 # DictReader keeps original fieldnames; normalize them by stripping
                 rows = []
@@ -314,7 +336,11 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
                 keys = {k: k for k in row.keys()}
                 match = next((k for k in keys if k.startswith(column_name)), None)
                 if match is None:
-                    logger.warning("ReservoirStages CSV missing column '%s' (available: %s)", column_name, list(row.keys()))
+                    logger.warning(
+                        "ReservoirStages CSV missing column '%s' (available: %s)",
+                        column_name,
+                        list(row.keys()),
+                    )
                     return None
                 column_name = match
 
@@ -323,7 +349,6 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
         except Exception:
             logger.exception("Failed to read Raven ReservoirStages CSV")
             return None
-
 
     @override(MultiAgentRegulatedEnv)
     def aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict:
@@ -336,34 +361,41 @@ class WaterRegulatedRavenEnv(MultiAgentRegulatedEnv):
         # Restriction status normalized to [0,1]
         restriction_remaining = 0.0
         if self.m.ban_period > 0:
-            restriction_remaining = self._agent_restrictions.get(agent_id, 0) / self.m.ban_period
+            restriction_remaining = (
+                self._agent_restrictions.get(agent_id, 0) / self.m.ban_period
+            )
 
         effective_quota = min(self.m.fixed_quota, self.m.prop_quota * water_norm)
         no_water_zone = float(water_norm < self.m.min_stock)
 
-        return np.array([
-            water_norm, 0.0, restriction_remaining, effective_quota, no_water_zone
-        ], dtype=np.float32)
+        return np.array(
+            [water_norm, 0.0, restriction_remaining, effective_quota, no_water_zone],
+            dtype=np.float32,
+        )
 
     def _is_restricted(self, agent_id: AgentID) -> bool:
         return self._agent_restrictions.get(agent_id, 0) > 0
 
 
-def read_raven_stage_at(index: int, column_name: str = "Belwood_Lake", raven_root: str = "raven") -> Optional[float]:
+def read_raven_stage_at(
+    index: int, column_name: str = "Belwood_Lake", raven_root: str = "raven"
+) -> Optional[float]:
     """Module-level helper: read the ReservoirStages CSV at a given row index.
 
     This avoids constructing the environment or re-running Raven and is useful
     for small-step checks or unit tests.
     """
-    csv_path = os.path.join(raven_root, "3_Model_output", "ohms_canshield_ReservoirStages.csv")
+    csv_path = os.path.join(
+        raven_root, "3_Model_output", "ohms_canshield_ReservoirStages.csv"
+    )
     if not os.path.exists(csv_path):
         logger.warning("Raven output not found: %s", csv_path)
         return None
 
     try:
-        with open(csv_path, newline='') as fh:
+        with open(csv_path, newline="") as fh:
             reader = csv.DictReader(fh)
-            rows = [ {k.strip(): v for k, v in r.items()} for r in reader ]
+            rows = [{k.strip(): v for k, v in r.items()} for r in reader]
 
         if not rows:
             return None
@@ -373,7 +405,11 @@ def read_raven_stage_at(index: int, column_name: str = "Belwood_Lake", raven_roo
         if column_name not in row:
             match = next((k for k in row.keys() if k.startswith(column_name)), None)
             if match is None:
-                logger.warning("ReservoirStages CSV missing column '%s' (available: %s)", column_name, list(row.keys()))
+                logger.warning(
+                    "ReservoirStages CSV missing column '%s' (available: %s)",
+                    column_name,
+                    list(row.keys()),
+                )
                 return None
             column_name = match
 
