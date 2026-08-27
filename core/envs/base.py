@@ -1,6 +1,5 @@
 from abc import abstractmethod
 from typing import Any, Optional, SupportsFloat
-import uuid
 
 import numpy as np
 import ray
@@ -12,11 +11,11 @@ from core.mechanism.space import MechanismSpace
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.reporting.base import Reporter
+from core.reporting.config import ReporterConfig
 from core.reporting.query import Query
 from core.types import OptimizerID
 from core.world.base import World
 from core.world.context import Context, ContextSchema, EnvStepContext, MechanismStatus
-from core.reporting.config import ReporterConfig
 
 
 class BaseEnv(Env):
@@ -33,10 +32,10 @@ class BaseEnv(Env):
         seed: Optional[int] = None,
         policy_seed: Optional[int] = None,
         mode: Optional[str] = "train",
-        reporter_cfg: Optional[ReporterConfig],
+        reporter_cfg: Optional[ReporterConfig] = None,
         queries: Optional[tuple[Query]] = None,
         schema: Optional[MetricSchema] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         super().__init__()
         self.world = world
@@ -58,22 +57,29 @@ class BaseEnv(Env):
         # observation map
         self.obs_map: Optional[dict[int, str]] = None
 
-        # logger
-        self.logger: Optional[MetricLogger] = MetricLogger.from_schema(schema) if schema else None
-
-        # reporter
-        mechanism_id = getattr(self, "mechanism_id", None)
-        reporting_env_id = (
-            f"{env_name}"
-            f"|mode={mode}"
-            f"{f'|m={mechanism_id}' if mechanism_id is not None else ''}"
-            f"|ps={policy_seed}"
-            f"|ss={self.seed}"
+        # Metrics: a typed logger built from ``schema`` (None -> no logging) and
+        # a reporter rendering ``queries`` against it (None -> no reporting).
+        self.logger: Optional[MetricLogger] = (
+            MetricLogger.from_schema(schema) if schema is not None else None
         )
+        self.reporter: Optional[Reporter] = None
+        if reporter_cfg is not None:
+            mechanism_id = getattr(self, "mechanism_id", None)
+            reporting_env_id = (
+                f"{env_name}"
+                f"|mode={mode}"
+                f"{f'|m={mechanism_id}' if mechanism_id is not None else ''}"
+                f"|ps={policy_seed}"
+                f"|ss={self.seed}"
+            )
+            self.reporter = reporter_cfg.build(label=reporting_env_id)
+            self.reporter.schema = schema
+            self.reporter.add_query(*(queries or ()))
 
-        self.reporter: Reporter = reporter_cfg.build(label=reporting_env_id)
-        self.reporter.schema = schema
-        self.reporter.add_query(*(queries or ()))
+    def _log(self, key: tuple[str, ...], value: Any) -> None:
+        """Push ``value`` under ``key`` if this env has a metric logger."""
+        if self.logger is not None:
+            self.logger.push(key=key, value=value)
 
     # Setter
     def set_opt_id(self, opt_id: OptimizerID) -> None:
@@ -132,8 +138,7 @@ class BaseEnv(Env):
             )
         )
         self._t += 1
-        if self.logger is not None:
-            self.logger.push(key=("iter", ), value=self._t)
+        self._log(("iter",), self._t)
         return obs, reward, terminated, truncated, info
 
     @override(Env)
@@ -142,12 +147,12 @@ class BaseEnv(Env):
         # TODO what are the options used for ?
 
         if seed is not None and self.seed is not None and seed != self.seed:
-            pass # do not mutate seed after construction
+            pass  # do not mutate seed after construction
         # if seed is not None and and seed != self.seed;
         #     self.seed = seed
         #     self.rng = np.random.default_rng(seed)
         self._t = 0
-        self.logger.push(key=("iter",), value=self._t)
+        self._log(("iter",), self._t)
         self._pre_reset(seed=self.seed)
         obs = self._reset()
         self._publish(

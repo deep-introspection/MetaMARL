@@ -4,7 +4,6 @@ from core.metrics.metric.base import Metric, PrimitiveType
 
 
 class SeriesMetric(Metric):
-
     def __init__(self) -> None:
         self.values: list[PrimitiveType] = []
 
@@ -12,7 +11,7 @@ class SeriesMetric(Metric):
         return len(self.values)
 
     def __repr__(self) -> str:
-            return f"SeriesMetric(len={len(self)})"
+        return f"SeriesMetric(len={len(self)})"
 
     def push(self, value: PrimitiveType) -> None:
         self.values.append(value)

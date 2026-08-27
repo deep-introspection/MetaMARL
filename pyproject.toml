@@ -42,8 +42,12 @@ Homepage = "https://github.com/deep-introspection/bilevel-fishery"
 Repository = "https://github.com/deep-introspection/bilevel-fishery"
 Issues = "https://github.com/deep-introspection/bilevel-fishery/issues"
 
+[project.optional-dependencies]
+tensorboard = ["tensorboard>=2.16"]
+
 [dependency-groups]
 dev = [
+    "tensorboard>=2.16",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.13",

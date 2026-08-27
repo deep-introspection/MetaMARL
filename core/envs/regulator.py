@@ -10,11 +10,8 @@ from core.annotations import override
 from core.envs.base import BaseEnv
 from core.mechanism.base import Mechanism, VectorMechanism
 from core.optimizers.base import Optimizer
-from core.types import OptimizerID
-from core.world.base import World
 from core.world.context import (
     Context,
-    EnvStepContext,
     MechanismContext,
     MechanismStatus,
 )
@@ -91,6 +88,7 @@ class RegulatorEnv(BaseEnv):
 
         # TODO : why eval gets repeated ?
         # Train policy for train_iters iterations
+        ctx_registry = ray.get(self.world.get_ctx_registry.remote())
         for _ in range(self.train_iters):
             ctx_registry = ray.get(self.world.get_ctx_registry.remote())
 
@@ -100,7 +98,7 @@ class RegulatorEnv(BaseEnv):
             self.inner.run()
 
         # TODO check if eval mechanisms published. If parallel and sequential eval both turned on
-            # will be a problem
+        # will be a problem
         if self.eval_seeds:
             # TODO flush all remote mechanisms and env_step ctx.
             # TODO initializing the envs with the seeds from eval_seeds

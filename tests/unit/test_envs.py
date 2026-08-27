@@ -102,18 +102,34 @@ def test_regulated_env_penalty_shapes_reward(fake_world):
 def test_regulator_env_trains_inner_optimizer_and_publishes_mechanisms(fake_world):
     calls = {"run": 0, "reset": 0}
 
+    class DummyLogger:
+        def peek(self):
+            return "peeked"
+
+        def reduce(self):
+            return "reduced"
+
     class DummyOptimizer:
+        logger = DummyLogger()
+
         def run(self):
             calls["run"] += 1
 
         def reset(self):
             calls["reset"] += 1
 
+        def report_metrics(self):
+            calls["report"] = calls.get("report", 0) + 1
+
+        def reduce_metrics(self):
+            return self.logger.reduce()
+
     class DummyRegulator(RegulatorEnv):
         def _pre_reset(self, seed=None):
             pass
 
-        def aggregate_rewards(self, ctxs):
+        def aggregate_rewards(self, metrics):
+            assert metrics == "peeked"  # the inner optimizer's peeked metrics
             return 1.0
 
     env = DummyRegulator(
@@ -124,10 +140,11 @@ def test_regulator_env_trains_inner_optimizer_and_publishes_mechanisms(fake_worl
     )
     population = np.full((3, 2), 0.5, dtype=np.float32)
 
-    _, reward, *_ = env.step(population)
+    _, reward, _, _, info = env.step(population)
 
     assert reward == 1.0
-    assert calls == {"run": 5, "reset": 1}
+    assert calls == {"run": 5, "reset": 1, "report": 1}
+    assert info == {"metrics": "reduced"}
 
     mechanism_ctxs = [
         c.payload

@@ -1,9 +1,6 @@
 import logging
 import uuid
-from typing import Any, Literal, Optional, Self
-
-import ray
-from ray.actor import ActorHandle
+from typing import Optional, Self
 
 from core.adaptors.ray.runtime import DeviceType, RayRuntime, RayRuntimeConfig
 from core.annotations import override
@@ -13,8 +10,6 @@ from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig
-from core.reporting.wandb import WandbReporter
-from core.reporting.enums import ReporterType
 from core.world.base import World
 
 logger = logging.getLogger(__name__)
@@ -117,7 +112,7 @@ class BilevelConfig(OptimizerConfig):
         primary_reporter = self.reporter_cfg.build(label="bilvel")
         inner_cfg.reporter_cfg = self.reporter_cfg.copy()
         outer_cfg.reporter_cfg = self.reporter_cfg.copy()
-        
+
         if self.mechanism_space is not None:
             outer_cfg.dimension = self.mechanism_space.dimension
             inner_cfg = inner_cfg._merge_env_config(
@@ -145,15 +140,16 @@ class BilevelConfig(OptimizerConfig):
         outer_cfg = outer_cfg._merge_env_config(
             {
                 "mechanism_space": self.mechanism_space,
-                "default_mechanism": self.default_mechanism, #TODO remove deprecated
+                "default_mechanism": self.default_mechanism,  # TODO remove deprecated
             }
         )
 
         inner_opt = inner_cfg.build_optimizer(
-            world=world, world_name=self.world_name,
+            world=world,
+            world_name=self.world_name,
         )
         outer_opt = outer_cfg.build_optimizer(
-            world=world, 
+            world=world,
             inner_opt=inner_opt,
         )
 
@@ -162,19 +158,18 @@ class BilevelConfig(OptimizerConfig):
         # set inner batch capacity to be the same as inner for batch sampling
         outer_opt.batch_capacity = inner_opt.batch_capacity
         return self.opt_class(
-            config=self, 
-            outer=outer_opt, 
-            inner=inner_opt, 
-            reporter=primary_reporter)
+            config=self, outer=outer_opt, inner=inner_opt, reporter=primary_reporter
+        )
 
 
 class BilevelOptimizer(Optimizer):
     def __init__(
-            self, 
-            config: BilevelConfig, 
-            outer: Optimizer, 
-            inner: Optimizer, 
-            reporter: Reporter):
+        self,
+        config: BilevelConfig,
+        outer: Optimizer,
+        inner: Optimizer,
+        reporter: Reporter,
+    ):
         super().__init__(config)
 
         self.world_name = config.world_name

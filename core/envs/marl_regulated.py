@@ -3,16 +3,14 @@ from abc import abstractmethod
 from typing import Any, SupportsFloat
 
 import numpy as np
-from gymnasium.core import ActType, ObsType
 from gymnasium import spaces
+from gymnasium.core import ActType, ObsType
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.typing import AgentID, MultiAgentDict
 
 from core.annotations import override
 from core.envs.base import BaseEnv
 from core.envs.regulated import RegulatedEnv
-from core.types import OptimizerID
-from core.world.base import World
 from core.world.context import EnvStepContext, MechanismStatus
 
 logging.basicConfig(
@@ -49,7 +47,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         self.observation_space = spaces.Dict(self.observation_spaces)
         self.action_space = spaces.Dict(self.action_spaces)
 
-        self._infos : MultiAgentDict = {agent_id: {} for agent_id in self.agents}
+        self._infos: MultiAgentDict = {agent_id: {} for agent_id in self.agents}
 
     def _update_infos(self, key: str, values: MultiAgentDict | SupportsFloat):
         values = (
@@ -70,23 +68,21 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         self, *, seed=None, options=None
     ) -> tuple[MultiAgentDict, MultiAgentDict]:
         if seed is not None and self.seed is not None and seed != self.seed:
-            pass # do not mutate seed after construction
+            pass  # do not mutate seed after construction
 
-        # if seed is not None and seed != self.seed: 
+        # if seed is not None and seed != self.seed:
         #     self.seed = seed
         #     self.rng = np.random.default_rng(seed)
         self._t = 0
-        self.logger.flush(key=("iter",))
-        self.logger.push(key=("env_id",), value=self.env_id)
-        self.logger.push(key=("mechanism_id",), value=self.mechanism_id)
-        self.logger.push(key=("seed",), value=self.seed)
-        self.logger.push(key=("policy_seed",), value=self.policy_seed)
-        # TODO only log iter when a metric is counted, meaning pushing a value with its attached 
-        # throughput makes logic less fragile
-        # self.logger.push(key=("iter",), value=self._t)
+        if self.logger is not None:
+            self.logger.flush(key=("iter",))
+        self._log(("env_id",), self.env_id)
+        self._log(("mechanism_id",), self.mechanism_id)
+        self._log(("seed",), self.seed)
+        self._log(("policy_seed",), self.policy_seed)
 
         effective_seed = self.seed if self.seed is not None else seed
-        
+
         self._pre_reset(seed=effective_seed)
         obs = self._reset()
         self._infos = {agent_id: {} for agent_id in self.agents}
@@ -115,12 +111,9 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
             truncated["__all__"] = False
 
             self._t += 1
-            self.logger.push(key=("iter", ), value=self._t)
+            self._log(("iter",), self._t)
             return obs, rewards, terminated, truncated, self._infos
         obs, rewards, terminated, truncated, self._infos = self._step(actions)
-
-        [self.logger.push(key=("by_agent", aid, "reward"), value=r) for aid, r in rewards.items()]
-        self._aggregate_rewards(rewards)
 
         self._publish(
             EnvStepContext(
@@ -137,15 +130,15 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
             )
         )
         self._t += 1
-        self.logger.push(key=("iter", ), value=self._t)
+        self._log(("iter",), self._t)
         return obs, rewards, terminated, truncated, self._infos
-    
+
     def _step(
         self, action_dict: dict[AgentID, ActType]
     ) -> tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
-        intrinsic_rewards : MultiAgentDict = self.intrinsic_utility(A_t=action_dict)
+        intrinsic_rewards: MultiAgentDict = self.intrinsic_utility(A_t=action_dict)
         rewards = self.reward(rewards=intrinsic_rewards, A_t=action_dict)
 
         self.S_t = self.transition_kernel(A_t=action_dict, S_t=self.S_t.copy())
@@ -178,7 +171,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
     @abstractmethod
     def intrinsic_utility(
-        self, 
+        self,
         *,
         A_t: MultiAgentDict,
         **kwargs,
@@ -187,28 +180,22 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         raise NotImplementedError
 
     @abstractmethod
-    def violation_signal(
-        self, 
-        u_i: SupportsFloat, 
-        **kwargs) -> SupportsFloat:
+    def violation_signal(self, u_i: SupportsFloat, **kwargs) -> SupportsFloat:
         """v_i = V(a_i, S_t, M)"""
         raise NotImplementedError
 
     @abstractmethod
-    def penalty(
-        self, 
-        u_i: SupportsFloat, 
-        **kwargs) -> SupportsFloat:
+    def penalty(self, u_i: SupportsFloat, **kwargs) -> SupportsFloat:
         """λ = λ(M)"""
         raise NotImplementedError
-    
+
     @abstractmethod
     def _observation(
         self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]
     ) -> ObsType:
         """o_i = O_i(S_t)"""
         raise NotImplementedError
-    
+
     @abstractmethod
     def _is_truncated(self) -> bool:
         raise NotImplementedError
@@ -224,14 +211,14 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
     def _aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict:
         mean_reward = float(np.mean(list(rewards.values())))
-        self.logger.push(key=("reward_mean",), value=mean_reward)
+        self._log(("reward_mean",), mean_reward)
         return {agent_id: mean_reward for agent_id in self.agents}
-    
+
     @override(RegulatedEnv)
     def reward(self, rewards: MultiAgentDict, **kwargs) -> SupportsFloat:
         reward_by_agent: MultiAgentDict = {}
         for aid, u_i in rewards.items():
-            r = - self.penalty(u_i, **kwargs) * self.violation_signal(u_i, aid, **kwargs)
-            self.logger.push(key=("by_agent", aid, "reward"), value=r)
+            r = -self.penalty(u_i, **kwargs) * self.violation_signal(u_i, aid, **kwargs)
+            self._log(("by_agent", aid, "reward"), r)
             reward_by_agent[aid] = r
         return self._aggregate_rewards(rewards=reward_by_agent)

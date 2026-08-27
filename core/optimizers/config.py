@@ -12,13 +12,14 @@ from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 
 from core.envs.base import BaseEnv
 from core.metrics.schemas import MetricSchema
-from core.reporting.query import Query
 from core.reporting.config import ReporterConfig
+from core.reporting.query import Query
 from core.types import EnvConfigDict, EnvType
 from core.world.base import World
 
 if TYPE_CHECKING:
     from core.optimizers.base import Optimizer
+
 
 class _Config(ABC):
     def to_dict(self) -> dict:
@@ -59,11 +60,14 @@ class OptimizerConfig(_Config, ABC):
         # --- reporting ---
         self.stats_cls_lookup = DEFAULT_STATS_CLS_LOOKUP
         self._reporter_cfg: Optional[ReporterConfig] = None
-        self._reporting_schema: Optional[MetricSchema] = None
-        self._reporting_queries: Optional[tuple[Query]] = None
+        self._reporting_schema: Optional[type[MetricSchema]] = None
+        self._reporting_queries: Optional[tuple[Query, ...]] = None
+        # Declared through .environment(queries=, schema=): the env's own metrics.
+        self._reporting_schema_env: Optional[type[MetricSchema]] = None
+        self._reporting_queries_env: Optional[tuple[Query, ...]] = None
 
     @property
-    def reporter_cfg(self) -> None: 
+    def reporter_cfg(self) -> Optional[ReporterConfig]:
         return self._reporter_cfg
 
     @reporter_cfg.setter
@@ -143,6 +147,15 @@ class OptimizerConfig(_Config, ABC):
     ) -> BaseEnv:
         return self.env(**env_ctx)
 
+    def _build_reporter(self, *, label: str):
+        """Instantiate the optimizer-level reporter from ``reporter_cfg``, if any."""
+        if self._reporter_cfg is None:
+            return None
+        reporter = self._reporter_cfg.build(label=label)
+        reporter.schema = self._reporting_schema
+        reporter.add_query(*(self._reporting_queries or ()))
+        return reporter
+
     # TODO deep copy allows on may be toggled later with use_copy
     # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
     # TODO move optimizer registration to executor in future
@@ -164,25 +177,25 @@ class OptimizerConfig(_Config, ABC):
 
         opt.world = world
 
-        # Build reporter
-        reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
-        reporter.schema = self._reporting_schema
-        reporter.add_query(*(self._reporting_queries or ()))
-        opt.reporting = reporter
+        # Build the optimizer-level reporter (None when no reporting is configured)
+        opt.reporting = self._build_reporter(label=self.opt_class.__name__)
 
         # register optimizer in world to link contexts to optimizers
+        opt_id = None
         if world is not None:
             opt_id = ray.get(world._set_new_opt_id.remote(opt_id=opt.opt_id))
             opt.set_id(opt_id)
 
         env = cfg._env_creator(
-            world=world, 
-            opt_id=opt_id, 
-            optimizer=inner_opt, 
-            reporter_cfg=cfg.reporter_cfg.copy(),
-            queries=cfg._reporting_queries,
-            schema=cfg._reporting_schema,
-            **self.env_config
+            world=world,
+            opt_id=opt_id,
+            optimizer=inner_opt,
+            reporter_cfg=cfg.reporter_cfg.copy()
+            if cfg.reporter_cfg is not None
+            else None,
+            queries=cfg._reporting_queries_env,
+            schema=cfg._reporting_schema_env,
+            **self.env_config,
         )
         opt.env = env
 
@@ -194,8 +207,8 @@ class OptimizerConfig(_Config, ABC):
         env: Optional[Union[str, EnvType]] = None,
         train_iters: Optional[int] = None,
         horizon: Optional[int] = None,
-        queries: Optional[tuple[Query]]=None,
-        schema: Optional[type[MetricSchema]]=None,
+        queries: Optional[tuple[Query]] = None,
+        schema: Optional[type[MetricSchema]] = None,
         *,
         env_config: Optional[EnvConfigDict] = None,
         observation_space: Optional[Space] = None,
@@ -268,20 +281,20 @@ class OptimizerConfig(_Config, ABC):
         if disable_env_checking is not None:
             self.disable_env_checking = disable_env_checking
         if queries is not None:
-            self._reporting_queries_env = queries
+            self._reporting_queries_env = tuple(queries)
         if schema is not None:
-            self._reporting_schema_env =schema
+            self._reporting_schema_env = schema
 
         return self
-    
+
     @abstractmethod
     def training(self):
         raise NotImplementedError
-    
+
     def debugging(
         self,
         *,
-        seed: Optional[int] = None, #base seed
+        seed: Optional[int] = None,  # base seed
         num_seeds: int = 3,
     ) -> Self:
         if seed is not None:
@@ -293,14 +306,15 @@ class OptimizerConfig(_Config, ABC):
         return self
 
     def reporting(
-            self, 
-            queries: Optional[tuple[Query]], 
-            schema: Optional[MetricSchema],
-        ) -> Self:
+        self,
+        queries: Optional[tuple[Query, ...]] = None,
+        schema: Optional[type[MetricSchema]] = None,
+    ) -> Self:
+        """Declare the optimizer-level metric schema and the queries to render from it."""
         if schema is not None:
             self._reporting_schema = schema
         if queries is not None:
-            self._reporting_queries = queries
+            self._reporting_queries = tuple(queries)
         return self
 
     # TODO Docstring explanation

@@ -7,10 +7,10 @@ from ray.actor import ActorHandle
 from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 
 from core.envs.base import BaseEnv
+from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.optimizers.config import OptimizerConfig
 from core.reporting.base import Reporter
-from core.reporting.wandb import WandbReporter
 from core.types import OptimizerID
 from core.world.base import World
 
@@ -53,6 +53,9 @@ class Optimizer(ABC):
         self.world = world  # TODO replace by envFactory
         self.reporting: Optional[Reporter] = reporting
 
+        # Typed metric logger; concrete optimizers build one from their schema.
+        self.logger: Optional[MetricLogger] = None
+
         # Assigned by World or Orchestrator
         self.opt_id: OptimizerID | None = None
 
@@ -83,11 +86,11 @@ class Optimizer(ABC):
     # @reporting.setter
     # def world(self, reporting: ActorHandle[WandbReporter]) -> None:
     #     self._reporting = reporting
-    
+
     @property
     def env(self) -> BaseEnv | None:
         return self._env
-    
+
     @env.setter
     def env(self, value: BaseEnv | None) -> None:
         self._env = value
@@ -144,9 +147,7 @@ class Optimizer(ABC):
         Destructively reduce and return all accumulated optimizer metrics.
         """
         if self.logger is None:
-            raise RuntimeError(
-                f"{type(self).__name__} has no MetricLogger."
-            )
+            raise RuntimeError(f"{type(self).__name__} has no MetricLogger.")
 
         return self.logger.reduce()
 
@@ -160,11 +161,10 @@ class Optimizer(ABC):
         self.logger.reset()
 
     def report_metrics(self) -> None:
-        """
-        plot all accumulated metrics given queries
-        """
-        metrics = self.logger.peek()
-        self.reporting.report(metrics)
+        """Render every configured query against the accumulated metrics (non-destructive)."""
+        if self.logger is None or self.reporting is None:
+            return
+        self.reporting.report(self.logger.peek())
 
     # Accessors
     # def __getattribute__(self, name):

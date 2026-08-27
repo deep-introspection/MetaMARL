@@ -5,11 +5,12 @@ from pydantic import Field
 from core.metrics.enums import ReduceProtocol
 from core.metrics.schemas import MetricSchema
 
-
 AgentID: TypeAlias = str
+
 
 class AgentEnvStepSchema(MetricSchema):
     """Generic metrics produced for one agent during environment steps."""
+
     # statistics collected at env-step level
     action: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
@@ -21,10 +22,12 @@ class AgentEnvStepSchema(MetricSchema):
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     terminated: Optional[bool] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST} # TODO mean to support bool
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.LAST},  # TODO mean to support bool
     )
     truncated: Optional[bool] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST} # TODO mean to supprot bool
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.LAST},  # TODO mean to supprot bool
     )
 
     # calculated stats
@@ -58,9 +61,13 @@ class AgentEnvStepSchema(MetricSchema):
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
 
+
 # TODO add recducer metadata attachment.
-class EpisodeRolloutSchema(MetricSchema):  # attention this is aggregate by env not by env step
+class EpisodeRolloutSchema(
+    MetricSchema
+):  # attention this is aggregate by env not by env step
     """Generic environment-step metrics."""
+
     env_id: Optional[int] = Field(
         default=None,
         json_schema_extra={"reduce": ReduceProtocol.LAST},
@@ -79,56 +86,32 @@ class EpisodeRolloutSchema(MetricSchema):  # attention this is aggregate by env 
     )
     # Reward (R) statistics
     reward_total: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.SUM
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SUM}
     )
     reward_mean: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MEAN
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     reward_min: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MIN
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MIN}
     )
     reward_max: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MAX
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MAX}
     )
     reward_terminal: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.LAST
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
     # Value (V) statistics
     value_terminal: Optional[float] = None
     value_penultimate: Optional[float] = None
 
     episode_len_mean: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MEAN
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     episode_len_max: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MEAN
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     episode_len_min: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MEAN
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     num_episodes: Optional[int] = Field(
         default=None,

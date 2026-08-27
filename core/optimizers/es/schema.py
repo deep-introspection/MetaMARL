@@ -6,6 +6,8 @@ from core.metrics.enums import ReduceProtocol
 from core.metrics.schemas import MetricSchema
 
 MechanismID: TypeAlias = str
+ParameterName: TypeAlias = str
+
 
 class ESParameterSchema(MetricSchema):
     value: Optional[float] = Field(
@@ -21,12 +23,14 @@ class ESCandidateSchema(MetricSchema):
     )
 
     # Parameter names are runtime-defined by MechanismSpace.
-    by_parameter: dict[str, ESParameterSchema] = Field(
-        default_factory=dict
-    )
+    by_parameter: dict[str, ESParameterSchema] = Field(default_factory=dict)
 
 
 class ESSchema(MetricSchema):
+    generation: Optional[int] = Field(
+        default=None,
+        json_schema_extra={"reduce": ReduceProtocol.SERIES},
+    )
     sigma: Optional[float] = Field(
         default=None,
         json_schema_extra={"reduce": ReduceProtocol.SERIES},
@@ -52,14 +56,11 @@ class ESSchema(MetricSchema):
         json_schema_extra={"reduce": ReduceProtocol.SERIES},
     )
 
-    by_mechanism: dict[MechanismID, ESCandidateSchema] = Field(
-        default_factory=dict
-    )
+    by_mechanism: dict[MechanismID, ESCandidateSchema] = Field(default_factory=dict)
 
-    search_mean: dict[MechanismID, ESParameterSchema] = Field(
-        default_factory=dict
-    )
-    global_best: dict[MechanismID, ESParameterSchema] = Field(
+    search_mean: dict[ParameterName, ESParameterSchema] = Field(default_factory=dict)
+    global_best: dict[ParameterName, ESParameterSchema] = Field(default_factory=dict)
+    generation_best: dict[ParameterName, ESParameterSchema] = Field(
         default_factory=dict
     )
     inner: Optional[MetricSchema] = None
