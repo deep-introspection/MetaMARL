@@ -4,6 +4,7 @@ from gymnasium import spaces
 from ray.rllib.models import ModelCatalog
 
 from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
+from core.callbacks import tag_episode_with_env_idx
 from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
@@ -14,7 +15,6 @@ ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
 
 
 # Optional: central callback registry
-from core.callbacks import tag_episode_with_env_idx
 
 CALLBACKS = {
     "tag_episode_with_env_idx": tag_episode_with_env_idx,

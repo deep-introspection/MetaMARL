@@ -410,8 +410,6 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         MultiAgentDict,
     ]:
         S_t = self.S_t.copy()
-        fish = float(S_t["fish"])
-        fish_norm = fish / max(self.max_fish, EPS)
 
         # Same parent-style logic as water:
         # utility first, violation second, then transition
@@ -447,8 +445,6 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             A_t=action_dict,
             S_t=S_t,
         )
-        H_realized = float(S_next["last_usage"])
-        harvest_to_msy = H_realized / max(self.MSY, EPS)
 
         fish_norm_next = float(S_next["fish"] / max(self.max_fish, EPS))
 
