@@ -44,9 +44,9 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug
 ```
 
 Run scripts as modules (`python -m ...`) from the repository root so that the
-`core` and `examples` packages import. See `QUICKSTART.md` (on the feature
-branches) for a short configuration that finishes in about a minute, and the
-`tutorials/` notebooks for a guided tour of the concepts.
+`core` and `examples` packages import. See `QUICKSTART.md` for a short
+configuration that finishes in about a minute, and the `tutorials/` notebooks
+for a guided tour of the concepts.
 
 ## Repository layout
 
@@ -86,6 +86,23 @@ docs/                     ARCHITECTURE.md, REPRISE.md (resume file), MERGE_NOTES
 
 `docs/ARCHITECTURE.md` walks through the same flow with the class names and
 the invariants to respect when extending the framework.
+
+## Mechanisms (this branch)
+
+A regulation is a `Mechanism` (`core/mechanism/base.py`) intervening on the
+agent/environment loop through three optional channels — `action`
+(`a* = M^A(s, a)`), `reward` (`r* = M^R(r, s, a*, s')`) and `observation`
+(`o* = M^O(s, o)`) — and living in an optimizer space through
+`dimension`/`encode`/`decode`. Concrete mechanisms: `QuotaMechanism` (smooth
+cap on the harvest fraction), `SubsidyMechanism` (reward for restoration
+effort), `ThresholdPenaltyMechanism` (penalty below a stock threshold) and
+`SocialInfluenceMechanism` (peers' previous actions appended to observations).
+`ChainedMechanism` and `ParallelMechanism` compose them. Benchmarks declare
+their dynamics with the decorators of `core/envs/hooks.py` (`@reset`,
+`@action`, `@reward`, `@transition`, `@observation`) on a
+`MultiAgentRegulatedEnv` subclass, and `BilevelConfig().mechanism(mechanism=...)`
+gives the same mechanism template to both levels. `QUICKSTART.md` runs it;
+`tutorials/` teach it; `TODO.md` tracks what remains.
 
 ## Development
 
