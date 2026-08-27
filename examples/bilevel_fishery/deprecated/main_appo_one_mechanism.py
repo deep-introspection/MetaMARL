@@ -4,9 +4,9 @@ from gymnasium import spaces
 
 # core optimizers
 from core.callbacks import tag_episode_with_env_idx
+from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
-from core.optimizers.appo.config import APPOptimizerConfig
 
 # Fishery-specific objects
 from examples.bilevel_fishery.deprecated.mechanism import FisheryMechanismSpace
@@ -26,6 +26,7 @@ ray.shutdown()
 # TODO move this to the config !
 # Register custom MPS model
 from ray.rllib.models import ModelCatalog
+
 from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
 
 ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)

@@ -26,6 +26,7 @@ ray.shutdown()
 # TODO move this to the config !
 # Register custom MPS model
 from ray.rllib.models import ModelCatalog
+
 from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
 
 ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)

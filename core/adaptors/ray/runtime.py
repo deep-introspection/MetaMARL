@@ -5,6 +5,7 @@ from typing import Any, Dict, Literal, Optional
 
 import ray
 import torch
+from ray._private import ray_constants
 
 DeviceType = Literal["cpu", "cuda", "mps"]
 
@@ -62,6 +63,13 @@ class RayRuntimeConfig:
     def initialize(self):
         self._apply_env_vars()
 
+        # Ray >= 2.4x detects a driver started with ``uv run`` and injects
+        # ``working_dir=<cwd>`` + ``py_executable="uv run"`` into the runtime
+        # env, which ``local_mode`` rejects ("is not a valid URI"). The flag is
+        # read at import time, so it is overridden here rather than through the
+        # environment. See RAY_ENABLE_UV_RUN_RUNTIME_ENV in ray_constants.
+        ray_constants.RAY_ENABLE_UV_RUN_RUNTIME_ENV = False
+
         # Silence noisy loggers globally
         # # logging.getLogger().setLevel(logging.WARNING)
         logging.getLogger("ray").setLevel(logging.WARNING)
@@ -70,11 +78,18 @@ class RayRuntimeConfig:
         logging.getLogger("tensorboardX").setLevel(logging.ERROR)
         logging.getLogger("asyncio").setLevel(logging.ERROR)
 
+        resources = {
+            key: value
+            for key, value in (("num_cpus", self.num_cpus), ("num_gpus", self.num_gpus))
+            if value is not None
+        }
+
         ray.init(
             ignore_reinit_error=True,
             logging_level=self.logging_level,
             runtime_env=self.runtime_env,
             local_mode=True,  # Turn on for debugging only (DO NOT TURN OFF)
+            **resources,
             log_to_driver=False,
             include_dashboard=False,
             _system_config={

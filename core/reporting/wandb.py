@@ -5,8 +5,8 @@ from typing import Any, Optional
 
 import numpy as np
 import plotly.graph_objects as go
-import wandb
 
+import wandb
 from core.metrics.metric.base import PrimitiveType
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig

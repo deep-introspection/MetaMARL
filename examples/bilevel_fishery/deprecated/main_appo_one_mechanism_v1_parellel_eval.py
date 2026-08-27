@@ -4,13 +4,13 @@ from gymnasium import spaces
 
 # core optimizers
 from core.callbacks import tag_episode_with_env_idx
+from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
-from core.optimizers.appo.config import APPOptimizerConfig
+from examples.bilevel_fishery.deprecated.regulated_env_v1 import FisheryRegulatedEnv
 
 # Fishery-specific objects
 from examples.bilevel_fishery.mechanism_v1 import FisheryMechanismSpace
-from examples.bilevel_fishery.deprecated.regulated_env_v1 import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
 # TODO the default mechanism config and fisherman, and observation spaces and action spaces part of config
@@ -27,6 +27,7 @@ ray.shutdown()
 # TODO move this to the config !
 # Register custom MPS model
 from ray.rllib.models import ModelCatalog
+
 from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
 
 ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
@@ -172,7 +173,7 @@ bilevel_opt_cfg: BilevelConfig = (
             evaluation_interval=1,
             evaluation_duration=6,  # rollout_fragment_length X num_episodes
             evaluation_duration_unit="episodes",
-            evaluation_num_env_runners=1, # should also be the same as num mechanisms no ?
+            evaluation_num_env_runners=1,  # should also be the same as num mechanisms no ?
             evaluation_parallel_to_training=False,  # This must be False when local_mode is True !
             evaluation_config={
                 "explore": False,  # greedy eval actions
@@ -204,8 +205,8 @@ bilevel_opt_cfg: BilevelConfig = (
         )
         .fault_tolerance(restart_failed_env_runners=False)
         .debugging(
-            seed = 42, # this is base seed same as training
-            num_seeds = 3, #TODO rm enforce even-ness
+            seed=42,  # this is base seed same as training
+            num_seeds=3,  # TODO rm enforce even-ness
         )
     )
 )

@@ -3,10 +3,9 @@ import ray
 from gymnasium import spaces
 
 from core.callbacks import tag_episode_with_env_idx
+from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
-from core.optimizers.appo.config import APPOptimizerConfig
-
 from examples.bilevel_fishery.mechanism_v1 import FisheryMechanismSpace
 from examples.bilevel_fishery.regulated_env_shaefer import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
@@ -14,6 +13,7 @@ from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 ray.shutdown()
 
 from ray.rllib.models import ModelCatalog
+
 from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
 
 ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
@@ -35,7 +35,6 @@ fishery_ecology_cfg = {
     "p": 1.0,
     "sigma": 0.05,
     "B0": 2.5,
-
     # Optional compatibility alias used by reset if present
     "fish_init": 2.5,
 }

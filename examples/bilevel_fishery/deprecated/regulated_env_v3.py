@@ -1,14 +1,12 @@
 import logging
-from typing import SupportsFloat, Tuple
+from typing import SupportsFloat
 
 import numpy as np
 from gymnasium.core import ActType
-from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.typing import AgentID, MultiAgentDict
 
 from core.annotations import override
 from core.envs.marl_regulated import MultiAgentRegulatedEnv
-from examples.bilevel_fishery.mechanism_v1 import FisheryMechanism
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,9 +69,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
     @override(MultiAgentRegulatedEnv)
     def intrinsic_utility(
-            self, 
-            A_t: dict[AgentID, ActType],
-        ) -> MultiAgentDict:
+        self,
+        A_t: dict[AgentID, ActType],
+    ) -> MultiAgentDict:
         return {
             agent_id: (action.item() * self.S_t["fish"]) / self.max_fish
             for agent_id, action in A_t.items()
@@ -88,10 +86,10 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         A_t: MultiAgentDict,
     ) -> SupportsFloat:
         fish_norm = self.S_t["fish"] / self.max_fish
-        
+
         # TODO move this calculation to mechanism ?
         effective_quota = min(
-            self.mechanism.fixed_quota, 
+            self.mechanism.fixed_quota,
             self.mechanism.prop_quota * fish_norm,
         )
         quota_violation = max(0.0, u_i - effective_quota)
@@ -106,11 +104,11 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         stock_penalty = min(
             1.0,
             self.mechanism.risk_penalty_scale
-            * (shortage_severity ** self.mechanism.risk_penalty_power)
+            * (shortage_severity**self.mechanism.risk_penalty_power)
             * float(u_i > 0.0),
         )
 
-        total_penalty = min(1.0,quota_penalty + stock_penalty)
+        total_penalty = min(1.0, quota_penalty + stock_penalty)
 
         # For debugging
         self._update_infos(
@@ -166,9 +164,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             values=harvest_scale,
         )
         fish_next = fish + self.dt * (
-            self.delta * algae * fish * (1 - fish_norm)
-            - self.gamma * fish
-            - H
+            self.delta * algae * fish * (1 - fish_norm) - self.gamma * fish - H
         )
         algae_next = algae + self.dt * (
             self.alpha * algae * (1 - algae / self.max_algae) - self.beta * algae * fish
@@ -182,7 +178,9 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def _observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]):
         fish_norm = S_t["fish"] / self.max_fish
         algae_norm = S_t["algae"] / self.max_algae
-        effective_quota = min(self.mechanism.fixed_quota, self.mechanism.prop_quota * fish_norm)
+        effective_quota = min(
+            self.mechanism.fixed_quota, self.mechanism.prop_quota * fish_norm
+        )
         no_fish_zone = float(fish_norm < self.mechanism.min_stock)
 
         return np.array(
@@ -203,15 +201,14 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         # TODO what if not all fishermen have fish?
         desired = self.intrinsic_utility(A_t=A_t)
         total_desired = float(sum(desired.values()))
-        
+
         # N.B. this normalizes the action such that total fish in the pond is split evently
-        # However this is unrealistic, if two fishermen cast nets into a lake, their nets don't 
+        # However this is unrealistic, if two fishermen cast nets into a lake, their nets don't
         # shrink just because another fisherman showed up.
         # TODO independent sequential sampling
         scale = min(1.0, fish_norm / max(EPS, total_desired))
         realized_harvest = {
-            agent_id: desired[agent_id] * scale
-            for agent_id in self.agents
+            agent_id: desired[agent_id] * scale for agent_id in self.agents
         }
         H_total = float(sum(realized_harvest.values()))
         return realized_harvest, H_total, scale

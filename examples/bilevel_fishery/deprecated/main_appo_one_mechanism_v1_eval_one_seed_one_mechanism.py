@@ -4,13 +4,13 @@ from gymnasium import spaces
 
 # core optimizers
 from core.callbacks import tag_episode_with_env_idx
+from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
-from core.optimizers.appo.config import APPOptimizerConfig
+from examples.bilevel_fishery.deprecated.regulated_env_v2 import FisheryRegulatedEnv
 
 # Fishery-specific objects
 from examples.bilevel_fishery.mechanism_v1 import FisheryMechanismSpace
-from examples.bilevel_fishery.deprecated.regulated_env_v2 import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
 # TODO the default mechanism config and fisherman, and observation spaces and action spaces part of config
@@ -27,6 +27,7 @@ ray.shutdown()
 # TODO move this to the config !
 # Register custom MPS model
 from ray.rllib.models import ModelCatalog
+
 from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
 
 ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
@@ -93,10 +94,7 @@ bilevel_opt_cfg: BilevelConfig = (
             horizon=5,
             train_iters=10,  # TODO implement early stop for plateau
         )
-        .debugging(
-            seed=42,
-            num_seeds=1
-        )
+        .debugging(seed=42, num_seeds=1)
     )
     .inner(
         APPOptimizerConfig()
@@ -148,11 +146,11 @@ bilevel_opt_cfg: BilevelConfig = (
             circular_buffer_num_batches=4,  # TODO review
             circular_buffer_iterations_per_batch=1,  # TODO review
             broadcast_interval=1,
-            timeout_s_sampler_manager=10, # Max time to wait for training samples before giving up
+            timeout_s_sampler_manager=10,  # Max time to wait for training samples before giving up
             timeout_s_aggregator_manager=10,
             gamma=0.99,
             lr=0.001,
-            train_batch_size_per_learner=5, # same or less than rollout fragment length
+            train_batch_size_per_learner=5,  # same or less than rollout fragment length
             minibatch_size=5,  # 512
             num_epochs=1,
             entropy_coeff=0.001,
@@ -163,7 +161,7 @@ bilevel_opt_cfg: BilevelConfig = (
             evaluation_interval=1,
             evaluation_duration=1,  # rollout_fragment_length X num_episodes
             evaluation_duration_unit="episodes",
-            evaluation_num_env_runners=1, # should also be the same as num mechanisms no ?
+            evaluation_num_env_runners=1,  # should also be the same as num mechanisms no ?
             evaluation_parallel_to_training=False,  # This must be False when local_mode is True !
             evaluation_config={
                 "explore": False,  # greedy eval actions
@@ -174,7 +172,7 @@ bilevel_opt_cfg: BilevelConfig = (
         .agents(
             {
                 "fisher": {
-                    "count": 1, # each share the same policy here ! this is a clone !
+                    "count": 1,  # each share the same policy here ! this is a clone !
                     "policy": "fisher_policy",
                     "observation_space": spaces.Box(
                         low=-np.inf,
@@ -195,8 +193,8 @@ bilevel_opt_cfg: BilevelConfig = (
         )
         .fault_tolerance(restart_failed_env_runners=False)
         .debugging(
-            seed = 42, # this is base seed same as training
-            num_seeds = 1, #TODO rm enforce even-ness
+            seed=42,  # this is base seed same as training
+            num_seeds=1,  # TODO rm enforce even-ness
         )
         .reporting(
             min_time_s_per_iteration=0,

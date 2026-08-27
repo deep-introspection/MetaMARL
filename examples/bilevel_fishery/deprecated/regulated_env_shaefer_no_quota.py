@@ -104,19 +104,18 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         }
 
         return {
-            agent_id: self.observation(agent_id, self.S_t)
-            for agent_id in self.agents
+            agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
         }
 
     @override(MultiAgentRegulatedEnv)
     def _is_truncated(self) -> bool:
         return self.horizon is not None and (self._t + 1) >= self.horizon
-    
+
     def _action_to_float(self, action: ActType) -> float:
         if hasattr(action, "item"):
             return float(action.item())
         return float(action)
-    
+
     def _quota_stress(self, fish_norm: float) -> float:
         return float(
             np.clip(
@@ -143,7 +142,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     def _allowed_harvest(self, fish_norm: float) -> float:
         # return self._allowed_frac(fish_norm) * self.full_required_harvest
         return self.full_required_harvest
-    
+
     def intrinsic_utility(
         self,
         A_t: dict[AgentID, ActType],
@@ -169,10 +168,12 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             )
 
         self._update_infos(key="fish_norm", values=fish_norm)
-        self._update_infos(key="full_required_harvest", values=self.full_required_harvest)
+        self._update_infos(
+            key="full_required_harvest", values=self.full_required_harvest
+        )
 
         return utilities
-    
+
     def violation_signal(
         self,
         u_i: SupportsFloat,
@@ -221,9 +222,13 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         risk_penalty = 0.0
         total_penalty = 0.0
 
-        self._update_infos(key="requested_harvest", values={agent_id: requested_harvest})
+        self._update_infos(
+            key="requested_harvest", values={agent_id: requested_harvest}
+        )
         self._update_infos(key="allowed_harvest", values={agent_id: allowed_harvest})
-        self._update_infos(key="delivered_harvest", values={agent_id: delivered_harvest})
+        self._update_infos(
+            key="delivered_harvest", values={agent_id: delivered_harvest}
+        )
         # self._update_infos(key="requested_frac", values={agent_id: requested_frac_norm})
         self._update_infos(key="quota_violation", values={agent_id: quota_violation})
         self._update_infos(key="quota_penalty", values={agent_id: quota_penalty})
@@ -287,19 +292,23 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         self._update_infos(key="fish", values=fish)
         self._update_infos(key="fish_next", values=fish_next)
         self._update_infos(key="fish_norm", values=fish_norm)
-        self._update_infos(key="fish_norm_next", values=fish_next / max(self.max_fish, EPS))
+        self._update_infos(
+            key="fish_norm_next", values=fish_next / max(self.max_fish, EPS)
+        )
         self._update_infos(key="growth", values=growth)
         self._update_infos(key="growth_noise", values=noise)
         self._update_infos(key="H_attempted", values=H_attempted)
         self._update_infos(key="H_realized", values=H_realized)
-        self._update_infos(key="total_usage_norm", values=H_realized / max(EPS, self.max_fish))
+        self._update_infos(
+            key="total_usage_norm", values=H_realized / max(EPS, self.max_fish)
+        )
         self._update_infos(key="B_msy", values=self.B_msy)
         self._update_infos(key="MSY", values=self.MSY)
         self._update_infos(key="F_msy", values=self.F_msy)
 
         self.S_t = new_state
         return self.S_t
-    
+
     def _observation(
         self,
         agent_id: AgentID,
@@ -358,10 +367,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             S_t=S_t,
         )
 
-        obs = {
-            agent_id: self.observation(agent_id, S_next)
-            for agent_id in self.agents
-        }
+        obs = {agent_id: self.observation(agent_id, S_next) for agent_id in self.agents}
 
         time_limit = self._is_truncated()
 

@@ -78,9 +78,7 @@ class FisheryMechanismSpace(MechanismSpace):
 
         # TODO fix this
         self.optimize_params = (
-            list(self.ALL_PARAMS)
-            if optimize_params is None
-            else list(optimize_params)
+            list(self.ALL_PARAMS) if optimize_params is None else list(optimize_params)
         )
 
         self.dimension = len(self.optimize_params)
@@ -169,7 +167,7 @@ class FisheryMechanismSpace(MechanismSpace):
             fine_amount=float(np.clip(m.fine_amount, 0.0, 1.0)),
             risk_penalty_scale=float(np.clip(m.risk_penalty_scale, 0.0, 1.0)),
             risk_penalty_power=float(np.clip(m.risk_penalty_power, 1.0, 5.0)),
-            restoration_subsidy=float(np.clip(m.restoration_subsidy, 0.0, 0.5))
+            restoration_subsidy=float(np.clip(m.restoration_subsidy, 0.0, 0.5)),
         )
 
     def from_dict(self, cfg: dict) -> FisheryMechanism:
