@@ -3,8 +3,8 @@ from typing import SupportsFloat
 
 import gymnasium
 import numpy as np
-from gymnasium.core import ActType
 from gymnasium import spaces
+from gymnasium.core import ActType
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.typing import AgentID, MultiAgentDict
 

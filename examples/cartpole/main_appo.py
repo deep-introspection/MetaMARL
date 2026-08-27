@@ -1,17 +1,16 @@
 import numpy as np
 import ray
 from gymnasium import spaces
-import gymnasium
 
 # core optimizers
 from core.callbacks import tag_episode_with_env_idx
+from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
-from core.optimizers.appo.config import APPOptimizerConfig
+from examples.cartpole.regulated_env import CartpoleRegulatedEnv
 
 # Fishery-specific objects
 from examples.dummy.mechanism import DummyMechanismSpace
-from examples.cartpole.regulated_env import CartpoleRegulatedEnv
 from examples.dummy.regulator_env import DummyRegulatorEnv
 
 # TODO the default mechanism config and fisherman, and observation spaces and action spaces part of config
@@ -27,6 +26,7 @@ ray.shutdown()
 # TODO move this to the config !
 # Register custom MPS model
 from ray.rllib.models import ModelCatalog
+
 from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
 
 ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
