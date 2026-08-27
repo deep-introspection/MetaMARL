@@ -148,7 +148,7 @@ worktree at `../bilevel-fishery-logging` (own `.venv`, `uv sync --group dev`
 done). README/AGENTS/QUICKSTART (Phase 3) will be written on the base branch
 and merged into both.
 
-## Phase 2 — `feature/logging/testing` (started)
+## Phase 2 — `feature/logging/testing` (2a done, 2b mostly done)
 
 Branch = `origin/feature/logging` + merge of `chore/cleanup-base` (three
 modify/delete conflicts on the removed `tests/integration/{_main,_test,main}.py`,
@@ -166,3 +166,20 @@ uv run ruff check . && uv run ruff format --check .
 uv run python -m pytest -m "not integration and not notebook"   # unit + coverage
 uv run python -m pytest -m integration --no-cov                   # needs Ray
 ```
+
+Done on the logging branch (commits `816ee3c`, `3f9db09` and the reward-logging fix):
+
+- Executable end-to-end with W&B offline or `--reporter csv` (smoke config as
+  above, ~1 min). See `docs/MERGE_NOTES.md` for the decisions.
+- Unit tests: `tests/metrics` (reducers, logger build/push/dynamic/peek/reduce),
+  `tests/reporting` (Query, Reporter resolution, CSV/TensorBoard/W&B backends
+  with mocks), `tests/adaptors` (RLlib result builders, episode-end callback,
+  Ray runtime), `tests/optimizers/test_es_payload.py`, env/config logging
+  plumbing. 78 unit tests green; `core/metrics` 77–100 %, `core/reporting`
+  91–100 %, `core/envs/base.py` 94 %.
+
+Open on the logging branch: wildcards `"*"` + grouped mean/std in
+`Reporter._resolve_query` (Phase 2c), `tutorials/visualization.ipynb`
+executable (2d), `TODO.md` status update (2e), docstrings on the metrics and
+reporting modules, coverage of `core/metrics/metric/{last,min,max,sum}.py`
+(`reduce(compile=False)` branches).

@@ -95,7 +95,53 @@ its own decoded candidate, so this holds), context publishing seed tests
 
 ## feature/logging/testing
 
-(To be completed in Phase 2.)
+State on arrival: the stack imported but could not run — `WandbReporter`
+crashed on every `reduce="mean"` query (wrong keyword), the CSV and
+TensorBoard reporters implemented an older `_report` signature,
+`RayOptimizer.stop()` had a typo, `core/adaptors/ray/protocols.py` imported a
+removed package, and `FisheryMetricSchema` could not be instantiated (its
+`Optional` fields had no default, so pydantic made them required). Fixed, and
+the fishery run works end-to-end with W&B offline or the CSV reporter:
+
+```bash
+WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug \
+    --outer-iters 2 --train-iters 2 --num-agents 2 --horizon 20 [--reporter csv]
+```
+
+Decisions taken for you:
+
+1. **Reporting is optional everywhere.** `BaseEnv` accepts
+   `reporter_cfg=None` and skips logging when no `schema` is given (`_log`
+   helper); `Optimizer.report_metrics` is a no-op without a reporter;
+   configs build reporters only when one is set. Unit tests and Ray-free
+   runs no longer need W&B.
+2. **Env-level queries reach the env.** `OptimizerConfig.environment(queries=,
+   schema=)` stored `_reporting_queries_env`/`_reporting_schema_env`, but the
+   base `build_optimizer` passed the *optimizer*-level schema and queries to
+   the env creator (and the `_env` attributes did not exist until
+   `environment()` was called). Fixed; the RLlib config already did it right.
+3. **Rewards are logged once**, in `MultiAgentRegulatedEnv.step()`, whatever
+   path `_step` took. Your branch pushed them both in `step()` and in
+   `reward()`; the fishery env bypasses `reward()` so removing the `step()`
+   push would have emptied `reward_mean` (it did, during the first smoke run).
+4. **`reward()` regression**: the generic `reward()` had become
+   `-penalty * violation`, dropping `u_i` relative to `dev`. Restored to
+   `u_i - penalty * violation`. Tell us if the change was intentional.
+5. **`ESSchema`** gains `generation` (SERIES) and `generation_best`;
+   `search_mean`/`global_best`/`generation_best` are keyed by `ParameterName`
+   (your TODO §5.1). Queries use `x=("generation",)`.
+6. **CSV reporter** writes one long-form file per query
+   (`query, x, series, value`; mean/std as two series). **TensorBoard**
+   becomes an optional extra (`uv sync --extra tensorboard`) with a lazy
+   import; tags are `<title>/<series>`.
+7. The query bundles of your TODO §1 live in
+   `examples/bilevel_fishery/queries.py` and `debug.py` is an argparse script
+   (`--reporter wandb|csv`).
+
+Known and left as is: `FisheryRegulatorEnv.aggregate_rewards` sets
+`mean_fines` to `tail_fish.mean()` (copy-paste; `dev` used the violation
+signal). It only feeds `FitnessContext.total_fines`, which the objective does
+not use, so the fitness is unaffected — but please fix the intent.
 
 ## Conflict map between the two features
 
