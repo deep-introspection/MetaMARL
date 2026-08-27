@@ -1,143 +1,111 @@
-# Bilevel Fishery
+# bilevel-fishery
 
-A small research / experimental codebase for bilevel optimization applied to fishery and water-usage regulation problems.
+A research framework for **bilevel optimization of regulatory mechanisms** in
+multi-agent resource systems. An outer optimizer searches the parameters of a
+regulation (a quota, a subsidy, a penalty); for every candidate, an inner
+reinforcement-learning optimizer trains the agents who live under that
+regulation; the outcome of the trained agents becomes the fitness of the
+candidate. The reference benchmark is a shared fishery: `N` fishers harvest a
+single stock with Pella-Tomlinson growth dynamics, and the regulator looks for
+the quota (and other levers) that keeps the stock alive while the fishers keep
+earning.
 
-This repository contains core algorithms, environment implementations, example setups, and legacy code used during research and development. The project supports running example experiments (in `examples/`) and contains reusable components in `core/`, `mechanism/`, `optimizers/`, and `world/`.
+Formally the regulator solves
 
-## Features
-
-- Bilevel optimization primitives and optimizers (e.g., ES, PPO-related code paths).
-- Modular environment and mechanism implementations for fishery and water-usage case studies.
-- Example experiment configurations under `examples/` demonstrating how to wire up agents, regulators, and mechanisms.
-- Legacy folder with earlier experiments and utilities for reproducibility.
-
-## Quickstart
-
-Prerequisites
-
-- Python 3.12 (the project pins `>=3.12,<3.13`).
-- pip or a conda-based environment.
-
-Optional dependencies
-
-Some examples (and optional analysis tools) depend on external scientific packages. A commonly used optional dependency is RavenPy (used for hydrological modeling in water-usage examples). Install RavenPy with conda:
-
-```bash
-conda install -c conda-forge ravenpy
+```
+max_theta  F(theta, pi*(theta))       subject to    pi*(theta) = argmax_pi  J(pi; theta)
 ```
 
-If you installed RavenPy this way, you're ready to run the `examples/water_usage` scripts. On macOS/conda, if you run into binary or dependency conflicts, try creating a fresh conda environment first:
+where `theta` are the mechanism parameters, `pi` the agents' policies, `J` the
+agents' discounted return under mechanism `theta`, and `F` the regulator's
+objective (here a mix of harvest and biomass sustainability). The outer problem
+is solved by Evolution Strategies (gradient-free, robust to the noisy inner
+solution); the inner problem by APPO (RLlib) with one policy per candidate.
+
+## Installation
+
+The project uses [uv](https://docs.astral.sh/uv/) and Python 3.12.
 
 ```bash
-conda create -n bilevel-fishery python=3.12 -y
-conda activate bilevel-fishery
-conda install -c conda-forge ravenpy
+git clone https://github.com/deep-introspection/bilevel-fishery.git
+cd bilevel-fishery
+uv sync --group dev          # runtime + test/lint/notebook tooling
 ```
 
-Install (editable, development)
+Weights & Biases is the reporting backend of the reference experiment; set
+`WANDB_MODE=offline` to run without an account.
+
+## Running an experiment
+
+Each example ships a runnable script that assembles a `BilevelConfig`:
 
 ```bash
-# (optional) using conda
-conda create -n bilevel-fishery python=3.12 -y
-conda activate bilevel-fishery
-
-# from repo root
-pip install -e .
+WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug
 ```
 
-Alternatively, to install runtime-only dependencies, consult `pyproject.toml` and your preferred environment manager.
+Run scripts as modules (`python -m ...`) from the repository root so that the
+`core` and `examples` packages import. See `QUICKSTART.md` (on the feature
+branches) for a short configuration that finishes in about a minute, and the
+`tutorials/` notebooks for a guided tour of the concepts.
 
-Run an example
+## Repository layout
 
-From the repository root you can run one of the example scripts. For the bilevel fishery example:
-
-```bash
-python examples/bilevel_fishery/main.py
+```
+core/                     the library
+  optimizers/             OptimizerConfig, BilevelConfig/BilevelOptimizer, ES (outer), APPO/PPO configs (inner)
+  envs/                   BaseEnv, RegulatorEnv (outer env), MultiAgentRegulatedEnv (inner env)
+  mechanism/              mechanism abstraction (what the regulator optimizes)
+  world/                  the World Ray actor: shared blackboard of contexts between levels
+  adaptors/ray/           RLlib glue: RayOptimizer, RayOptimizerConfig, PolicyActor, runtime
+  reporting/              reporting backends (Weights & Biases, ...)
+  callbacks.py            RLlib callbacks tagging episodes with mechanism and seed identity
+examples/
+  bilevel_fishery/        the fishery benchmark (regulated env, regulator env, config scripts)
+  fresh_water/            a water-allocation benchmark (Raven hydrological model)
+  cartpole/, dummy/       minimal sanity examples
+tests/                    pytest suite (markers: unit, integration, notebook)
+tutorials/                executable notebooks (feature branches)
+docs/                     ARCHITECTURE.md, REPRISE.md (resume file), MERGE_NOTES.md
 ```
 
-Or for the water-usage example:
+## How the pieces fit
 
-```bash
-python examples/water_usage/main.py
-```
+1. `BilevelConfig.build_optimizer()` starts Ray, creates the `World` actor,
+   builds the inner optimizer (`RayOptimizer` wrapping an RLlib `Algorithm`
+   inside a `PolicyActor`) and the outer optimizer (`ESOptimizer` driving a
+   `RegulatorEnv`), and ties the ES population size to the number of inner
+   environments.
+2. Each ES generation, `RegulatorEnv.step(population)` decodes the population
+   into mechanisms, publishes one `MechanismContext` per (candidate, seed) to the
+   World, trains the inner policies for `train_iters` iterations, evaluates
+   them, aggregates the environments' step records into one fitness per
+   candidate, and flushes the consumed contexts.
+3. Each regulated environment fetches its candidate from the World at reset
+   (by `mechanism_id` and policy seed), applies the mechanism while stepping,
+   and publishes an `EnvStepContext` per step.
 
-Some examples rely on YAML configuration files stored alongside the example (e.g. `examples/bilevel_fishery/config.yaml`). Edit them to change experiment parameters.
-
-## Project layout
-
-- `core/` — core types, registries, utilities used across the codebase.
-- `mechanism/` — mechanism definitions and spaces.
-- `optimizers/` — optimizer implementations and configuration helpers.
-- `world/` — environment/world abstractions.
-- `examples/` — runnable example experiments (bilevel_fishery, water_usage).
-- `tests/` — unit and integration tests.
+`docs/ARCHITECTURE.md` walks through the same flow with the class names and
+the invariants to respect when extending the framework.
 
 ## Development
 
-Run tests
-
 ```bash
-# run the full test suite (fast projects only) from repo root
-pytest -q
+uv run ruff check . && uv run ruff format --check .
+uv run python -m pytest -m "not integration and not notebook"   # unit tests + coverage
+uv run python -m pytest -m integration --no-cov                   # needs a local Ray runtime
+uv run python -m pytest -m notebook --no-cov                      # executes the tutorials
 ```
 
-Linting
+Continuous integration (`.github/workflows/ci.yml`) runs the lint, unit and
+integration jobs on every push. `AGENTS.md` documents the conventions and the
+traps for contributors and coding assistants.
 
-The project includes `ruff` config. Run ruff to check/fix simple style issues:
+## Branches
 
-```bash
-ruff check .
-# or to apply fixes
-ruff check --fix .
-```
-
-Type checking / static analysis
-
-If you use mypy or other tools, refer to the project's configuration and add them to your environment as needed.
-
-Debugging examples
-
-Many example scripts print results and save figures under `results/`. See `examples/*/visualization.py` and example main scripts to understand how outputs are produced.
-
-## Tests and quality gates
-
-- Unit tests and integration tests are under `tests/unit` and `tests/integration`.
-- After changing code, run `pytest` and `ruff` as a quick quality gate.
-
-## Contributing
-
-Contributions are welcome. Suggested workflow:
-
-1. Create a topic branch for your change.
-2. Add tests for new behavior or bug fixes.
-3. Run the test suite locally.
-4. Open a pull request with a descriptive title and short rationale.
-
-If your change is large, please open an issue first to discuss the design.
-
-## Reproducibility notes
-
-- Example configurations are YAML files (see `examples/*/config.yaml` and related `config_*.yaml`).
+`dev` is the validated reference. Feature work happens on `feature/*`
+branches; `docs/MERGE_NOTES.md` records the decisions taken on each and the
+suggested merge order.
 
 ## License
 
-This project is provided under the license in `LICENSE`.
-
-## Contact
-
-For questions about the code base, open an issue or contact the repo owner.
-
-
----
-
-Requirements coverage
-
-- Document RavenPy installation as an optional dependency: Done
-
-If you'd like, I can:
-
-- Add a short `README` to each example folder with example-specific run instructions.
-- Add a minimal `Makefile` or `scripts/` to standardize running experiments.
-- Extract a `requirements.txt` or lockfile for direct reproducible installs.
-
-Tell me which of the above you'd like next.
+BSD-3-Clause. See `LICENSE`.
