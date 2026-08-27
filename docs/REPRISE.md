@@ -206,3 +206,34 @@ Waiting on Rémy (accumulated):
 - `restoration_effectiveness` default (0.0) and `debug.py` value (20.0).
 - `mean_fines = tail_fish.mean()` in the fishery regulator (intent?).
 - Un-ignore `CLAUDE.md`?
+
+## State at the end of day 1 (2026-08-27, evening)
+
+Both feature branches run end-to-end and are covered:
+
+- `feature/social-influence/testing` (this worktree): 147 unit tests + 4
+  integration tests + 2 notebook tests, all green (`pytest` full run: 154
+  passed, 3 skipped). Coverage of the pure modules: `core/mechanism` 92–100 %,
+  `core/envs` 94–98 %, `core/optimizers/{es,config,base}` 93–97 %,
+  `bilevel.py` 75 % (build path exercised by integration). README, AGENTS,
+  ARCHITECTURE, QUICKSTART, MERGE_NOTES written.
+- `feature/logging/testing` (worktree `../bilevel-fishery-logging`): 90 unit
+  tests + 2 integration tests + 1 notebook test; wildcards and grouped mean/std
+  implemented; CSV reporter usable end-to-end (`--reporter csv`); TensorBoard
+  reporter on the same contract (optional extra). README section + QUICKSTART.
+- `chore/cleanup-base` (worktree `../bilevel-fishery-base`): shared cleanup,
+  config, CI and the branch-neutral docs; merged into both branches.
+
+Lint: `ruff check core tests examples/bilevel_fishery examples/cartpole
+examples/dummy tutorials` is clean on both branches (that is the CI scope);
+`examples/fresh_water` still has findings, including undefined names in the
+live `regulated_env_ed_hs.py` (`underuse_penalty`, `underuse_severity_m3s`,
+`stock_shortage_severity`) — real bugs for Nadine, not silenced.
+
+Remaining for the week (in order): (1) Rémy's decisions listed above;
+(2) docstring pass on `core/world/*`, `core/adaptors/ray/*`,
+`core/optimizers/config.py` methods (shared files -> do it on the base branch
+and merge); (3) bonus items: 90 % on all of `core/` (World/adaptors need Ray
+mocks), ES scatter colored by generation and parallel coordinates
+(logging), an `integration/logging+social` trial merge to surface conflicts
+early; (4) push the three branches and hand `docs/MERGE_NOTES.md` to Nadine.
