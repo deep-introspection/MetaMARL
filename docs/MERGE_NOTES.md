@@ -71,6 +71,22 @@ Decisions taken for you (all reversible, all flagged in code comments):
    which injected a local `working_dir` that `local_mode` rejects. This is why
    `uv run python ...` used to fail while `.venv/bin/python ...` worked.
 
+Friction observed while writing the tutorials (not changed, for you to decide):
+
+- `World.get_mechanism_by_id` moves a candidate `published -> train` on its
+  first fetch, keyed on `(index, seed)`. A second env asking for the same
+  `(mechanism_id, policy_seed)` silently gets `None` and steps inertly with
+  zero rewards. Correct for one env per (candidate, seed), but a warning or an
+  explicit error would save a user an hour.
+- `SubsidyMechanism.reward` reads its context from `kwargs["action_after"]`
+  (a name chosen by the env) while every other mechanism gets context through
+  `bindings`. Two injection paths for the same idea.
+- `QuotaMechanism` caches `allowed_frac` in a mutable `_context` on a frozen
+  dataclass (your TODO §16); harmless with one instance per env, but the
+  "mechanisms are immutable" story is not fully true.
+- `RayRuntimeConfig.num_cpus`/`num_gpus` were stored but never passed to
+  `ray.init`; fixed on this branch.
+
 Still open on this branch: quota numerical parity against `dev` (TODO §7),
 mechanism-local `_context` statefulness (TODO §16 — one `QuotaMechanism`
 instance must not be shared by concurrently stepping envs; today each env gets

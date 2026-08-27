@@ -78,11 +78,18 @@ class RayRuntimeConfig:
         logging.getLogger("tensorboardX").setLevel(logging.ERROR)
         logging.getLogger("asyncio").setLevel(logging.ERROR)
 
+        resources = {
+            key: value
+            for key, value in (("num_cpus", self.num_cpus), ("num_gpus", self.num_gpus))
+            if value is not None
+        }
+
         ray.init(
             ignore_reinit_error=True,
             logging_level=self.logging_level,
             runtime_env=self.runtime_env,
             local_mode=True,  # Turn on for debugging only (DO NOT TURN OFF)
+            **resources,
             log_to_driver=False,
             include_dashboard=False,
             _system_config={
