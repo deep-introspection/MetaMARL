@@ -39,7 +39,9 @@ class WaterRegulatorEnv(RegulatorEnv):
         self.sustainability_threshold = env_cfg.get("sus_threshold", 0.2)
         self.max_water = env_cfg.get("max_water", 100.0)
         # Denormalized threshold for visualization
-        self.raw_sustainability_threshold = self.sustainability_threshold * self.max_water
+        self.raw_sustainability_threshold = (
+            self.sustainability_threshold * self.max_water
+        )
         self.trajectories: dict[int, list[dict[str, Any]]] = {}
 
     @override(RegulatorEnv)
@@ -106,12 +108,14 @@ class WaterRegulatorEnv(RegulatorEnv):
                     water[i] = obs[0]
 
                 # Denormalize for trajectory storage
-                trajectory.append({
-                    "episode": 0,
-                    "step": i,
-                    "water_level": float(water[i] * self.max_water),
-                    "reward": float(rewards[i]),
-                })
+                trajectory.append(
+                    {
+                        "episode": 0,
+                        "step": i,
+                        "water_level": float(water[i] * self.max_water),
+                        "reward": float(rewards[i]),
+                    }
+                )
 
             self.trajectories[idx] = trajectory
 
@@ -162,8 +166,12 @@ class WaterRegulatorEnv(RegulatorEnv):
                 }
             )
 
-        objectives = np.array([m["objective"] for m in per_mech_metrics], dtype=np.float32)
-        collapse_rates = np.array([m["collapse_rate"] for m in per_mech_metrics], dtype=np.float32)
+        objectives = np.array(
+            [m["objective"] for m in per_mech_metrics], dtype=np.float32
+        )
+        collapse_rates = np.array(
+            [m["collapse_rate"] for m in per_mech_metrics], dtype=np.float32
+        )
 
         best_idx = int(np.argmax(objectives))
         worst_idx = int(np.argmin(objectives))
