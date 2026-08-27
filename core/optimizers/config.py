@@ -263,33 +263,3 @@ class OptimizerConfig(_Config, ABC):
         else:
             self.seeds = []
         return self
-
-    # TODO Docstring explanation
-    # @abstractmethod
-    # def ressources(self):
-    #     raise NotImplementedError
-
-    # # TODO Docstring explanation
-    # @abstractmethod
-    # def evaluation(self):
-    #     raise NotImplementedError
-
-    # # TODO Docstring explanation
-    # @abstractmethod
-    # def reporting(self):
-    #     raise NotImplementedError
-
-    # # TODO Docstring explanation
-    # @abstractmethod
-    # def checkpointing(self):
-    #     raise NotImplementedError
-
-    # # TODO Docstring explanation
-    # @abstractmethod
-    # def fault_tolerance(self):
-    #     raise NotImplementedError
-
-    # # TODO Docstring explanation
-    # @abstractmethod
-    # def experimental(self):
-    #     raise NotImplementedError

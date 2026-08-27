@@ -1,3 +1,13 @@
+"""Single-agent environment base publishing every step to the ``World``.
+
+``BaseEnv`` is a gymnasium ``Env`` implementing the template method: the
+public ``step``/``reset`` call the abstract ``_step``/``_reset``/``_pre_reset``
+hooks, apply the overridable ``action``/``observation``/``reward`` transforms
+and publish an ``EnvStepContext`` to the shared ``World`` actor. The outer
+``RegulatorEnv`` builds on it; multi-agent benchmarks use
+:class:`core.envs.marl_regulated.MultiAgentRegulatedEnv` instead.
+"""
+
 from abc import abstractmethod
 from typing import Any, Optional, SupportsFloat
 
@@ -14,7 +24,24 @@ from core.world.context import Context, ContextSchema, EnvStepContext, Mechanism
 
 
 class BaseEnv(Env):
-    """Base environment that directly interacts with the World."""
+    """Base environment that directly interacts with the World.
+
+    Parameters
+    ----------
+    world : World
+        Ray actor handle of the shared blackboard.
+    opt_id : OptimizerID, optional
+        Identifier of the optimizer owning this env (set on published contexts).
+    horizon : int, optional
+        Episode length in steps.
+    mechanism : Mechanism, optional
+        Mechanism template defining the optimizer space and the default
+        mechanism.
+    seed, policy_seed : int, optional
+        Environment RNG seed and seed of the associated policy.
+    mode : {"train", "eval"}
+        Lifecycle status stamped on published contexts.
+    """
 
     def __init__(
         self,

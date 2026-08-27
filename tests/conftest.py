@@ -30,6 +30,10 @@ class FakeWorld:
         self.get_ctx_registry = SimpleNamespace(remote=self._get_ctx_registry)
         self.flush_ctx = SimpleNamespace(remote=self._flush_ctx)
         self.flush = SimpleNamespace(remote=self._flush)
+        self.register_optimizer = SimpleNamespace(remote=self._register_optimizer)
+        self.get_opt_registry = SimpleNamespace(remote=lambda: set(self.opt_ids))
+        self._set_new_opt_id = SimpleNamespace(remote=self._set_new_opt_id_impl)
+        self.opt_ids: list[str] = []
 
     def _append_context(self, ctx) -> None:
         self.contexts.append(ctx)
@@ -42,6 +46,13 @@ class FakeWorld:
 
     def _flush(self, status=None) -> None:
         self.flushed_status.append(status)
+
+    def _register_optimizer(self, opt) -> str:
+        return self._set_new_opt_id_impl(opt_id=f"opt_{len(self.opt_ids)}")
+
+    def _set_new_opt_id_impl(self, opt_id: str) -> str:
+        self.opt_ids.append(opt_id)
+        return opt_id
 
 
 @pytest.fixture
