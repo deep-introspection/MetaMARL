@@ -92,7 +92,7 @@ Waiting on Rémy:
   `_v3.py`, `_v4_no_quota.py`, `regulated_env_raven.py`) and
   `examples/fresh_water/deprecated/` (still imported by `core/registry.py`).
 
-## Phase 1 — `feature/social-influence/testing` (in progress)
+## Phase 1 — `feature/social-influence/testing` (code + tests + notebooks done 2026-08-27)
 
 Branch = `origin/feature/social-influence` + merge of `chore/cleanup-base`
 (one conflict on `debug.py`, resolved in favor of the feature branch since the
@@ -126,11 +126,14 @@ Done (commits `cf74dce`, `a821086`, and the integration lot):
   `uv run python -m ...` and `.venv/bin/python -m ...` work now.
 - `TODO.md` updated: dated status section, verified boxes checked.
 
+- Both tutorial notebooks rewritten and executable (~10 s each, no RLlib
+  training), covered by `tests/notebooks/test_tutorials.py` (marker `notebook`).
+- 147 unit tests; `core/optimizers/{base,config,es}` covered 93–97 %,
+  `bilevel.py` 75 % (build_optimizer needs Ray -> integration).
+- `docs/MERGE_NOTES.md` started (decisions + API friction for Nadine).
+
 Open on this branch:
 
-- Tutorial notebooks (`tutorials/mechanism_algorithms.ipynb`,
-  `tutorials/custom_benchmark_creation.ipynb`): still 90 % commented-out code;
-  to be made executable on the final API and run through nbconvert.
 - Docstrings on the modules not touched yet (`core/optimizers/*`,
   `core/adaptors/ray/*`, `core/world/*`), README/AGENTS/QUICKSTART (Phase 3).
 - Decisions for Rémy: `violation_transition_width` (quota) was unused and has
@@ -140,8 +143,20 @@ Open on this branch:
 - Coverage of `core/optimizers/es/optimizer.py` (`run()` fixed-mode branch,
   plotting) and `core/envs/regulator.py` decode path under the 90 % target.
 
-Next step: notebooks (Phase 1e), then create `feature/logging/testing`
-(Phase 2).
+Next step: Phase 2 on `feature/logging/testing`, worked in a separate git
+worktree at `../bilevel-fishery-logging` (own `.venv`, `uv sync --group dev`
+done). README/AGENTS/QUICKSTART (Phase 3) will be written on the base branch
+and merged into both.
+
+## Phase 2 — `feature/logging/testing` (started)
+
+Branch = `origin/feature/logging` + merge of `chore/cleanup-base` (three
+modify/delete conflicts on the removed `tests/integration/{_main,_test,main}.py`,
+resolved by deleting). State on arrival: 21/26 base unit tests pass; the five
+`BaseEnv` tests fail because `reporter_cfg` became a required keyword argument.
+`core.reporting.tensor_board` needs the `tensorboard` package (not declared),
+`core.adaptors.ray.protocols` imports the removed `core.loggers`, and
+`core.registry` fails through `examples/bilevel_fishery/deprecated/regulated_env.py`.
 
 ## Commands
 
