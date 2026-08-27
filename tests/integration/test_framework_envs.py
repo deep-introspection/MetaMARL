@@ -4,13 +4,13 @@ import numpy as np
 import pytest
 import ray
 from gymnasium import spaces
-from src.es.config import ESConfig
-from src.ppo.config import PPOptimizerConfig
 
 from core.annotations import override
 from core.envs.regulated import RegulatedEnv
 from core.envs.regulator import RegulatorEnv
 from core.mechanism.space import MechanismSpace
+from core.optimizers.es.config import ESConfig
+from core.optimizers.ppo.config import PPOptimizerConfig
 from core.types import OptimizerID
 from core.world.base import World
 

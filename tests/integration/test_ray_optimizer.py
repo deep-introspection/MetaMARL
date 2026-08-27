@@ -1,7 +1,7 @@
 import pytest
 import ray
 
-from src.ppo.config import PPOptimizerConfig
+from core.optimizers.ppo.config import PPOptimizerConfig
 
 
 @pytest.mark.integration
