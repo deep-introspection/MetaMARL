@@ -115,6 +115,11 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
             return obs, rewards, terminated, truncated, self._infos
         obs, rewards, terminated, truncated, self._infos = self._step(actions)
 
+        # Single logging point for rewards, whatever path _step took.
+        for aid, r in rewards.items():
+            self._log(("by_agent", aid, "reward"), r)
+        self._log(("reward_mean",), float(np.mean(list(rewards.values()))))
+
         self._publish(
             EnvStepContext(
                 env_id=self.env_id,
@@ -211,14 +216,14 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
 
     def _aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict:
         mean_reward = float(np.mean(list(rewards.values())))
-        self._log(("reward_mean",), mean_reward)
         return {agent_id: mean_reward for agent_id in self.agents}
 
     @override(RegulatedEnv)
     def reward(self, rewards: MultiAgentDict, **kwargs) -> SupportsFloat:
-        reward_by_agent: MultiAgentDict = {}
-        for aid, u_i in rewards.items():
-            r = -self.penalty(u_i, **kwargs) * self.violation_signal(u_i, aid, **kwargs)
-            self._log(("by_agent", aid, "reward"), r)
-            reward_by_agent[aid] = r
+        # u_i - lambda(M) * v_i, as on dev; logging happens once in step()
+        reward_by_agent: MultiAgentDict = {
+            aid: u_i
+            - self.penalty(u_i, **kwargs) * self.violation_signal(u_i, aid, **kwargs)
+            for aid, u_i in rewards.items()
+        }
         return self._aggregate_rewards(rewards=reward_by_agent)
