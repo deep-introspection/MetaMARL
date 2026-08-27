@@ -36,7 +36,7 @@ Scope decisions (with Rémy, 2026-08-27):
 - Keep `transformers`, `peft`, `bitsandbytes`, etc. in the dependencies even
   though nothing imports them (likely a planned LLM-policy project); flag only.
 
-## Phase 0 — `chore/cleanup-base` (in progress)
+## Phase 0 — `chore/cleanup-base` (done 2026-08-27)
 
 Done:
 
@@ -92,9 +92,71 @@ Waiting on Rémy:
   `_v3.py`, `_v4_no_quota.py`, `regulated_env_raven.py`) and
   `examples/fresh_water/deprecated/` (still imported by `core/registry.py`).
 
-Next step: commit the config/CI/deletion lot, then create
-`feature/social-influence/testing` and start Phase 1 (make the branch
-importable — see the plan).
+## Phase 1 — `feature/social-influence/testing` (code + tests + notebooks done 2026-08-27)
+
+Branch = `origin/feature/social-influence` + merge of `chore/cleanup-base`
+(one conflict on `debug.py`, resolved in favor of the feature branch since the
+script was rewritten anyway).
+
+Done (commits `cf74dce`, `a821086`, and the integration lot):
+
+- The branch imports and the fishery benchmark runs end-to-end:
+  `WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters 2
+  --train-iters 2 --num-agents 2 --horizon 20 --num-candidates 2 --num-eval-seeds 1`
+  finishes in a few seconds (ES over quota + subsidy, social observation on,
+  APPO inner loop, evaluation). Run it as a module (`-m`): as a script,
+  `examples` is not importable.
+- All six mechanism classes are concrete (`dimension/encode/decode/clip/
+  param_names/to_vector`), validated with `ValueError`. Subsidy indexing,
+  ParallelMechanism API, `K` NameError, dict/array concatenation, wrong-channel
+  dispatch, undefined `_debug_remote`, `@override(MultiAgentEnv)` NameError are
+  fixed. `MechanismSpace` is replaced by the mechanism template everywhere
+  (`BilevelConfig.mechanism(mechanism=...)`).
+- Fishery: 2-component action decomposed (harvest fraction, restoration
+  effort), restoration feeds the dynamics through
+  `ecology_cfg["restoration_effectiveness"]` (default 0.0, `debug.py` uses 20.0
+  — heuristic scale, to confirm with Nadine), intrinsic-reward hook added
+  (delivered harvest fraction, same semantics as `dev`).
+- Tests: 100 unit tests (`tests/mechanism`, `tests/envs`, `tests/examples`,
+  `tests/unit`) + 4 fishery integration tests (env-only and bilevel smoke, with
+  and without the social mechanism). Coverage of `core/mechanism` 92–100 %,
+  `core/envs/marl_regulated.py` 95 %, `core/envs/regulator.py` 67 %.
+- Ray + `uv run` trap fixed in `RayRuntimeConfig.initialize()` (Ray's uv-run
+  hook injected a local `working_dir` rejected by `local_mode`). Both
+  `uv run python -m ...` and `.venv/bin/python -m ...` work now.
+- `TODO.md` updated: dated status section, verified boxes checked.
+
+- Both tutorial notebooks rewritten and executable (~10 s each, no RLlib
+  training), covered by `tests/notebooks/test_tutorials.py` (marker `notebook`).
+- 147 unit tests; `core/optimizers/{base,config,es}` covered 93–97 %,
+  `bilevel.py` 75 % (build_optimizer needs Ray -> integration).
+- `docs/MERGE_NOTES.md` started (decisions + API friction for Nadine).
+
+Open on this branch:
+
+- Docstrings on the modules not touched yet (`core/optimizers/*`,
+  `core/adaptors/ray/*`, `core/world/*`), README/AGENTS/QUICKSTART (Phase 3).
+- Decisions for Rémy: `violation_transition_width` (quota) was unused and has
+  been removed — restore if a violation channel is planned; restoration
+  effectiveness default; whether `previous_actions` should be reset to zeros
+  or to the last episode's actions at `reset`.
+- Coverage of `core/optimizers/es/optimizer.py` (`run()` fixed-mode branch,
+  plotting) and `core/envs/regulator.py` decode path under the 90 % target.
+
+Next step: Phase 2 on `feature/logging/testing`, worked in a separate git
+worktree at `../bilevel-fishery-logging` (own `.venv`, `uv sync --group dev`
+done). README/AGENTS/QUICKSTART (Phase 3) will be written on the base branch
+and merged into both.
+
+## Phase 2 — `feature/logging/testing` (2a done, 2b mostly done)
+
+Branch = `origin/feature/logging` + merge of `chore/cleanup-base` (three
+modify/delete conflicts on the removed `tests/integration/{_main,_test,main}.py`,
+resolved by deleting). State on arrival: 21/26 base unit tests pass; the five
+`BaseEnv` tests fail because `reporter_cfg` became a required keyword argument.
+`core.reporting.tensor_board` needs the `tensorboard` package (not declared),
+`core.adaptors.ray.protocols` imports the removed `core.loggers`, and
+`core.registry` fails through `examples/bilevel_fishery/deprecated/regulated_env.py`.
 
 ## Commands
 
@@ -104,3 +166,74 @@ uv run ruff check . && uv run ruff format --check .
 uv run python -m pytest -m "not integration and not notebook"   # unit + coverage
 uv run python -m pytest -m integration --no-cov                   # needs Ray
 ```
+
+Done on the logging branch (commits `816ee3c`, `3f9db09` and the reward-logging fix):
+
+- Executable end-to-end with W&B offline or `--reporter csv` (smoke config as
+  above, ~1 min). See `docs/MERGE_NOTES.md` for the decisions.
+- Unit tests: `tests/metrics` (reducers, logger build/push/dynamic/peek/reduce),
+  `tests/reporting` (Query, Reporter resolution, CSV/TensorBoard/W&B backends
+  with mocks), `tests/adaptors` (RLlib result builders, episode-end callback,
+  Ray runtime), `tests/optimizers/test_es_payload.py`, env/config logging
+  plumbing. 78 unit tests green; `core/metrics` 77–100 %, `core/reporting`
+  91–100 %, `core/envs/base.py` 94 %.
+
+Open on the logging branch: wildcards `"*"` + grouped mean/std in
+`Reporter._resolve_query` (Phase 2c), `tutorials/visualization.ipynb`
+executable (2d), `TODO.md` status update (2e), docstrings on the metrics and
+reporting modules, coverage of `core/metrics/metric/{last,min,max,sum}.py`
+(`reduce(compile=False)` branches).
+
+## Phase 3 — documentation (started 2026-08-27)
+
+On `chore/cleanup-base` (worktree `../bilevel-fishery-base`, commit `d51087a`):
+`README.md` rewritten (actual layout, the bilevel loop, commands), `AGENTS.md`
+(map, invariants, commands, conventions, traps) and `docs/ARCHITECTURE.md`
+(run assembly, World contexts, both envs, ES, extension points, test strategy).
+Written to be true on `dev` and on both feature branches; each feature branch
+adds its own README section (mechanisms / reporting) and a `QUICKSTART.md`
+(the argparse `debug.py` exists only there). The base was merged into both
+testing branches.
+
+`CLAUDE.md` is ignored by Nadine's `.gitignore` ("Keep only essential
+config/docs"); a pointer file was written but not force-added — Rémy to decide
+whether to un-ignore it. `AGENTS.md` carries the agent-facing guidance.
+
+Waiting on Rémy (accumulated):
+
+- Move `core/registry.py` under `examples/` (dependency inversion).
+- Delete unreferenced `examples/fresh_water/` forks and `deprecated/`.
+- `restoration_effectiveness` default (0.0) and `debug.py` value (20.0).
+- `mean_fines = tail_fish.mean()` in the fishery regulator (intent?).
+- Un-ignore `CLAUDE.md`?
+
+## State at the end of day 1 (2026-08-27, evening)
+
+Both feature branches run end-to-end and are covered:
+
+- `feature/social-influence/testing` (this worktree): 147 unit tests + 4
+  integration tests + 2 notebook tests, all green (`pytest` full run: 154
+  passed, 3 skipped). Coverage of the pure modules: `core/mechanism` 92–100 %,
+  `core/envs` 94–98 %, `core/optimizers/{es,config,base}` 93–97 %,
+  `bilevel.py` 75 % (build path exercised by integration). README, AGENTS,
+  ARCHITECTURE, QUICKSTART, MERGE_NOTES written.
+- `feature/logging/testing` (worktree `../bilevel-fishery-logging`): 90 unit
+  tests + 2 integration tests + 1 notebook test; wildcards and grouped mean/std
+  implemented; CSV reporter usable end-to-end (`--reporter csv`); TensorBoard
+  reporter on the same contract (optional extra). README section + QUICKSTART.
+- `chore/cleanup-base` (worktree `../bilevel-fishery-base`): shared cleanup,
+  config, CI and the branch-neutral docs; merged into both branches.
+
+Lint: `ruff check core tests examples/bilevel_fishery examples/cartpole
+examples/dummy tutorials` is clean on both branches (that is the CI scope);
+`examples/fresh_water` still has findings, including undefined names in the
+live `regulated_env_ed_hs.py` (`underuse_penalty`, `underuse_severity_m3s`,
+`stock_shortage_severity`) — real bugs for Nadine, not silenced.
+
+Remaining for the week (in order): (1) Rémy's decisions listed above;
+(2) docstring pass on `core/world/*`, `core/adaptors/ray/*`,
+`core/optimizers/config.py` methods (shared files -> do it on the base branch
+and merge); (3) bonus items: 90 % on all of `core/` (World/adaptors need Ray
+mocks), ES scatter colored by generation and parallel coordinates
+(logging), an `integration/logging+social` trial merge to surface conflicts
+early; (4) push the three branches and hand `docs/MERGE_NOTES.md` to Nadine.
