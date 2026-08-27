@@ -183,3 +183,26 @@ Open on the logging branch: wildcards `"*"` + grouped mean/std in
 executable (2d), `TODO.md` status update (2e), docstrings on the metrics and
 reporting modules, coverage of `core/metrics/metric/{last,min,max,sum}.py`
 (`reduce(compile=False)` branches).
+
+## Phase 3 — documentation (started 2026-08-27)
+
+On `chore/cleanup-base` (worktree `../bilevel-fishery-base`, commit `d51087a`):
+`README.md` rewritten (actual layout, the bilevel loop, commands), `AGENTS.md`
+(map, invariants, commands, conventions, traps) and `docs/ARCHITECTURE.md`
+(run assembly, World contexts, both envs, ES, extension points, test strategy).
+Written to be true on `dev` and on both feature branches; each feature branch
+adds its own README section (mechanisms / reporting) and a `QUICKSTART.md`
+(the argparse `debug.py` exists only there). The base was merged into both
+testing branches.
+
+`CLAUDE.md` is ignored by Nadine's `.gitignore` ("Keep only essential
+config/docs"); a pointer file was written but not force-added — Rémy to decide
+whether to un-ignore it. `AGENTS.md` carries the agent-facing guidance.
+
+Waiting on Rémy (accumulated):
+
+- Move `core/registry.py` under `examples/` (dependency inversion).
+- Delete unreferenced `examples/fresh_water/` forks and `deprecated/`.
+- `restoration_effectiveness` default (0.0) and `debug.py` value (20.0).
+- `mean_fines = tail_fish.mean()` in the fishery regulator (intent?).
+- Un-ignore `CLAUDE.md`?

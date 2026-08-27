@@ -152,6 +152,12 @@ Decisions taken for you:
    of length `train_iters`. Aligning them needs an episode-to-iteration key —
    your call.
 
+10. Per-policy learner queries (`train/learner/by_policy/*`) are empty on
+    short smoke runs: with `circular_buffer_num_batches=4`, APPO reports no
+    `learners` block until four batches have been collected, so the wildcard
+    matches nothing and no figure/CSV is written (by design of the resolver:
+    zero series -> nothing rendered). They populate on real runs.
+
 Known and left as is: `FisheryRegulatorEnv.aggregate_rewards` sets
 `mean_fines` to `tail_fish.mean()` (copy-paste; `dev` used the violation
 signal). It only feeds `FitnessContext.total_fines`, which the objective does
