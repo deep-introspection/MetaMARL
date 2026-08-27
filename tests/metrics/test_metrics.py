@@ -80,3 +80,26 @@ def test_float_int_conversions_and_repr():
 def test_unimplemented_protocol():
     with pytest.raises(NotImplementedError):
         MetricFactory.create(ReduceProtocol.EMA)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "cls, values, reduced",
+    [
+        (LastMetric, [1, 5], 5),
+        (MinMetric, [3.0, 1.0], 1.0),
+        (MaxMetric, [3.0, 7.0], 7.0),
+        (SumMetric, [3.0, 7.0], 10.0),
+    ],
+)
+def test_reduce_uncompiled_keeps_a_metric_with_the_reduced_value(cls, values, reduced):
+    m = cls()
+    for v in values:
+        m.push(v)
+    kept = m.reduce(compile=False)
+    assert isinstance(kept, cls) and kept.peek() == reduced and len(kept) == 1
+    assert len(m) == 0
+    empty = cls().reduce(compile=False)
+    assert isinstance(empty, cls)
+    assert len(empty) == (1 if cls is SumMetric else 0)  # an empty sum reduces to 0
+    assert repr(kept).startswith(cls.__name__)
