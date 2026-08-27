@@ -26,7 +26,6 @@ exclude = [
     "node_modules",
     "site-packages",
     "venv",
-    "legacy_code/*"
 ]
 
 line-length = 88

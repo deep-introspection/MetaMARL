@@ -22,10 +22,7 @@ dependencies = [
     "matplotlib>=3.10.8",
     "pydantic>=2.12.5",
     "pyyaml>=6.0",
-    "pytest>=8.4.2",
-    "pytest-cov>=7.0.0",
     "ray[rllib,tune]==2.53.0",
-    "ruff>=0.14.13",
     "scipy>=1.17.0",
     "seaborn>=0.13.2",
     "torch>=2.10.0",
@@ -45,14 +42,14 @@ Homepage = "https://github.com/deep-introspection/bilevel-fishery"
 Repository = "https://github.com/deep-introspection/bilevel-fishery"
 Issues = "https://github.com/deep-introspection/bilevel-fishery/issues"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "black>=23.0.0",
-    "isort>=5.0.0",
-    "mypy>=1.0.0",
-    "flake8>=6.0.0",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.13",
+    "nbconvert>=7.16",
+    "ipykernel>=6.29",
+    "nbformat>=5.10",
 ]
 
 [build-system]
@@ -61,4 +58,25 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 # Exclude legacy, tests and examples directories from automatic package discovery
-exclude = ["legacy_code*", "tests*", "examples*"]
+exclude = ["tests*", "examples*"]
+
+[tool.coverage.run]
+source = ["core"]
+branch = true
+# The Ray/RLlib adaptors and the World actor are exercised by the integration
+# suite; they are excluded from the unit-coverage figure by design.
+omit = [
+    "core/adaptors/*",
+    "core/world/*",
+    "core/callbacks.py",
+    "core/registry.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]
