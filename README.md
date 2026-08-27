@@ -15,7 +15,7 @@ This repository contains core algorithms, environment implementations, example s
 
 Prerequisites
 
-- Python 3.12+ is recommended (project contains bytecode for 3.12 / 3.13).
+- Python 3.12 (the project pins `>=3.12,<3.13`).
 - pip or a conda-based environment.
 
 Optional dependencies
@@ -70,7 +70,6 @@ Some examples rely on YAML configuration files stored alongside the example (e.g
 - `optimizers/` — optimizer implementations and configuration helpers.
 - `world/` — environment/world abstractions.
 - `examples/` — runnable example experiments (bilevel_fishery, water_usage).
-- `legacy_code/` — older scripts, experiments, and supporting utilities kept for reference.
 - `tests/` — unit and integration tests.
 
 ## Development
@@ -119,7 +118,6 @@ If your change is large, please open an issue first to discuss the design.
 ## Reproducibility notes
 
 - Example configurations are YAML files (see `examples/*/config.yaml` and related `config_*.yaml`).
-- The `legacy_code/` folder contains older experiment scripts if you need to reproduce past runs.
 
 ## License
 

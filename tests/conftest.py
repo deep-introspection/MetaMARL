@@ -49,3 +49,42 @@ def fake_world(monkeypatch) -> FakeWorld:
     """A ``FakeWorld`` with ``ray.get`` patched to return its argument."""
     monkeypatch.setattr(ray, "get", lambda ref, *args, **kwargs: ref)
     return FakeWorld()
+
+
+@pytest.fixture(scope="session")
+def ray_session():
+    """Start a small local Ray runtime for integration tests."""
+    if not ray.is_initialized():
+        ray.init(num_cpus=2, ignore_reinit_error=True, include_dashboard=False)
+    yield
+    ray.shutdown()
+
+
+@ray.remote
+class FakeReporter:
+    """Ray actor standing in for ``WandbReporter``.
+
+    Records how many times each plotting entry point was called instead of
+    logging to Weights & Biases; the optimizers only require the call shape.
+    """
+
+    def __init__(self) -> None:
+        self.calls: dict[str, int] = {}
+
+    def _record(self, name: str) -> None:
+        self.calls[name] = self.calls.get(name, 0) + 1
+
+    def plot_es_population(self, **kwargs) -> None:
+        self._record("plot_es_population")
+
+    def plot_ray_result(self, *args, **kwargs) -> None:
+        self._record("plot_ray_result")
+
+    def plot_env_step(self, *args, **kwargs) -> None:
+        self._record("plot_env_step")
+
+    def plot_env_reduced(self, *args, **kwargs) -> None:
+        self._record("plot_env_reduced")
+
+    def get_calls(self) -> dict[str, int]:
+        return dict(self.calls)
