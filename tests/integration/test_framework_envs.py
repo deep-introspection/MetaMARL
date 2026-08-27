@@ -7,7 +7,6 @@ analytic fitness landscape.
 """
 
 import uuid
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -15,6 +14,8 @@ import ray
 
 from core.annotations import override
 from core.envs.regulator import RegulatorEnv
+from core.mechanism.algorithms.quota import QuotaMechanism
+from core.mechanism.composition.chained_mechanism import ChainedMechanism
 from core.optimizers.es.config import ESConfig
 from core.world.base import World
 from tests.conftest import FakeReporter
@@ -60,9 +61,15 @@ def test_es_regulator_loop(ray_session):
             env=AnalyticRegulatorEnv,
             env_config={
                 "optimum": optimum,
-                # ES reads the optimized parameter names from the env's space
-                "mechanism_space": SimpleNamespace(
-                    optimize_params=[f"p{i}" for i in range(optimum.shape[0])]
+                # ES reads the optimized parameter names from the env's template
+                "mechanism": ChainedMechanism(
+                    children=tuple(
+                        QuotaMechanism(
+                            fixed_quota=0.5,
+                            bindings={"resource_level": lambda env: 1.0},
+                        )
+                        for _ in range(optimum.shape[0])
+                    )
                 ),
             },
         )

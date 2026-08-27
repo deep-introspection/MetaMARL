@@ -50,21 +50,49 @@ The first goal is **not new features**. The first goal is to make this complete
 abstraction run end-to-end, cover the concerned modules with tests, and verify
 that the new abstraction preserves benchmark behavior.
 
+## Status — 2026-08-27 (branch `feature/social-influence/testing`)
+
+The P0 items are done and the fishery benchmark runs end-to-end through
+`examples/bilevel_fishery/debug.py` (quota + subsidy + social observation,
+ES outer loop, APPO inner loop, evaluation). Checked boxes below were verified
+by tests under `tests/mechanism`, `tests/envs`, `tests/examples` and
+`tests/integration/test_fishery_mechanisms.py`.
+
+Decisions taken (see `docs/MERGE_NOTES.md` for the reasoning):
+
+- `BilevelConfig.mechanism(mechanism=...)` is the single builder signature. The
+  mechanism instance is the template: it defines the optimizer space and is the
+  default mechanism of the regulated envs. `MechanismSpace` is gone everywhere
+  (`BaseEnv`, `RegulatorEnv`, `ESOptimizer`, `BilevelConfig`).
+- `QuotaMechanism` and `SubsidyMechanism` optimize one parameter each
+  (`fixed_quota`, `restoration_subsidy`); `ThresholdPenaltyMechanism` and
+  `SocialInfluenceMechanism` are fixed (`dimension == 0`).
+- `SocialInfluenceMechanism` is observation augmentation only; the Jaques et al.
+  KL reward bonus is **not** implemented and `influence_weight` is reserved.
+- `mechanism.to_vector()` is always appended to observations; the quota appends
+  `allowed_frac` from reset onward so the observation size is constant.
+- Restoration enters the ecology through `ecology_cfg["restoration_effectiveness"]`
+  (default 0.0 = inert; `debug.py` uses 20.0 as a heuristic scale).
+- Duplicate hooks of one type raise at class definition.
+- Remaining P1/P2 items: quota parity against `dev` (§7), binding serialization
+  under Ray (§9, exercised implicitly by the smoke run), context publishing
+  seed immutability tests (§13), mechanism-local `_context` statefulness (§16).
+
 ---
 
 # 0. Definition of done
 
-- [ ] The fishery benchmark builds and runs end-to-end with the new mechanism abstraction.
-- [ ] A quota-only run completes training and evaluation.
-- [ ] A quota + subsidy run completes.
-- [ ] A quota + subsidy + social-observation run completes.
-- [ ] Chained composition works for action, observation, and reward channels.
-- [ ] Parallel composition has one coherent API and tests.
-- [ ] All concrete `Mechanism` implementations satisfy the abstract base class.
-- [ ] Mechanism optimizer vectors encode/decode correctly.
-- [ ] Action and observation spaces agree with transformed values.
-- [ ] Unit tests cover every concerned mechanism/env/composition module.
-- [ ] Integration tests cover the benchmark + mechanism lifecycle.
+- [x] The fishery benchmark builds and runs end-to-end with the new mechanism abstraction.
+- [x] A quota-only run completes training and evaluation.
+- [x] A quota + subsidy run completes.
+- [x] A quota + subsidy + social-observation run completes.
+- [x] Chained composition works for action, observation, and reward channels.
+- [x] Parallel composition has one coherent API and tests.
+- [x] All concrete `Mechanism` implementations satisfy the abstract base class.
+- [x] Mechanism optimizer vectors encode/decode correctly.
+- [x] Action and observation spaces agree with transformed values.
+- [x] Unit tests cover every concerned mechanism/env/composition module.
+- [x] Integration tests cover the benchmark + mechanism lifecycle.
 - [ ] Reproducibility against `dev` is checked where practical.
 - [ ] Quota behavior is numerically compared against the dev fishery benchmark if time permits.
 - [ ] The tutorial notebooks run after the P0 integration fixes are merged.
@@ -121,11 +149,11 @@ or, if `MechanismSpace` remains the owner of default construction:
 
 Acceptance:
 
-- [ ] exactly one supported builder signature;
-- [ ] examples and tutorials use that signature;
-- [ ] `BilevelConfig.build_optimizer()` injects the same mechanism/space into inner and outer components;
-- [ ] fixed mechanisms work without an unnecessary optimizer space;
-- [ ] optimized mechanisms expose an optimizer dimension unambiguously.
+- [x] exactly one supported builder signature;
+- [x] examples and tutorials use that signature;
+- [x] `BilevelConfig.build_optimizer()` injects the same mechanism/space into inner and outer components;
+- [x] fixed mechanisms work without an unnecessary optimizer space;
+- [x] optimized mechanisms expose an optimizer dimension unambiguously.
 
 ---
 
@@ -168,7 +196,7 @@ decode          MISSING
 clip            MISSING
 ```
 
-- [ ] implement missing abstract API or move common parameterized behavior into a reusable base.
+- [x] implement missing abstract API or move common parameterized behavior into a reusable base.
 
 ### `SubsidyMechanism`
 
@@ -185,35 +213,35 @@ decode          MISSING
 clip            MISSING
 ```
 
-- [ ] implement missing abstract API.
+- [x] implement missing abstract API.
 
 ### `SocialInfluenceMechanism`
 
 Currently shown only with `observation(...)`.
 
-- [ ] implement fixed/optimized parameter API;
-- [ ] decide whether `influence_weight` is optimized or fixed;
-- [ ] if fixed, `dimension == 0`;
+- [x] implement fixed/optimized parameter API;
+- [x] decide whether `influence_weight` is optimized or fixed;
+- [x] if fixed, `dimension == 0`;
 - [ ] if optimized, define normalized encode/decode bounds.
 
 ### `ThresholdPenaltyMechanism`
 
 Currently has `dimension`, `encode`, `decode`, `param_names`, `reward`.
 
-- [ ] verify/implement `clip`;
-- [ ] verify/implement `to_vector`;
-- [ ] decide whether threshold/penalty are fixed or optimizer-controlled.
+- [x] verify/implement `clip`;
+- [x] verify/implement `to_vector`;
+- [x] decide whether threshold/penalty are fixed or optimizer-controlled.
 
 ### `ChainedMechanism`
 
 - [ ] verify/implement `clip`;
-- [ ] define `to_vector` for the semantic vector exposed to agents;
-- [ ] test concatenation/slicing of child optimizer vectors.
+- [x] define `to_vector` for the semantic vector exposed to agents;
+- [x] test concatenation/slicing of child optimizer vectors.
 
 ### `ParallelMechanism`
 
-- [ ] same abstract-method audit;
-- [ ] same vector semantics audit.
+- [x] same abstract-method audit;
+- [x] same vector semantics audit.
 
 No concrete mechanism should remain abstract accidentally.
 
@@ -254,9 +282,9 @@ SubsidyMechanism(
 
 not old `optimize_params/default_*` arguments.
 
-- [ ] update all examples to the new object model;
-- [ ] keep optimization selection in one place only;
-- [ ] do not duplicate defaults in both mechanism objects and spaces.
+- [x] update all examples to the new object model;
+- [x] keep optimization selection in one place only;
+- [x] do not duplicate defaults in both mechanism objects and spaces.
 
 ---
 
@@ -299,7 +327,7 @@ return self.mechanism.action(
 )
 ```
 
-- [ ] call `self.mechanism.reward(...)`.
+- [x] call `self.mechanism.reward(...)`.
 
 The supplied `observation(...)` method returns:
 
@@ -310,7 +338,7 @@ return self.mechanism.action(
 )
 ```
 
-- [ ] call `self.mechanism.observation(...)`.
+- [x] call `self.mechanism.observation(...)`.
 
 ---
 
@@ -344,7 +372,7 @@ obs_with_theta = {
 
 Then pass the dict through `mechanism.observation(...)`.
 
-- [ ] add a regression test for this exact failure mode.
+- [x] add a regression test for this exact failure mode.
 
 ---
 
@@ -367,9 +395,9 @@ rewards = self.reward(
 obs = self.observation({})
 ```
 
-- [ ] one reward path only;
-- [ ] one observation path only;
-- [ ] one action path only.
+- [x] one reward path only;
+- [x] one observation path only;
+- [x] one action path only.
 
 ---
 
@@ -383,8 +411,8 @@ self.observation(agent_id, self.S_t)
 
 even though `observation(...)` accepts one `observation_dict`.
 
-- [ ] make fallback reset/step behavior use the same observation pipeline;
-- [ ] add a test where the world has not published a non-default mechanism.
+- [x] make fallback reset/step behavior use the same observation pipeline;
+- [x] add a test where the world has not published a non-default mechanism.
 
 ---
 
@@ -419,9 +447,9 @@ Then:
 requested_harvest_i = harvest_fraction_i * full_required_harvest
 ```
 
-- [ ] extract action components deliberately;
-- [ ] document the semantic component map;
-- [ ] avoid implicit whole-vector arithmetic.
+- [x] extract action components deliberately;
+- [x] document the semantic component map;
+- [x] avoid implicit whole-vector arithmetic.
 
 ## 3.1 Restoration dynamics are currently disconnected
 
@@ -446,8 +474,8 @@ and either pass it explicitly to the transition hook or derive it there.
 The subsidy mechanism should modify reward; ecological restoration belongs in
 the benchmark transition.
 
-- [ ] connect restoration action to fish dynamics;
-- [ ] keep ecology and incentive shaping separate.
+- [x] connect restoration action to fish dynamics;
+- [x] keep ecology and incentive shaping separate.
 
 ## 3.2 Fix `K` reference
 
@@ -457,16 +485,16 @@ The transition contains:
 fish_next = float(np.clip(fish_next, 0.0, K))
 ```
 
-- [ ] use `self.K` or deliberately remove the upper clipping;
-- [ ] add boundary tests.
+- [x] use `self.K` or deliberately remove the upper clipping;
+- [x] add boundary tests.
 
 ## 3.3 Define the base reward
 
 The shown `FisheryRegulatedEnv` does not include a `@reward` hook.
 
-- [ ] add or verify the benchmark base reward;
-- [ ] test reward before any mechanism;
-- [ ] test reward after subsidy/penalty.
+- [x] add or verify the benchmark base reward;
+- [x] test reward before any mechanism;
+- [x] test reward after subsidy/penalty.
 
 ---
 
@@ -510,11 +538,11 @@ reward
 
 Acceptance:
 
-- [ ] zero effort -> no subsidy/cost;
-- [ ] positive effort -> exact analytical reward;
-- [ ] component selection tested;
-- [ ] reward type remains `float`;
-- [ ] public bounds use `ValueError`, not only `assert`.
+- [x] zero effort -> no subsidy/cost;
+- [x] positive effort -> exact analytical reward;
+- [x] component selection tested;
+- [x] reward type remains `float`;
+- [x] public bounds use `ValueError`, not only `assert`.
 
 ---
 
@@ -554,13 +582,13 @@ a_{j,t-1},
 ].
 \]
 
-- [ ] document that this is observation augmentation, not the full Jacques et al. KL bonus;
-- [ ] `influence_weight` is currently unused in the shown implementation;
-- [ ] either implement the KL reward term or scope/rename the class;
-- [ ] add `bindings` to the dataclass if constructor-injected bindings are intended;
-- [ ] test peer-action ordering;
-- [ ] test self-action exclusion;
-- [ ] test observation dimensionality.
+- [x] document that this is observation augmentation, not the full Jacques et al. KL bonus;
+- [x] `influence_weight` is currently unused in the shown implementation;
+- [x] either implement the KL reward term or scope/rename the class;
+- [x] add `bindings` to the dataclass if constructor-injected bindings are intended;
+- [x] test peer-action ordering;
+- [x] test self-action exclusion;
+- [x] test observation dimensionality.
 
 ---
 
@@ -598,15 +626,15 @@ w_u
 
 Tests:
 
-- [ ] resource close to 0 -> allowed fraction near lower end;
-- [ ] resource close to 1 -> allowed fraction near 1;
-- [ ] resource near `fixed_quota` -> expected sigmoid transition;
-- [ ] request below allowed fraction remains approximately unchanged;
-- [ ] request above allowed fraction is smoothly capped;
-- [ ] non-target action components are unchanged;
-- [ ] input arrays are not mutated in place;
-- [ ] per-agent mapping preserved;
-- [ ] `allowed_frac` is available to the quota observation transform.
+- [x] resource close to 0 -> allowed fraction near lower end;
+- [x] resource close to 1 -> allowed fraction near 1;
+- [x] resource near `fixed_quota` -> expected sigmoid transition;
+- [x] request below allowed fraction remains approximately unchanged;
+- [x] request above allowed fraction is smoothly capped;
+- [x] non-target action components are unchanged;
+- [x] input arrays are not mutated in place;
+- [x] per-agent mapping preserved;
+- [x] `allowed_frac` is available to the quota observation transform.
 
 ---
 
@@ -668,13 +696,13 @@ smoothing, reward semantics, or dynamics.
 
 Tests:
 
-- [ ] `@reset` registers reset hook;
-- [ ] `@action` registers action hook;
-- [ ] `@reward` registers reward hook;
-- [ ] `@observation` registers observation hook;
-- [ ] `@transition` registers transition hook;
-- [ ] inherited hooks behave intentionally;
-- [ ] multiple hooks of one type either raise or have documented deterministic behavior.
+- [x] `@reset` registers reset hook;
+- [x] `@action` registers action hook;
+- [x] `@reward` registers reward hook;
+- [x] `@observation` registers observation hook;
+- [x] `@transition` registers transition hook;
+- [x] inherited hooks behave intentionally;
+- [x] multiple hooks of one type either raise or have documented deterministic behavior.
 
 Recommendation: fail fast rather than silently letting the last same-type hook
 win.
@@ -701,11 +729,11 @@ bindings={
 
 Tests:
 
-- [ ] `resolve(env)` returns configured keys;
-- [ ] missing required binding raises at construction;
-- [ ] quota receives normalized resource level;
-- [ ] social observation receives `previous_actions` and `agent_ids`;
-- [ ] child bindings in compositions resolve against the correct env;
+- [x] `resolve(env)` returns configured keys;
+- [x] missing required binding raises at construction;
+- [x] quota receives normalized resource level;
+- [x] social observation receives `previous_actions` and `agent_ids`;
+- [x] child bindings in compositions resolve against the correct env;
 - [ ] bindings remain serializable in Ray/cloudpickle integration.
 
 ---
@@ -730,16 +758,16 @@ M_3(M_2(M_1(x))).
 
 Tests:
 
-- [ ] action order exactly follows child tuple order;
-- [ ] reward order exactly follows child tuple order;
-- [ ] observation order exactly follows child tuple order;
-- [ ] each child receives previous child's transformed output;
-- [ ] each child resolves its own env bindings;
-- [ ] dimension is sum of child dimensions;
-- [ ] encode is concatenation;
-- [ ] decode slices correctly;
-- [ ] parameter names preserve child identity/order;
-- [ ] zero-dimension children do not break slicing.
+- [x] action order exactly follows child tuple order;
+- [x] reward order exactly follows child tuple order;
+- [x] observation order exactly follows child tuple order;
+- [x] each child receives previous child's transformed output;
+- [x] each child resolves its own env bindings;
+- [x] dimension is sum of child dimensions;
+- [x] encode is concatenation;
+- [x] decode slices correctly;
+- [x] parameter names preserve child identity/order;
+- [x] zero-dimension children do not break slicing.
 
 Interaction test:
 
@@ -771,7 +799,7 @@ reward(...)
 observation(...)
 ```
 
-- [ ] reconcile this before use.
+- [x] reconcile this before use.
 
 Recommended target:
 
@@ -798,13 +826,13 @@ Each child receives the same original input.
 
 Tests:
 
-- [ ] every child sees the same original input;
-- [ ] no child sees another child's output;
-- [ ] merge receives original + tuple of outputs;
-- [ ] merge ordering is documented;
-- [ ] deep copies prevent cross-child mutation;
+- [x] every child sees the same original input;
+- [x] no child sees another child's output;
+- [x] merge receives original + tuple of outputs;
+- [x] merge ordering is documented;
+- [x] deep copies prevent cross-child mutation;
 - [ ] action/reward/observation merge functions tested separately;
-- [ ] dimensions/encode/decode tested.
+- [x] dimensions/encode/decode tested.
 
 ---
 
@@ -843,11 +871,11 @@ For 10 agents and 2-D actions, social influence adds:
 
 features per agent.
 
-- [ ] compute/validate final observation dimension;
+- [x] compute/validate final observation dimension;
 - [ ] decide whether mechanisms expose `observation_dimension_delta`;
-- [ ] decide whether `to_vector()` is always appended;
-- [ ] remove dependencies on obsolete `FisheryMechanismSpace().full_dimension` where inappropriate;
-- [ ] assert actual observation shape matches declared space;
+- [x] decide whether `to_vector()` is always appended;
+- [x] remove dependencies on obsolete `FisheryMechanismSpace().full_dimension` where inappropriate;
+- [x] assert actual observation shape matches declared space;
 - [ ] assert normalized action shape matches declared action space.
 
 ---
@@ -868,9 +896,9 @@ action
 info
 ```
 
-- [ ] values correspond to regulated action/reward/observation actually used;
+- [x] values correspond to regulated action/reward/observation actually used;
 - [ ] seeds remain immutable for an env instance;
-- [ ] mechanism ID matches the published mechanism;
+- [x] mechanism ID matches the published mechanism;
 - [ ] publication does not modify behavior.
 
 ---
@@ -1000,8 +1028,8 @@ Examples use:
 assert 0.0 <= self.fixed_quota <= 1.0
 ```
 
-- [ ] use explicit `ValueError` for public configuration;
-- [ ] keep assertions for internal invariants only.
+- [x] use explicit `ValueError` for public configuration;
+- [x] keep assertions for internal invariants only.
 
 ---
 
@@ -1021,22 +1049,22 @@ Tutorial examples must reflect the final merged public API.
 
 # 19. Recommended implementation order
 
-1. [ ] Reconcile `BilevelConfig.mechanism` public API.
-2. [ ] Make all mechanism classes concretely instantiable.
-3. [ ] Fix reward/observation dispatch in `MultiAgentRegulatedEnv`.
-4. [ ] Fix per-agent observation concatenation.
-5. [ ] Fix fishery 2-component action decomposition.
-6. [ ] Connect restoration action to transition dynamics.
-7. [ ] Fix subsidy indexing bug.
-8. [ ] Scope/finish social influence behavior.
-9. [ ] Repair `ParallelMechanism` method API.
-10. [ ] Add unit tests for hooks and transforms.
-11. [ ] Add composition tests.
-12. [ ] Add deterministic fishery tests.
-13. [ ] Run quota-only smoke benchmark.
-14. [ ] Run quota + subsidy smoke benchmark.
-15. [ ] Run social observation smoke benchmark.
-16. [ ] Add evaluation smoke test.
+1. [x] Reconcile `BilevelConfig.mechanism` public API.
+2. [x] Make all mechanism classes concretely instantiable.
+3. [x] Fix reward/observation dispatch in `MultiAgentRegulatedEnv`.
+4. [x] Fix per-agent observation concatenation.
+5. [x] Fix fishery 2-component action decomposition.
+6. [x] Connect restoration action to transition dynamics.
+7. [x] Fix subsidy indexing bug.
+8. [x] Scope/finish social influence behavior.
+9. [x] Repair `ParallelMechanism` method API.
+10. [x] Add unit tests for hooks and transforms.
+11. [x] Add composition tests.
+12. [x] Add deterministic fishery tests.
+13. [x] Run quota-only smoke benchmark.
+14. [x] Run quota + subsidy smoke benchmark.
+15. [x] Run social observation smoke benchmark.
+16. [x] Add evaluation smoke test.
 17. [ ] Optional/preferred: numerical quota parity against `dev`.
 18. [ ] Update tutorials to final API.
 19. [ ] Run coverage and close remaining untested branches.

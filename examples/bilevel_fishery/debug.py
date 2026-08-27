@@ -4,7 +4,7 @@ The outer Evolution Strategies optimizer searches the mechanism parameters
 (``fixed_quota``, ``restoration_subsidy``); the inner APPO optimizer trains the
 fishers' policies against each candidate. Run a short smoke configuration with::
 
-    WANDB_MODE=offline uv run python examples/bilevel_fishery/debug.py \\
+    WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug \\
         --outer-iters 2 --train-iters 2 --num-agents 2 --horizon 20
 
 and the full configuration with the defaults.

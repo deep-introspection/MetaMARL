@@ -7,9 +7,9 @@ from ray.rllib.env.vector.vector_multi_agent_env import VectorMultiAgentEnv
 from ray.rllib.evaluation.metrics import summarize_episodes
 from ray.rllib.utils.metrics import ENV_RUNNER_RESULTS, EVALUATION_RESULTS, NUM_EPISODES
 
-logger = logging.getLogger(__name__)
-
 from core.envs.base import BaseEnv
+
+logger = logging.getLogger(__name__)
 
 # def tag_episode_with_env_idx(*, episode: MultiAgentEpisode, env_index: int, **kwargs):
 #     episode_id = episode.id_
