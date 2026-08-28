@@ -114,3 +114,7 @@ geojsons/
 # deprecated
 
 !tutorials/*
+
+# Local credential files (never commit)
+.wandb_nadine.env
+*.env
