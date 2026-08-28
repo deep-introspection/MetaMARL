@@ -14,6 +14,7 @@ machine). Notes for Nadine: `docs/MERGE_NOTES.md`. Contributor guide: `AGENTS.md
 | `chore/cleanup-base` | `../bilevel-fishery-base` | shared cleanup + branch-neutral docs; merged into both testing branches |
 | `feature/social-influence-testing` | `../bilevel-fishery` (main dir) | Nadine's mechanism branch + base |
 | `feature/logging-testing` | `../bilevel-fishery-logging` | Nadine's metrics/reporting branch + base |
+| `feature/integration-trial` | `../bilevel-fishery-integration` | bonus C: logging merged into mechanism (local only, not pushed) |
 
 `dev` is never modified. All three branches are pushed to `origin` under their own names
 (2026-08-28). The remote refused `feature/x/testing` because `feature/x` exists, hence the
@@ -33,7 +34,7 @@ command merged the base into itself twice on day 1.
 | Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | **done on both branches** (08-28) | mechanism: 451 unit tests, 98 %; logging: 497 unit tests, 99 % (only unreachable line: `regulated.py:68`, notes §26) |
 | Bonus B. Logging: ES scatter colored by generation, parallel coordinates | **done** (08-28 pm) | `Query.color` + `ParallelCoordinatesQuery`; 33 new tests; demo runs with the CSV and offline W&B reporters checked by hand; notes §41 |
 | Bonus B'. Episode-level wildcard alignment (`by_episode/*` vs `iter`) | waiting on Nadine | needs an episode-to-iteration key, her call in `TODO.md` §3–4 |
-| Bonus C. Integration trial of the two features | measured, not built | 30 conflicting files, map in `docs/MERGE_NOTES.md` |
+| Bonus C. Integration trial of the two features | **done** (08-28, commit `c6815e6` on `feature/integration-trial`) | 45 conflicts resolved; unit 625 green, `core/` 99 %; full suite 634 green, 3 skipped; demo runs with both reporters; outcome and six design decisions in `docs/MERGE_NOTES.md` "Integration trial" |
 
 ## Decisions log
 
@@ -53,10 +54,12 @@ command merged the base into itself twice on day 1.
 | 08-28 | Ignore `.wandb_nadine.env` and `*.env` (the file header wrongly claimed it was ignored) | Rémy |
 | 08-28 | Push all three branches; testing branches renamed `feature/*-testing` | Rémy |
 | 08-28 | Bonus B design: `color` is an optional path on `Query`, resolved like x; parallel coordinates are a separate query type that the base reporter resolves to a table; the first wildcard is the row entity; TensorBoard skips tables with a warning | Claude, per TODO options |
+| 08-28 | Bonus C resolution rules: mechanism control flow kept, logging additions re-inserted; reporting optional everywhere; `aggregate_rewards` receives the inner metric schema; same-name tests kept as `_logging` copies; orphan tests deleted | Claude, per conflict map |
 | 08-28 | Delete the dead code of §24 (old-API-stack module and branch, `reporting/base.py`, two unused `RayOptimizer` methods); `mps_model.py` kept pending the fresh-water cleanup | Rémy |
 
 ## Waiting on
 
+- **Rémy**: push `feature/integration-trial` or not; confirm (or hand to Nadine) the six design decisions of the integration trial (`docs/MERGE_NOTES.md`, last section).
 - **Rémy**: keep or delete `core/adaptors/ray/mps_model.py` (only importer: the cartpole
   scripts and `examples/fresh_water/bilevel.py`, see `docs/MERGE_NOTES.md` §24).
 - **Nadine** (in `docs/MERGE_NOTES.md`): `mean_fines = tail_fish.mean()` intent; undefined
@@ -107,3 +110,10 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters
   a tutorial cell that assumed every outer query has an `x`; fixed. Full suite 533 green.
   Demo runs checked with `--reporter csv` and `--reporter wandb` (offline). Episode-level
   alignment stays with Nadine.
+- **2026-08-28 (late afternoon)** — Bonus C built: `feature/logging-testing` merged into
+  `feature/social-influence-testing` on the new branch `feature/integration-trial`
+  (worktree `../bilevel-fishery-integration`). 45 conflicting files resolved by four parallel
+  agents (envs; optimizers and callbacks; Ray adaptors, W&B and demo; documents), then an
+  integration pass: `core/reporting/base.py` restored (git had dropped it silently), seven
+  orphan test files removed, one enum test trimmed. Unit 625 green at 99 %, full suite 634
+  green, demo runs with `--reporter csv` and `--reporter wandb`. Branch committed, not pushed.
