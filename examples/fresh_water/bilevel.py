@@ -7,7 +7,7 @@ from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
 from core.optimizers.ppo.config import PPOptimizerConfig
-from core.registry import REGISTRY
+from examples.registry import REGISTRY
 
 # Register custom MPS model
 ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
