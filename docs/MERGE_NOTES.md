@@ -261,12 +261,28 @@ purpose. Nothing was fixed. Points already listed above are not repeated.
     `env_reduced._mean_agent_values` has no caller.
 23. `es_population._make_parallel_coordinates_figure` carries a hard-coded `display_names`
     map for the water-project parameters (`fixed_quota`, `fine_amount`, …).
-24. Dead modules, never imported anywhere: `core/reporting/utils/ray_old_api_stack.py`
-    (789 lines), `core/reporting/base.py` (broken import `from torch import Type`),
-    `core/adaptors/ray/mps_model.py`, plus `RayOptimizer._build_agent_policy_map` and the
-    old-API-stack branch of `callbacks._evaluate_with_fixed_duration_once`. They sit in
-    namespace packages (no `__init__.py`), so coverage does not even count them; counting
-    them would bring the 97 % figure to roughly 82 %. Deleting them is pending Rémy's call.
+24. Dead code removed on 2026-08-28 (Rémy's call): `core/reporting/utils/ray_old_api_stack.py`
+    (789 lines, never imported), `core/reporting/base.py` (never imported, broken
+    `from torch import Type`), `RayOptimizer._build_agent_policy_map` and
+    `RayOptimizer._get_policy_handle` (no callers; the latter referenced an `algo`
+    attribute the class never defines), and the old-API-stack branch of
+    `callbacks._evaluate_with_fixed_duration_once` together with the locals that only
+    served it. The function now assumes `enable_env_runner_and_connector_v2=True`, which
+    is what `RayOptimizerConfig` sets. `core/adaptors/ray/mps_model.py` was kept: it is
+    still imported by `examples/cartpole/main_{ppo,appo}.py` and
+    `examples/fresh_water/bilevel.py`, which register it as the custom model `mps_fcnet`
+    (the `.model(custom_model="mps_fcnet")` line is commented out in the cartpole scripts,
+    so the registration itself has no effect). Its fate goes with the fresh-water cleanup.
+
+25. Test-order pollution, fixed in `tests/conftest.py` on 2026-08-28. Running
+    `tests/integration/test_fishery_mechanisms.py` (a real Ray runtime) before
+    `tests/reporting/test_reporting_wandb.py` made four reporter tests fail: once the
+    `WandbReporter` actor class has been exported to a live cluster, unpickling it in the
+    driver makes cloudpickle rewrite the methods of the already-imported class with copies
+    whose `__globals__` is a frozen snapshot, so `monkeypatch.setattr(reporter_mod, ...)`
+    no longer reaches them. The `pytest_collection_modifyitems` hook now runs the
+    `integration` and `notebook` items last. Any future unit test that patches a
+    module-level name used by a Ray actor method has the same exposure.
 
 ## Conflict map between the two features
 

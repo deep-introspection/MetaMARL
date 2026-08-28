@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import ray
-from ray.rllib.utils.typing import AgentID
 from ray.train._internal.checkpoint_manager import _TrainingResult
 
 # TODO temporary
@@ -124,46 +123,6 @@ class RayOptimizer(Optimizer):
         num_seeds = len(self.config.seeds)
         num_mechanisms = num_envs // num_seeds
         return num_mechanisms
-
-    # TODO move to utils
-    def _build_agent_policy_map(self) -> dict[AgentID, str]:
-        """Map ``"<agent_type>:<i>"`` agent IDs to their base policy name.
-
-        Currently unused. The mapping ignores the per-mechanism, per-seed
-        suffix (``_m<idx>_s<seed>``) that ``_apply_agents_to_rllib`` appends
-        to the real RLModule IDs.
-
-        Returns
-        -------
-        dict[AgentID, str]
-            One entry per agent instance declared in ``config.agent_specs``.
-        """
-        agent_to_policy: dict[AgentID, str] = {}
-
-        for agent_type, spec in self.config.agent_specs.items():
-            policy_id = spec["policy"]
-            count = spec["count"]
-
-            for i in range(count):
-                agent_id = f"{agent_type}:{i}"
-                agent_to_policy[agent_id] = policy_id
-
-        return agent_to_policy
-
-    def _get_policy_handle(self, policy_id: str):
-        """Return the RLModule (new stack) or Policy (old stack) for an ID.
-
-        Dead code in the current design: it references ``self.algo``, which
-        ``RayOptimizer`` never defines because the ``Algorithm`` lives inside
-        ``PolicyActor``. Calling it raises ``AttributeError`` from the fallback
-        branch.
-        """
-        # RLModule API (newer)
-        try:
-            return self.algo.get_module(policy_id)
-        except Exception:
-            # Policy API (older / classic)
-            return self.algo.get_policy(policy_id)
 
     @override(Optimizer)
     def run(self) -> None:

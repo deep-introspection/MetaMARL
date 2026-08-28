@@ -26,11 +26,11 @@ command merged the base into itself twice on day 1.
 | Phase | Status | Evidence |
 | --- | --- | --- |
 | 0. Shared base: tests revived, coverage/CI config, dead code removed, README/AGENTS/ARCHITECTURE, docstring pass on shared core | **done** | 26 base tests green; CI workflow; 100 docstrings on 13 files |
-| 1. Mechanism branch runnable, tested, documented | **done** | full `pytest`: 154 passed, 3 skipped (unit + integration + 2 notebooks); coverage 92–100 % on `core/mechanism`, `core/envs`; 93–97 % on `core/optimizers/{es,config,base}` |
+| 1. Mechanism branch runnable, tested, documented | **done** | full `pytest`: 458 passed, 3 skipped (unit + integration + 2 notebooks, 08-28); coverage 92–100 % on `core/mechanism`, `core/envs`; 93–97 % on `core/optimizers/{es,config,base}` |
 | 2. Logging branch runnable, tested, wildcards + grouped mean/std, CSV/TensorBoard | **done** | full `pytest`: 130 passed, 3 skipped (unit + integration + notebook); coverage 86 % overall, 97 % on the ES |
 | 3. Documentation (README, AGENTS, ARCHITECTURE, QUICKSTART per branch, MERGE_NOTES, TODO status) | **done** | files present on both branches; notebooks execute under `tests/notebooks` |
 | 4. Closing: push branches, hand `docs/MERGE_NOTES.md` to Nadine | **pushed 08-28**; handoff to Nadine pending | `origin/chore/cleanup-base`, `origin/feature/*-testing` |
-| Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | **done on the mechanism branch** (08-28); logging branch not started | 451 unit tests, 97 % on all of `core/` with the omit list removed; dead-code deletion pending |
+| Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | **done on the mechanism branch** (08-28); logging branch not started | 451 unit tests, 98 % on all of `core/` after the dead-code deletion of 08-28 |
 | Bonus B. Logging: ES scatter colored by generation, parallel coordinates, episode-level wildcard alignment | not started | see `TODO.md` §5.4, §5.5, §3–4 on the logging branch |
 | Bonus C. Integration trial of the two features | measured, not built | 30 conflicting files, map in `docs/MERGE_NOTES.md` |
 
@@ -51,11 +51,12 @@ command merged the base into itself twice on day 1.
 | 08-27 | Reporters receive labeled `Series`; wildcards group by first level when ≥ 2 levels | Claude, per TODO |
 | 08-28 | Ignore `.wandb_nadine.env` and `*.env` (the file header wrongly claimed it was ignored) | Rémy |
 | 08-28 | Push all three branches; testing branches renamed `feature/*-testing` | Rémy |
+| 08-28 | Delete the dead code of §24 (old-API-stack module and branch, `reporting/base.py`, two unused `RayOptimizer` methods); `mps_model.py` kept pending the fresh-water cleanup | Rémy |
 
 ## Waiting on
 
-- **Rémy**: delete the ~900 lines of dead code listed in `docs/MERGE_NOTES.md` §24 (otherwise the
-  honest coverage figure is ~82 %, not 97 %).
+- **Rémy**: keep or delete `core/adaptors/ray/mps_model.py` (only importer: the cartpole
+  scripts and `examples/fresh_water/bilevel.py`, see `docs/MERGE_NOTES.md` §24).
 - **Nadine** (in `docs/MERGE_NOTES.md`): `mean_fines = tail_fish.mean()` intent; undefined
   names in the live `examples/fresh_water/regulated_env_ed_hs.py`; the 16 code-review
   findings; episode-level wildcard alignment; the fresh-water example is not ported to the
@@ -87,3 +88,7 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters
   renamed with a hyphen). Bonus A done on the mechanism branch: 304 new unit tests
   (World, Ray adaptors, callbacks, reporting, bilevel build) written by three parallel agents,
   no Ray runtime; `core/` at 97 %; eight new findings for Nadine (§17–24 of the merge notes).
+- **2026-08-28 (later)** — Dead code deleted on the mechanism branch: 789-line old-API-stack
+  reporting module, `reporting/base.py`, two unused `RayOptimizer` methods, the old-API-stack
+  branch of the evaluation callback (−975 lines net). Full suite 458 green, `core/` at 98 %. Found and fixed a test-order
+  pollution (Ray actor export vs monkeypatch, notes §25): Ray-backed tests now run last.
