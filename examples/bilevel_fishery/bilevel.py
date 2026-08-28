@@ -8,12 +8,7 @@ from core.callbacks import tag_episode_with_env_idx
 from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
-<<<<<<< HEAD
-from core.registry import REGISTRY
-=======
-from core.optimizers.appo.config import APPOptimizerConfig
 from examples.registry import REGISTRY
->>>>>>> chore/cleanup-base
 
 # Register model once
 ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
