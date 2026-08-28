@@ -97,4 +97,4 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters
   reporting, ES), coverage `omit` list dropped from `pyproject.toml`, Ray-last ordering hook
   copied into `tests/conftest.py`. Full suite 500 green, `core/` at 99 %. Fifteen new findings
   for Nadine (notes §26–40, numbered after the mechanism branch's §17–25 so the two copies
-  of the notes can be merged without renumbering). Not pushed yet.
+  of the notes can be merged without renumbering). Both testing branches pushed.
