@@ -73,7 +73,6 @@ omit = [
     "core/adaptors/*",
     "core/world/*",
     "core/callbacks.py",
-    "core/registry.py",
 ]
 
 [tool.coverage.report]
