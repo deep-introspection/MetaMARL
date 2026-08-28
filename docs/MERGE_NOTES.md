@@ -234,6 +234,40 @@ fixed — several touch design choices that are yours.
     `policy_seed` without the None-check applied to `seed`/`mechanism_id`.
 16. `MechanismStatus.init` is never assigned anywhere.
 
+## Findings from the unit-test pass on the whole core (2026-08-28)
+
+Found while bringing `core/` from 46 % to 97 % coverage without a Ray runtime (the actors
+are instantiated through `X.__ray_metadata__.modified_class`). Each point is pinned by a
+test that documents the current behaviour, so changing it will make a test fail on
+purpose. Nothing was fixed. Points already listed above are not repeated.
+
+17. `core/adaptors/ray/utils.py` uses `to_float(a) or to_float(b)`, so a legitimate value
+    of `0.0` is treated as missing and the lookup falls through to the next key
+    (`get_episode_return_mean`, `get_env_steps`).
+18. `RayOptimizerConfig.build_optimizer` calls `self.copy(copy_frozen=True)`, but on this
+    class `freeze` is the deferred RLlib mutator: it records a `freeze` op in `_cfg_ops` and
+    leaves `_is_frozen` at `False`. The optimizer therefore receives a mutable config, and
+    the recorded `freeze` op would be replayed on the `AlgorithmConfig` later.
+19. `build_optimizer`'s `env_creator` reads `mode` from the env context but only writes
+    `seed` and `policy_seed`, so training environments never receive a `mode` kwarg (only
+    evaluation ones do, through `evaluation_config.env_config`).
+20. `RayOptimizerConfig._apply_agents_to_rllib` with `seeds=None` raises `TypeError` on the
+    `for seed in self.seeds` loop; the "null seed" case only works with `seeds=[None]`, which
+    yields module ids ending in `_sNone`.
+21. `WandbReporter.plot_ray_result` accepts `log_raw_rllib_episode_metrics` but forwards a
+    hard-coded `True`; the parameter is dead.
+22. `plot_env_reduced` accepts `reducers` / `ReductionSpec.fn` but never uses them; the
+    reduction is entirely driven by the hard-coded `KEEP_METRICS` allowlist.
+    `env_reduced._mean_agent_values` has no caller.
+23. `es_population._make_parallel_coordinates_figure` carries a hard-coded `display_names`
+    map for the water-project parameters (`fixed_quota`, `fine_amount`, …).
+24. Dead modules, never imported anywhere: `core/reporting/utils/ray_old_api_stack.py`
+    (789 lines), `core/reporting/base.py` (broken import `from torch import Type`),
+    `core/adaptors/ray/mps_model.py`, plus `RayOptimizer._build_agent_policy_map` and the
+    old-API-stack branch of `callbacks._evaluate_with_fixed_duration_once`. They sit in
+    namespace packages (no `__init__.py`), so coverage does not even count them; counting
+    them would bring the 97 % figure to roughly 82 %. Deleting them is pending Rémy's call.
+
 ## Conflict map between the two features
 
 A trial merge of `feature/logging-testing` into `feature/social-influence-testing`

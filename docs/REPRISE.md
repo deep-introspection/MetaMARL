@@ -51,6 +51,8 @@ command merged the base into itself twice on day 1.
 ## Waiting on
 
 - **Rémy**: push the three branches? (outward-facing, not done without a go).
+- **Rémy**: delete the ~900 lines of dead code listed in `docs/MERGE_NOTES.md` §24 (otherwise the
+  honest coverage figure is ~82 %, not 97 %).
 - **Nadine** (in `docs/MERGE_NOTES.md`): `mean_fines = tail_fish.mean()` intent; undefined
   names in the live `examples/fresh_water/regulated_env_ed_hs.py`; the 16 code-review
   findings; episode-level wildcard alignment; the fresh-water example is not ported to the
