@@ -96,12 +96,16 @@ values (`FisheryMetricSchema`), the inner optimizer the RLlib results
 (`RaySchema`), the outer optimizer one record per generation (`ESSchema`, whose
 `inner` field carries the reduced inner schema). `Query` objects
 (`core/reporting/query.py`) select an x path and y paths in those schemas —
-with `"*"` for runtime ids and `reduce="mean", error="std"` for grouped
-averages — and a `Reporter` backend renders the resolved `Series`: Weights &
-Biases (Plotly figures), CSV (long-form files) or TensorBoard (scalars,
-`uv sync --extra tensorboard`). `examples/bilevel_fishery/queries.py` holds the
-reference query bundles; `QUICKSTART.md` shows the outputs; `TODO.md` tracks
-what remains (episode-level grouping, ES scatter/parallel coordinates).
+with `"*"` for runtime ids, `reduce="mean", error="std"` for grouped
+averages and `color=` for a per-point colour path — and a `Reporter` backend
+renders the resolved `Series`: Weights & Biases (Plotly figures), CSV
+(long-form files) or TensorBoard (scalars, `uv sync --extra tensorboard`).
+A `ParallelCoordinatesQuery` selects several axes at once and renders as a
+parallel-coordinates figure (W&B) or a wide CSV table.
+`examples/bilevel_fishery/queries.py` holds the reference query bundles
+(including `es_parameter_fitness_queries`, coloured by generation, and
+`es_parallel_coordinates_query`); `QUICKSTART.md` shows the outputs;
+`TODO.md` tracks what remains (episode-level grouping).
 
 ## Development
 

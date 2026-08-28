@@ -22,7 +22,7 @@ from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 from core.envs.base import BaseEnv
 from core.metrics.schemas import MetricSchema
 from core.reporting.config import ReporterConfig
-from core.reporting.query import Query
+from core.reporting.query import AnyQuery
 from core.types import EnvConfigDict, EnvType
 from core.world.base import World
 
@@ -115,10 +115,10 @@ class OptimizerConfig(_Config, ABC):
         self.stats_cls_lookup = DEFAULT_STATS_CLS_LOOKUP
         self._reporter_cfg: Optional[ReporterConfig] = None
         self._reporting_schema: Optional[type[MetricSchema]] = None
-        self._reporting_queries: Optional[tuple[Query, ...]] = None
+        self._reporting_queries: Optional[tuple[AnyQuery, ...]] = None
         # Declared through .environment(queries=, schema=): the env's own metrics.
         self._reporting_schema_env: Optional[type[MetricSchema]] = None
-        self._reporting_queries_env: Optional[tuple[Query, ...]] = None
+        self._reporting_queries_env: Optional[tuple[AnyQuery, ...]] = None
 
     @property
     def reporter_cfg(self) -> Optional[ReporterConfig]:
@@ -287,7 +287,7 @@ class OptimizerConfig(_Config, ABC):
         env: Optional[Union[str, EnvType]] = None,
         train_iters: Optional[int] = None,
         horizon: Optional[int] = None,
-        queries: Optional[tuple[Query]] = None,
+        queries: Optional[tuple[AnyQuery, ...]] = None,
         schema: Optional[type[MetricSchema]] = None,
         *,
         env_config: Optional[EnvConfigDict] = None,
@@ -411,7 +411,7 @@ class OptimizerConfig(_Config, ABC):
 
     def reporting(
         self,
-        queries: Optional[tuple[Query, ...]] = None,
+        queries: Optional[tuple[AnyQuery, ...]] = None,
         schema: Optional[type[MetricSchema]] = None,
     ) -> Self:
         """Declare the optimizer-level metric schema and the queries to render from it."""

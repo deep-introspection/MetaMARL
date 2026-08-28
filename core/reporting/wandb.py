@@ -1,4 +1,10 @@
-"""Weights & Biases reporter: one Plotly figure per query, logged to a run."""
+"""Weights & Biases reporter: one Plotly figure per query, logged to a run.
+
+A :class:`Query` with a ``color`` path is drawn as a marker-only scatter whose
+points are coloured on a shared Viridis colour axis; a
+:class:`ParallelCoordinatesQuery` becomes a ``go.Parcoords`` trace with one
+axis per table column and lines coloured by the table colour.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +17,7 @@ import plotly.graph_objects as go
 import wandb
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig
-from core.reporting.query import Query, Series
+from core.reporting.query import ParallelCoordinatesQuery, Query, Series, Table
 from core.utils import sanitize_key
 
 
@@ -95,10 +101,13 @@ class WandbReporter(Reporter):
     def _path_name(path: tuple[str, ...]) -> str:
         return "/".join(path)
 
-    @staticmethod
-    def _figure(query: Query, series: list[Series]) -> go.Figure:
+    @classmethod
+    def _figure(cls, query: Query, series: list[Series]) -> go.Figure:
         fig = go.Figure()
         for s in series:
+            if s.color is not None:
+                fig.add_trace(cls._colored_scatter(query, s))
+                continue
             if s.error is not None:
                 upper = (np.asarray(s.y) + np.asarray(s.error)).tolist()
                 lower = (np.asarray(s.y) - np.asarray(s.error)).tolist()
@@ -126,7 +135,67 @@ class WandbReporter(Reporter):
                     name=s.label,
                 )
             )
+        if query.color is not None and any(s.color is not None for s in series):
+            fig.update_layout(
+                coloraxis=dict(
+                    colorscale="Viridis",
+                    colorbar=dict(title=cls._path_name(query.color)),
+                )
+            )
         return fig
+
+    @classmethod
+    def _colored_scatter(cls, query: Query, s: Series) -> go.Scatter:
+        """Marker-only trace with one colour per point (shared colour axis)."""
+        color_name = cls._path_name(query.color) if query.color is not None else "color"
+        return go.Scatter(
+            x=s.x,
+            y=s.y,
+            mode="markers",
+            marker=dict(color=s.color, coloraxis="coloraxis", size=7),
+            customdata=[s.label] * len(s.x),
+            hovertemplate=(
+                "%{customdata}<br>"
+                f"{cls._path_name(query.x)}=%{{x}}<br>"
+                "value=%{y}<br>"
+                f"{color_name}=%{{marker.color}}<extra></extra>"
+            ),
+            name=s.label,
+        )
+
+    @staticmethod
+    def _padded_range(values: list[float]) -> list[float]:
+        """Axis range padded by 5 % of the span (``v ± 0.5`` for a constant column)."""
+        lo, hi = float(min(values)), float(max(values))
+        if hi == lo:
+            return [lo - 0.5, hi + 0.5]
+        pad = 0.05 * (hi - lo)
+        return [lo - pad, hi + pad]
+
+    def _report_table(self, query: ParallelCoordinatesQuery, table: Table) -> None:
+        if not table.rows:
+            return
+        self._init_run()
+        if self._run is None:
+            raise RuntimeError("W&B run failed to initialize.")
+        fig = go.Figure(
+            go.Parcoords(
+                line=dict(
+                    color=table.color,
+                    colorscale="Viridis",
+                    showscale=True,
+                    colorbar=dict(title=table.color_label),
+                ),
+                dimensions=[
+                    dict(label=name, values=column, range=self._padded_range(column))
+                    for name, column in zip(
+                        table.columns, map(list, zip(*table.rows)), strict=True
+                    )
+                ],
+            )
+        )
+        fig.update_layout(title=query.title, template="plotly_white", height=650)
+        self._run.log({f"plots/{sanitize_key(query.title)}": fig})
 
     def _report(self, query: Query, series: list[Series]) -> None:
         if not series:
@@ -136,11 +205,12 @@ class WandbReporter(Reporter):
             raise RuntimeError("W&B run failed to initialize.")
 
         fig = self._figure(query, series)
+        colored = any(s.color is not None for s in series)
         fig.update_layout(
             title=query.title,
             xaxis_title=self._path_name(query.x),
             yaxis_title="value",
-            hovermode="x unified",
+            hovermode="closest" if colored else "x unified",
             template="plotly_white",
             height=650,
             legend=dict(

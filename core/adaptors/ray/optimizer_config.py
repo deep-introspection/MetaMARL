@@ -47,7 +47,7 @@ from core.annotations import override
 from core.callbacks import _evaluate_with_fixed_duration_once
 from core.metrics.schemas import MetricSchema
 from core.optimizers.config import OptimizerConfig
-from core.reporting.query import Query
+from core.reporting.query import AnyQuery
 from core.utils import generate_uuid
 from core.world.base import World
 
@@ -358,7 +358,7 @@ class RayOptimizerConfig(OptimizerConfig):
     @override(OptimizerConfig)
     def reporting(
         self,
-        queries: Optional[tuple[Query]],
+        queries: Optional[tuple[AnyQuery, ...]],
         schema: Optional[type[MetricSchema]],
         **kwargs,
     ) -> None:
@@ -366,7 +366,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
         Parameters
         ----------
-        queries : tuple of Query or None
+        queries : tuple of Query or ParallelCoordinatesQuery, or None
             Queries rendered by the optimizer-level reporter, stored through
             ``OptimizerConfig.reporting``.
         schema : type[MetricSchema] or None

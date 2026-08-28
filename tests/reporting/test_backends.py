@@ -60,7 +60,7 @@ class TestCSV:
             5.0,
         ]
         assert [int(r["x"]) for r in rows if r["series"] == "a/v"] == X
-        assert all(r["error"] == "" for r in rows)
+        assert all(r["error"] == "" and r["color"] == "" for r in rows)
 
         with reporter.path_for(MEAN).open() as f:
             rows = list(csv.DictReader(f))

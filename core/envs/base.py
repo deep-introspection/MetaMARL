@@ -12,7 +12,7 @@ from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig
-from core.reporting.query import Query
+from core.reporting.query import AnyQuery
 from core.types import OptimizerID
 from core.world.base import World
 from core.world.context import Context, ContextSchema, EnvStepContext, MechanismStatus
@@ -33,7 +33,7 @@ class BaseEnv(Env):
         policy_seed: Optional[int] = None,
         mode: Optional[str] = "train",
         reporter_cfg: Optional[ReporterConfig] = None,
-        queries: Optional[tuple[Query]] = None,
+        queries: Optional[tuple[AnyQuery, ...]] = None,
         schema: Optional[MetricSchema] = None,
         **kwargs,
     ) -> None:

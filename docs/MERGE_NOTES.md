@@ -333,3 +333,50 @@ A trial merge of `feature/logging-testing` into `feature/social-influence-testin
 
 71 further files merge automatically. Expect the integration merge to take a
 focused day; the unit suites of both branches are the acceptance criterion.
+
+## 41. ES scatter colour and parallel coordinates (bonus B)
+
+This section closes TODO §5.4 and §5.5 on `feature/logging-testing`. Two things were
+added to the reporting stack, both resolved by the base `Reporter` so that every backend
+receives the same data and only decides how to draw it.
+
+The first addition is a per-point colour on `Query`. A query may name a third path,
+`color`, which the reporter expands and aligns by wildcard binding exactly as it does for
+`x`: a root series such as `generation` is shared by every candidate, while a series bound
+under `by_mechanism/*` is paired with the candidate that owns it, never with another one,
+and its length must equal the length of `y`. The resolved `Series` carries the values in
+its `color` field. `es_parameter_fitness_queries` now colours every fitness-versus-parameter
+point by the outer generation, which is what the `dev` figure did. Weights & Biases draws
+such a series as markers on a shared Viridis colour axis whose colourbar is titled with the
+colour path, with a hover box showing the series label, the x value, the fitness and the
+colour value; the CSV reporter writes the value in a new `color` column, which stays empty
+for queries without a colour; TensorBoard has no per-point colour for scalars, so it logs
+one information line per coloured query and plots the scalars unchanged. A colour is only
+accepted with `reduce="none"`, since an averaged point has no single colour.
+
+The second addition is `ParallelCoordinatesQuery(title, dimensions, color)`, option A of
+TODO §5.5. The base reporter resolves it into a `Table` with one column per axis and one
+row per evaluated entity and index, following two rules. The row entity of an expansion is
+its first wildcard binding, the same convention as the grouping dimension of a mean
+reduction; an expansion without a wildcard is shared by every entity. The axis label of an
+expansion is the last dynamic key bound after that entity wildcard, so the parameter name
+in `by_mechanism/*/by_parameter/fixed_quota/value` and the id bound by a second wildcard
+in `by_mechanism/*/by_parameter/*/value`; when there is none, the leaf field name is used,
+which gives `fitness`. Two paths producing the same label is an error, as is a column
+missing for an entity or series of different lengths for one entity. Rows are emitted
+index-major, that is all candidates of generation 0, then all candidates of generation 1,
+so the figure accumulates over the run. When no entity has been evaluated yet the table
+is empty but its columns are already known, because the reporter reads the schema
+annotations from the first empty dynamic node. Weights & Biases renders the table as one
+`Parcoords` trace with axis ranges padded by five percent of their span (a constant axis
+gets `[v - 0.5, v + 0.5]`) and lines coloured by the colour column; the CSV reporter writes
+a wide file with one column per axis plus a `color:<label>` column, rewritten at every report;
+TensorBoard keeps the base default, which logs a warning and skips the query.
+`es_parallel_coordinates_query(parameter_names)` builds the fishery query and
+`examples/bilevel_fishery/debug.py` registers it next to the fitness scatters.
+
+One caveat applies to both figures. The keys of `by_mechanism` are population slots
+(`"0"` to `"n-1"`) reused at every generation, so the candidate shown in a hover box or
+tracked by a scatter series is a slot index, not a unique candidate: slot `"2"` of
+generation 3 is a different sampled mechanism from slot `"2"` of generation 4, and only the
+generation colour tells them apart.

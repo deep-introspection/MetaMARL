@@ -38,13 +38,19 @@ Decisions taken (details in `docs/MERGE_NOTES.md` on the mechanism branch):
   dicts are keyed by `ParameterName`.
 - Reporting is optional: no reporter config -> no reporter, no schema -> no
   logging.
+- ES scatter colour (§5.4): `Query.color` is a third path resolved and aligned
+  by wildcard binding exactly like `x` (`es_parameter_fitness_queries` colours
+  by the root `generation` series), rendered as marker colour on W&B.
+- Parallel coordinates (§5.5): option A, `ParallelCoordinatesQuery(title,
+  dimensions, color)` resolved by the base `Reporter` into a `Table` (first
+  wildcard = row entity, last dynamic key after it = axis label), rendered as
+  `go.Parcoords` on W&B and as a wide CSV file; TensorBoard skips it.
 
 Still open: episode-level wildcard queries over `by_episode` (§3, §4). Episode
 ids are unique per episode while the inner logger accumulates per training
 iteration, so `by_episode/*` series have length 1 against an `iter` axis of
 length `train_iters`; aligning them needs an episode-to-iteration key (your
-call). ES scatter colored by generation (§5.4), parallel coordinates (§5.5),
-exact `dev` plot parity (§1, §21 — the `dev` plotting code is already deleted
+call). exact `dev` plot parity (§1, §21 — the `dev` plotting code is already deleted
 on this branch, so parity can only be checked against archived W&B runs),
 optional-branch presence semantics (§18), serialization boundary test (§19).
 
@@ -60,9 +66,9 @@ optional-branch presence semantics (§18), serialization boundary test (§19).
 - [x] `Query` supports runtime dict keys with `"*"`.
 - [x] Mean ±1 std across seeds works per mechanism.
 - [ ] Train-vs-eval shaded plots work per mechanism.
-- [ ] ES cumulative parameter scatter plots work across every candidate and
+- [x] ES cumulative parameter scatter plots work across every candidate and
       generation.
-- [ ] ES parallel-coordinates plot is supported.
+- [x] ES parallel-coordinates plot is supported.
 - [x] Unit tests cover MetricLogger, schema polymorphism, Query resolution,
       reporters, environment/Ray/ES integration, and dynamic wildcards.
 - [x] CSV export is implemented and tested.
@@ -1080,16 +1086,18 @@ Required semantics:
 - [x] all candidates in one cumulative scatter;
 - [x] all generations included;
 - [x] x/y wildcard bindings aligned by candidate ID;
-- [ ] each point carries generation metadata;
-- [ ] point color represents outer generation, as on dev;
-- [ ] colorbar title identifies outer iteration;
-- [ ] hover includes outer iteration, candidate/mechanism index, parameter
+- [x] each point carries generation metadata;
+- [x] point color represents outer generation, as on dev;
+- [x] colorbar title identifies outer iteration;
+- [x] hover includes outer iteration, candidate/mechanism index, parameter
       value, and fitness;
-- [ ] one figure per runtime optimized parameter.
+- [x] one figure per runtime optimized parameter.
 
 The current `Query` has no z/color metadata. Implement one of:
 
-- [ ] optional query metadata path for color/group;
+- [x] optional query metadata path for color/group (`Query.color`, resolved
+      and aligned like `x`; `Series.color`; W&B marker colour, CSV `color`
+      column, ignored by TensorBoard);
 - [ ] `ScatterQuery`;
 - [ ] generic named-dimension query consumed by the W&B reporter.
 
@@ -1133,13 +1141,16 @@ candidate and lets reporters choose a parallel-coordinate renderer.
 
 Acceptance:
 
-- [ ] all optimized parameters appear exactly once;
-- [ ] fitness appears exactly once as final axis;
-- [ ] line color = fitness;
-- [ ] rows remain aligned across parameter dimensions;
-- [ ] cumulative data across generations;
-- [ ] fixed-mode ES still uses the full default mechanism vector;
-- [ ] empty/constant ranges do not crash.
+- [x] all optimized parameters appear exactly once (duplicate axis labels
+      are rejected at resolution);
+- [x] fitness appears exactly once as final axis;
+- [x] line color = fitness;
+- [x] rows remain aligned across parameter dimensions;
+- [x] cumulative data across generations;
+- [ ] fixed-mode ES still uses the full default mechanism vector (the payload
+      does, `tests/optimizers/test_es_payload.py`; the parallel query in fixed
+      mode is not exercised by a test);
+- [x] empty/constant ranges do not crash.
 
 ---
 

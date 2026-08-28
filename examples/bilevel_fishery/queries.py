@@ -8,14 +8,15 @@ bundle:
 - the inner RLlib optimizer (``RaySchema``): one value per training iteration
   (``RAY_ROLLOUT_QUERIES``, ``RAY_PERFORMANCE_QUERIES``, ``ray_policy_queries``);
 - the outer ES optimizer (``ESSchema``): one value per generation
-  (``ES_QUERIES``, ``es_parameter_fitness_queries``).
+  (``ES_QUERIES``, ``es_parameter_fitness_queries``,
+  ``es_parallel_coordinates_query``).
 
 Runtime ids (agent, policy, candidate) can be named explicitly or matched with
 the wildcard ``"*"`` (one series per id, sorted; with ``reduce="mean"`` the
 first wildcard groups and the others are averaged).
 """
 
-from core.reporting.query import Query
+from core.reporting.query import ParallelCoordinatesQuery, Query
 
 # --- environment: one series per env step ------------------------------------
 
@@ -215,12 +216,35 @@ def es_parameter_fitness_queries(parameter_names: tuple[str, ...]) -> tuple[Quer
 
     The wildcard binds the same candidate on the x and y sides, so each series
     is one candidate's (parameter value, fitness) trajectory over generations.
+    Points are coloured by the root ``generation`` series, which has one entry
+    per generation exactly like every candidate's ``fitness`` series.
     """
     return tuple(
         Query(
             title=f"Fitness vs {name}",
             x=("by_mechanism", "*", "by_parameter", name, "value"),
             y=("by_mechanism", "*", "fitness"),
+            color=("generation",),
         )
         for name in parameter_names
+    )
+
+
+def es_parallel_coordinates_query(
+    parameter_names: tuple[str, ...],
+) -> ParallelCoordinatesQuery:
+    """One line per evaluated candidate: each optimized parameter, then fitness.
+
+    Lines are coloured by fitness; rows accumulate over generations, so the
+    table has ``population_size * generations`` lines. Candidate ids are
+    population slots reused every generation, not unique candidates.
+    """
+    return ParallelCoordinatesQuery(
+        title="Parallel coordinates of evaluated mechanisms",
+        dimensions=tuple(
+            ("by_mechanism", "*", "by_parameter", name, "value")
+            for name in parameter_names
+        )
+        + (("by_mechanism", "*", "fitness"),),
+        color=("by_mechanism", "*", "fitness"),
     )

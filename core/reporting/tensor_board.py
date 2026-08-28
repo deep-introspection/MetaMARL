@@ -2,11 +2,14 @@
 
 Requires the optional ``tensorboard`` package (``uv sync --extra tensorboard``).
 Each resolved series becomes the tag ``<title>/<series label>``; a standard
-deviation band adds ``<title>/<series label>/std``.
+deviation band adds ``<title>/<series label>/std``. Scalars carry no
+per-point colour, so a query ``color`` path is ignored (one info line per
+query), and parallel-coordinates queries are skipped by the base default.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -18,6 +21,8 @@ from core.utils import sanitize_key
 
 if TYPE_CHECKING:
     from torch.utils.tensorboard import SummaryWriter
+
+logger = logging.getLogger(__name__)
 
 
 class TensorBoardConfig(ReporterConfig):
@@ -67,6 +72,13 @@ class TensorBoardReporter(Reporter):
     def _report(self, query: Query, series: list[Series]) -> None:
         if not series:
             return
+        if any(s.color is not None for s in series):
+            logger.info(
+                "TensorBoardReporter ignores the color path %s of query %r: "
+                "scalars carry no per-point colour.",
+                query.color,
+                query.title,
+            )
         writer = self._get_writer()
         title = sanitize_key(query.title)
         for s in series:

@@ -121,7 +121,8 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 queries=queries.ES_QUERIES
                 + queries.es_parameter_queries(OPTIMIZED)
                 + queries.es_candidate_fitness_queries(args.num_candidates)
-                + queries.es_parameter_fitness_queries(OPTIMIZED),
+                + queries.es_parameter_fitness_queries(OPTIMIZED)
+                + (queries.es_parallel_coordinates_query(OPTIMIZED),),
             )
         )
         .inner(

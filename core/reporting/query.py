@@ -20,6 +20,21 @@ are grouped by the *first* binding and averaged over the remaining ones (one
 mean per mechanism across seeds); with a single level, all matches are
 averaged together (mean across candidates or agents); without wildcards, the
 listed y paths are averaged. ``error="std"`` adds the standard deviation band.
+
+``color`` names a third path resolved and aligned exactly like ``x`` (same
+wildcard bindings, same length as ``y``); each point then carries one value
+that a backend may render as a colour, e.g. the outer ``generation`` of an
+ES candidate::
+
+    Query(title="Fitness vs fixed_quota",
+          x=("by_mechanism", "*", "by_parameter", "fixed_quota", "value"),
+          y=("by_mechanism", "*", "fitness"),
+          color=("generation",))
+
+A :class:`ParallelCoordinatesQuery` selects several axes at once and resolves
+to a :class:`Table` (one row per evaluated entity and index) rather than to
+series; see :meth:`core.reporting.base.Reporter._resolve_parallel` for the
+row and axis-label rules.
 """
 
 from dataclasses import dataclass
@@ -38,6 +53,7 @@ class Query:
     y: Path | tuple[Path, ...]
     reduce: Literal["none", "mean"] = "none"
     error: Literal["none", "std"] = "none"
+    color: Path | None = None
 
     def __post_init__(self) -> None:
         if self.error != "none" and self.reduce == "none":
@@ -48,6 +64,15 @@ class Query:
             raise ValueError("Query x path must not be empty.")
         if not self.y_paths or any(not p for p in self.y_paths):
             raise ValueError("Query y paths must not be empty.")
+        if self.color is not None:
+            if not self.color:
+                raise ValueError("Query color path must not be empty.")
+            if self.reduce != "none":
+                # A colour per point is meaningless once points are averaged.
+                raise ValueError(
+                    "Query color requires reduce='none': averaged points have no "
+                    "per-point colour."
+                )
 
     @property
     def y_paths(self) -> tuple[Path, ...]:
@@ -73,9 +98,86 @@ class Series:
         Aligned values.
     error : list, optional
         Standard deviation per point when the query asked for ``error="std"``.
+    color : list, optional
+        One value per point when the query named a ``color`` path.
     """
 
     label: str
     x: list
     y: list
     error: list | None = None
+    color: list | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ParallelCoordinatesQuery:
+    """Select several axes of a schema as one parallel-coordinates table.
+
+    Parameters
+    ----------
+    title : str
+        Figure title; also the logging key of the rendered table.
+    dimensions : tuple of Path
+        One path per axis, in axis order. A wildcard bound after the entity
+        wildcard (``("by_mechanism", "*", "by_parameter", "*", "value")``)
+        yields one axis per bound id.
+    color : Path
+        Path of the value colouring each line (resolved like a dimension).
+
+    When to use
+    -----------
+    To compare every evaluated candidate across all optimized parameters and
+    its fitness on one figure, accumulated over generations. Use :class:`Query`
+    for anything that is a line or a scatter against one x axis.
+
+    Examples
+    --------
+    >>> ParallelCoordinatesQuery(
+    ...     title="Parallel coordinates of evaluated mechanisms",
+    ...     dimensions=(("by_mechanism", "*", "by_parameter", "*", "value"),
+    ...                 ("by_mechanism", "*", "fitness")),
+    ...     color=("by_mechanism", "*", "fitness"),
+    ... ).color
+    ('by_mechanism', '*', 'fitness')
+    """
+
+    title: str
+    dimensions: tuple[Path, ...]
+    color: Path
+
+    def __post_init__(self) -> None:
+        if not self.dimensions:
+            raise ValueError("ParallelCoordinatesQuery needs at least one dimension.")
+        if any(not p for p in self.dimensions):
+            raise ValueError(
+                "ParallelCoordinatesQuery dimension paths must not be empty."
+            )
+        if not self.color:
+            raise ValueError("ParallelCoordinatesQuery color path must not be empty.")
+
+
+AnyQuery: TypeAlias = Query | ParallelCoordinatesQuery
+"""Every query type a :class:`core.reporting.base.Reporter` accepts."""
+
+
+@dataclass(frozen=True, slots=True)
+class Table:
+    """One resolved :class:`ParallelCoordinatesQuery` handed to a backend.
+
+    Parameters
+    ----------
+    columns : tuple of str
+        One axis label per column, in dimension order.
+    rows : list of list of float
+        One row per evaluated entity and index (shape ``(n_rows, n_columns)``),
+        index-major: all entities of index 0, then all entities of index 1, ...
+    color : list of float
+        One value per row (``len(color) == len(rows)``).
+    color_label : str
+        Axis label of the colour path (colourbar title).
+    """
+
+    columns: tuple[str, ...]
+    rows: list[list[float]]
+    color: list[float]
+    color_label: str
