@@ -62,6 +62,7 @@ core/                     the library
 examples/
   bilevel_fishery/        the fishery benchmark (regulated env, regulator env, config scripts)
   fresh_water/            a water-allocation benchmark (Raven hydrological model)
+  registry.py             name-to-class registry for the YAML experiment loaders
   cartpole/, dummy/       minimal sanity examples
 tests/                    pytest suite (markers: unit, integration, notebook)
 tutorials/                executable notebooks (feature branches)

@@ -33,6 +33,7 @@ step) and must be updated before a break or a phase change.
 | `core/mechanism/` | the mechanism abstraction (see the branch-specific README section) |
 | `core/world/` | `World` actor and the context schemas (`MechanismStatus` lifecycle) |
 | `core/reporting/` | reporting backends |
+| `examples/registry.py` | string-to-class registry for the YAML experiment loaders (`examples/*/bilevel.py`) |
 | `core/callbacks.py` | `tag_episode_with_env_idx`: encodes `env|m|ps|ss` in the episode id so RLlib maps episodes to policies |
 | `examples/bilevel_fishery/` | reference benchmark: `regulated_env*.py`, `regulator_env.py`, `contexts.py` (fitness), `debug.py` (runnable config) |
 | `tests/` | `unit` (no Ray, `FakeWorld` fixture), `integration` (real `World` actor), `notebook` (nbconvert) |
