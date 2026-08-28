@@ -7,13 +7,15 @@ abstract ``_step``/``_reset`` hooks, apply the ``action``/``observation``/
 ``RegulatorEnv`` drives the inner optimizer for ``train_iters`` iterations.
 """
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 from core.envs.base import BaseEnv
 from core.envs.regulated import RegulatedEnv
 from core.envs.regulator import RegulatorEnv
-from core.world.context import EnvStepContext, MechanismContext
+from core.world.context import EnvStepContext, MechanismContext, MechanismStatus
 
 
 class _StepOnlyEnv(BaseEnv):
@@ -168,3 +170,126 @@ def test_regulator_env_rejects_non_positive_train_iters(fake_world):
 
     with pytest.raises(ValueError):
         DummyRegulator(world=fake_world, optimizer=object(), train_iters=0)
+
+
+class _UnitSpace:
+    """Minimal mechanism space: one parameter, default candidate at 0.5."""
+
+    dimension = 1
+
+    @classmethod
+    def default(cls):
+        return SimpleNamespace(to_vector=lambda: [0.5], param_names=lambda: ["p"])
+
+    def encode(self, m):
+        return np.asarray(m.to_vector(), dtype=np.float32)
+
+    def decode(self, x):
+        return SimpleNamespace(to_vector=lambda: list(x), param_names=lambda: ["p"])
+
+
+@pytest.mark.unit
+def test_base_env_instantiates_mechanism_space_class_and_sets_opt_id(fake_world):
+    env = _StepOnlyEnv(world=fake_world, mechanism_space=_UnitSpace)
+    assert isinstance(env.m_space, _UnitSpace)
+    instance = _UnitSpace()
+    assert _StepOnlyEnv(world=fake_world, mechanism_space=instance).m_space is instance
+
+    env.set_opt_id("opt_7")
+    env.step(1)
+    assert fake_world.contexts[-1].opt_id == "opt_7"
+    assert fake_world.contexts[-1].env == "_StepOnlyEnv"
+
+
+@pytest.mark.unit
+def test_base_env_reset_ignores_a_different_seed(fake_world):
+    env = _StepOnlyEnv(world=fake_world, seed=11)
+    first_draw = env.rng.random()
+    rng_state = env.rng.bit_generator.state
+    env.reset(seed=99)
+    assert env.seed == 11
+    assert env.rng.bit_generator.state == rng_state  # rng not re-seeded
+    assert env.rng.random() != first_draw
+    assert fake_world.contexts[-1].payload.seed == 11
+
+
+class _Regulated(RegulatedEnv):
+    def _reset(self):
+        return 0
+
+    def _step(self, action):
+        return 1, 1.0, False, False, {}
+
+    def violation_signal(self, **kwargs):
+        return 0.0
+
+    def penalty(self, **kwargs):
+        return 0.0
+
+
+def _published(mechanism, calls):
+    def remote(**kwargs):
+        calls.append(kwargs)
+        return MechanismContext(
+            index=0,
+            env_id=None,
+            seed=kwargs.get("seed"),
+            status=MechanismStatus.published,
+            mechanism=mechanism,
+            metrics=None,
+        )
+
+    return SimpleNamespace(remote=remote)
+
+
+@pytest.mark.unit
+def test_regulated_env_falls_back_to_space_default_until_published(fake_world):
+    fake_world.get_mechanism_by_id = SimpleNamespace(remote=lambda **kw: None)
+    env = _Regulated(world=fake_world, mechanism_id=3, mechanism_space=_UnitSpace)
+    assert env.m is None and env.m_ctx is None
+    assert not env.published_mechanism_assigned
+    assert env.mechanism.to_vector() == [0.5]
+    env.reset()  # World has nothing: keep the default
+    assert env.m is None and not env.published_mechanism_assigned
+
+
+@pytest.mark.unit
+def test_regulated_env_fetches_once_then_keeps_its_mechanism(fake_world):
+    calls = []
+    mechanism = SimpleNamespace(to_vector=lambda: [0.9], param_names=lambda: ["p"])
+    fake_world.get_mechanism_by_id = _published(mechanism, calls)
+    env = _Regulated(
+        world=fake_world, mechanism_id=2, policy_seed=5, mode="eval", seed=1
+    )
+    env.reset()
+    assert env.published_mechanism_assigned
+    assert env.mechanism is mechanism and env.m_ctx.mechanism is mechanism
+    assert calls == [{"mechanism_id": 2, "seed": 5, "mode": MechanismStatus.eval}]
+    env.reset()
+    assert len(calls) == 1  # no second fetch once a candidate is assigned
+    assert fake_world.contexts[-1].payload.mechanism == 2
+
+
+@pytest.mark.unit
+def test_regulated_env_requires_a_mechanism_id(fake_world):
+    env = _Regulated(world=fake_world, mechanism_id=None)
+    with pytest.raises(RuntimeError, match="no mechanism_id"):
+        env.reset()
+
+
+@pytest.mark.unit
+def test_regulated_env_fetch_failure_hits_missing_debug_hook(fake_world):
+    """Document current behaviour: the error path is itself broken.
+
+    ``RegulatedEnv._pre_reset`` intends to wrap a World failure in a
+    ``RuntimeError`` but first calls ``self._debug_remote``, which no class in
+    the hierarchy defines, so an ``AttributeError`` escapes instead.
+    """
+
+    def boom(**kwargs):
+        raise ConnectionError("actor died")
+
+    fake_world.get_mechanism_by_id = SimpleNamespace(remote=boom)
+    env = _Regulated(world=fake_world, mechanism_id=0)
+    with pytest.raises(AttributeError, match="_debug_remote"):
+        env.reset()

@@ -240,7 +240,9 @@ class TestRun:
         assert set(result) >= {"best_fitness", "population_history"}
         assert len(calls) == 1  # one report per generation
         peeked = calls[0]
-        assert peeked.generation == [1] and len(peeked.by_mechanism) == 4  # logged after increment
+        assert (
+            peeked.generation == [1] and len(peeked.by_mechanism) == 4
+        )  # logged after increment
         assert set(peeked.search_mean) == set(opt.parameter_names)
 
     def test_empty_fitness_skips_update(self, fake_reporter):
@@ -273,3 +275,94 @@ class TestRun:
         assert peeked.search_mean["a"].value == pytest.approx([0.3])
         assert peeked.by_mechanism["1"].by_parameter["b"].value == pytest.approx([0.7])
         assert opt.best_fitness == 2.0
+
+
+@pytest.mark.unit
+class TestConfigTraining:
+    def test_every_training_keyword_is_stored(self):
+        cfg = ESConfig().training(
+            sigma=0.2,
+            mean_lr=0.3,
+            sigma_lr=0.4,
+            sigma_decay=0.9,
+            min_sigma=0.01,
+            max_sigma=0.4,
+            generation=7,
+            break_symmetry=True,
+            convergence_eps=1e-3,
+            convergence_patience=3,
+            initial_mean=[0.1, 0.9],
+        )
+        assert (cfg.sigma, cfg.mean_lr, cfg.sigma_lr, cfg.sigma_decay) == (
+            0.2,
+            0.3,
+            0.4,
+            0.9,
+        )
+        assert (cfg.min_sigma, cfg.max_sigma) == (0.01, 0.4)
+        assert cfg.break_symmetry is True
+        assert (cfg.convergence_eps, cfg.convergence_patience) == (1e-3, 3)
+        assert cfg.initial_mean == [0.1, 0.9]
+        # ``generation`` is accepted and stored, but no attribute is declared for it
+        # in ``__init__`` and the optimizer never reads it (see report).
+        assert cfg.generation == 7
+
+    def test_none_keeps_defaults_and_unknown_keywords_are_dropped(self):
+        cfg = ESConfig().training(typo_sigma=1.0)
+        assert cfg.sigma == 0.15 and not hasattr(cfg, "typo_sigma")
+        assert not hasattr(cfg, "generation")
+        assert cfg.training() is cfg  # fluent
+
+
+@pytest.mark.unit
+class TestSingleCandidateSampling:
+    def test_first_sample_is_the_mean_then_one_perturbed_offspring(self):
+        opt = make_es(dimension=2, pop_size=1, sigma=0.3)
+        first = opt._sample_population()
+        np.testing.assert_allclose(first, opt.mean[None, :])  # parent evaluated first
+        opt._update_parameters(first, [1.0])
+        offspring = opt._sample_population()  # one independent (non-mirrored) sample
+        assert offspring.shape == (1, 2) and offspring.dtype == np.float32
+        assert np.all((offspring > 0.0) & (offspring < 1.0))
+        assert not np.allclose(offspring[0], opt.mean)
+
+    def test_zero_sigma_lr_keeps_sigma_fixed(self):
+        opt = make_es(dimension=2, pop_size=1, sigma=0.2, sigma_lr=0.0)
+        opt._update_parameters(opt._sample_population(), [1.0])
+        sigma0 = opt.sigma
+        opt._update_parameters(np.array([[0.2, 0.2]], dtype=np.float32), [0.0])
+        assert opt.sigma == sigma0  # rejected, no contraction
+        opt._update_parameters(np.array([[0.8, 0.8]], dtype=np.float32), [2.0])
+        assert opt.sigma == sigma0  # accepted, no expansion
+        assert opt.previous_population_mean_fitness == 2.0
+
+    def test_direct_single_update_rejects_non_finite(self):
+        # ``_update_parameters`` filters non-finite values before dispatching, so
+        # this guard is only reachable by calling the (1+1) update directly.
+        opt = make_es(dimension=2, pop_size=1)
+        with pytest.raises(ValueError, match="must be finite"):
+            opt._update_single_candidate(opt.mean, float("nan"))
+
+
+@pytest.mark.unit
+class TestFixedModeBatches:
+    def test_second_batch_without_improvement_keeps_best(self):
+        opt = make_es(dimension=0, pop_size=2)
+        opt._update_parameters(np.empty((2, 0)), [1.0, 5.0])
+        assert opt.best_fitness == 5.0 and opt.best_mechanism_idx == 1
+        opt._update_parameters(np.empty((2, 0)), [3.0, 2.0])
+        assert opt.best_fitness == 5.0 and opt.best_mechanism_idx == 1
+        assert opt.fitness_baseline == pytest.approx(2.5)
+        assert opt.previous_population_mean_fitness == pytest.approx(2.5)
+
+    def test_fixed_mode_sampling_is_empty_and_run_twice(self, fake_reporter):
+        reporter, calls = fake_reporter
+        opt = make_es(dimension=0, pop_size=3)
+        assert opt._sample_population().shape == (3, 0)
+        opt.reporting = reporter
+        opt.env = _FakeRegulatorEnv(0, lambda pop: np.array([1.0, 2.0, 0.5]))
+        opt.run()
+        opt.run()
+        assert opt.generation == 2 and len(calls) == 2
+        assert calls[1].generation == [1, 2]
+        assert calls[1].best_mechanism_idx == [1, 1]

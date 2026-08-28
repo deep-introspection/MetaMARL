@@ -100,3 +100,24 @@ class FakeReporter:
 
     def get_calls(self) -> dict[str, int]:
         return dict(self.calls)
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Run the tests that start a real Ray runtime after every other test.
+
+    When a Ray actor class is exported to a live cluster it is serialized by
+    value, and unpickling it back in the driver process makes cloudpickle
+    rewrite the methods of the already-imported class with copies whose
+    ``__globals__`` is a frozen snapshot of the module namespace. Any later
+    ``monkeypatch.setattr(module, ...)`` in a unit test is then invisible to
+    those methods (observed on ``core.reporting.wandb.WandbReporter``). Keeping
+    the ``integration`` and ``notebook`` items last removes the order
+    dependency without touching the production classes.
+    """
+    ray_items = [
+        item
+        for item in items
+        if item.get_closest_marker("integration") or item.get_closest_marker("notebook")
+    ]
+    others = [item for item in items if item not in ray_items]
+    items[:] = others + ray_items

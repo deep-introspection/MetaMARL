@@ -67,13 +67,8 @@ exclude = ["tests*", "examples*"]
 [tool.coverage.run]
 source = ["core"]
 branch = true
-# The Ray/RLlib adaptors and the World actor are exercised by the integration
-# suite; they are excluded from the unit-coverage figure by design.
-omit = [
-    "core/adaptors/*",
-    "core/world/*",
-    "core/callbacks.py",
-]
+# Everything under core/ counts: the Ray actors are unit-tested through their
+# unwrapped classes (``X.__ray_metadata__.modified_class``) without a runtime.
 
 [tool.coverage.report]
 show_missing = true

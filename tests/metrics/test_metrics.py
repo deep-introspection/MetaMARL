@@ -103,3 +103,23 @@ def test_reduce_uncompiled_keeps_a_metric_with_the_reduced_value(cls, values, re
     assert isinstance(empty, cls)
     assert len(empty) == (1 if cls is SumMetric else 0)  # an empty sum reduces to 0
     assert repr(kept).startswith(cls.__name__)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("cls", [MeanMetric, MinMetric, MaxMetric, LastMetric])
+def test_empty_compiled_peek_is_none_and_raw_peek_is_empty_list(cls):
+    metric = cls()
+    assert metric.peek() is None
+    assert metric.peek(compile=False) == []
+    assert repr(metric).startswith(cls.__name__)
+
+
+@pytest.mark.unit
+def test_int_conversion_rejects_series():
+    s = SeriesMetric()
+    s.push(2.0)
+    with pytest.raises(ValueError, match="to int"):
+        int(s)
+    m = MaxMetric()
+    m.push(2.7)
+    assert int(m) == 2

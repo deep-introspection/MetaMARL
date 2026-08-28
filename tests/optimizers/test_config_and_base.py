@@ -147,3 +147,109 @@ class TestOptimizerNode:
         opt.env = "env"
         opt.env = None
         assert seen == ["env"] and opt.env is None
+
+
+@pytest.mark.unit
+class TestOptimizerConfigEdges:
+    def test_environment_records_spaces_and_keeps_env_when_none(self):
+        from gymnasium import spaces
+
+        obs, act = spaces.Box(0, 1, (2,)), spaces.Discrete(3)
+        cfg = ESConfig().environment(env=AnalyticEnv)
+        cfg.environment(observation_space=obs, action_space=act)
+        assert cfg.env is AnalyticEnv  # ``env=None`` keeps the previous class
+        assert cfg.env_config == {"observation_space": obs, "action_space": act}
+        assert not hasattr(cfg, "disable_env_checking")
+
+    def test_environment_resets_env_config_on_each_call(self):
+        cfg = ESConfig().environment(env=AnalyticEnv, env_config={"a": 1})
+        cfg.environment(horizon=3)
+        assert cfg.env_config == {"horizon": 3}
+
+    def test_reporting_with_no_arguments_keeps_previous_declaration(self):
+        cfg = ESConfig().reporting(schema=int, queries=("q",))
+        cfg.reporting()
+        assert cfg._reporting_schema is int and cfg._reporting_queries == ("q",)
+        assert ESConfig()._reporting_schema is None
+
+    def test_unfreezing_copy_also_unfreezes_nested_evaluation_config(self):
+        cfg = ESConfig()
+        cfg.evaluation_config = ESConfig()
+        cfg.evaluation_config.freeze()
+        frozen = cfg.copy(copy_frozen=True)
+        assert frozen._is_frozen and frozen.evaluation_config._is_frozen
+        thawed = frozen.copy(copy_frozen=False)
+        assert not thawed._is_frozen and not thawed.evaluation_config._is_frozen
+        thawed.evaluation_config.sigma = 0.5  # writable again
+
+    def test_reporter_cfg_property_round_trips(self):
+        cfg = ESConfig()
+        assert cfg.reporter_cfg is None
+        cfg.reporter_cfg = "rc"
+        assert cfg.reporter_cfg == "rc" and cfg._reporter_cfg == "rc"
+
+    def test_build_optimizer_without_world_leaves_id_unset(self):
+        cfg = (
+            ESConfig()
+            .training(sigma=0.1)
+            .environment(
+                env=AnalyticEnv,
+                env_config={"mechanism_space": SimpleNamespace(optimize_params=["p"])},
+            )
+        )
+        cfg.dimension = 1
+        opt = cfg.build_optimizer()
+        assert opt.world is None and opt.opt_id is None
+        with pytest.raises(RuntimeError, match="not set"):
+            _ = opt.id
+        assert opt.env._opt_id is None and opt.env.world is None
+
+    def test_env_creator_forwards_kwargs(self, fake_world):
+        cfg = ESConfig().environment(env=AnalyticEnv)
+        env = cfg._env_creator(world=fake_world, train_iters=2, horizon=4)
+        assert isinstance(env, AnalyticEnv)
+        assert env.train_iters == 2 and env.horizon == 4
+
+
+@pytest.mark.unit
+class TestOptimizerNodeEdges:
+    def test_default_env_hook_is_a_no_op(self):
+        opt = Leaf(config=ESConfig())
+        opt.env = "env"
+        assert opt.env == "env"
+
+    def test_batch_capacity_is_not_set_by_the_base_class(self):
+        opt = Leaf(config=ESConfig())
+        with pytest.raises(AttributeError):
+            _ = opt.batch_capacity
+        opt._batch_capacity = 4
+        assert opt.batch_capacity == 4
+
+    def test_metrics_helpers_without_logger(self):
+        opt = Leaf(config=ESConfig())
+        assert opt.logger is None
+        with pytest.raises(RuntimeError, match="no MetricLogger"):
+            opt.reduce_metrics()
+        opt.flush_metrics()  # no-op
+        opt.reporting = SimpleNamespace(report=lambda m: pytest.fail("reported"))
+        opt.report_metrics()  # no logger: nothing rendered
+
+    def test_metrics_helpers_with_logger(self):
+        calls = []
+        opt = Leaf(config=ESConfig())
+        opt.logger = SimpleNamespace(
+            reduce=lambda: "reduced",
+            reset=lambda: calls.append("reset"),
+            peek=lambda: "peeked",
+        )
+        opt.reporting = SimpleNamespace(report=lambda m: calls.append(("report", m)))
+        assert opt.reduce_metrics() == "reduced"
+        opt.flush_metrics()
+        opt.report_metrics()
+        assert calls == ["reset", ("report", "peeked")]
+
+    def test_constructor_takes_env_from_config(self):
+        cfg = ESConfig().environment(env=AnalyticEnv)
+        opt = Leaf(config=cfg, world="w", reporting="r")
+        assert opt.env is AnalyticEnv  # the class, until build_optimizer replaces it
+        assert opt.world == "w" and opt.reporting == "r"
