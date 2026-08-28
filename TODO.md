@@ -16,7 +16,7 @@ The branch is not complete until W&B reproduces the dev visualizations,
 dynamic runtime keys are queryable, ES advanced plots are supported, tests are
 in place, and CSV/TensorBoard reporters are complete.
 
-## Status — 2026-08-27 (branch `feature/logging/testing`)
+## Status — 2026-08-27 (branch `feature/logging-testing`)
 
 The stack runs end-to-end with W&B (offline in tests) and with the new CSV
 reporter (`python -m examples.bilevel_fishery.debug --reporter csv`). Checked

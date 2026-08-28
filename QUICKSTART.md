@@ -9,7 +9,7 @@ Biases account.
 ```bash
 git clone https://github.com/deep-introspection/bilevel-fishery.git
 cd bilevel-fishery
-git checkout feature/logging/testing
+git checkout feature/logging-testing
 uv sync --group dev
 ```
 
