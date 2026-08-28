@@ -188,6 +188,52 @@ Known and left as is: `FisheryRegulatorEnv.aggregate_rewards` sets
 signal). It only feeds `FitnessContext.total_fines`, which the objective does
 not use, so the fitness is unaffected — but please fix the intent.
 
+## Code review findings on the shared core (from the docstring pass, 2026-08-27)
+
+Found while documenting `core/world`, `core/adaptors/ray`, `core/optimizers/{base,config}.py`,
+`core/callbacks.py`, `core/utils.py`, `core/annotations.py`. Stated in the docstrings, not
+fixed — several touch design choices that are yours.
+
+1. `core/annotations.override` never binds its `OverrideCheck` descriptor (it returns the
+   method), so the "subclass of parent" check is dead code; only the name check runs.
+2. `World.get_mechanism_by_id` returns `None` on every call after the first successful fetch
+   (annotated `MechanismContext`) and raises `TypeError` for a `mode` other than
+   `train`/`eval` (`in None`).
+3. `World.get_mechanism_by_index` / `get_mechanism_registry`: the registry is keyed by the
+   context-id string, not by the candidate index; an int lookup raises `KeyError`.
+4. `World.append_context` always overwrites `ctx.id` with a fresh UUID, so its duplicate-id
+   check is unreachable; unlike `set_new_context` it does not require `env_id` on mechanisms.
+5. `World.flush` / `flush_ctx` each clear one registry only; `_opt_ctx_map` is never pruned,
+   so `get_opt_ctx_ids` can return dangling ids.
+6. `RayOptimizer._get_policy_handle` references `self.algo`, which does not exist on
+   `RayOptimizer` (dead code, would raise `AttributeError`).
+7. `RayOptimizer.__init__` divides by `evaluation_config["rollout_fragment_length"]`
+   (`TypeError` if unset); `batch_capacity` raises `ZeroDivisionError` with no seeds; `save`
+   is a stub returning `None` despite its `_TrainingResult` annotation.
+8. `RayOptimizerConfig.debugging` only scales `num_envs_per_env_runner` if `env_runners()` was
+   called before it (order-dependent); `evaluation` is annotated `-> None` but returns
+   `self`; `rllib_config_mutator` lacks `@staticmethod`; `build_optimizer` leaves
+   `opt_id`/`agents` unbound when `world is None` or no `agent_specs` (`NameError` in
+   `env_creator`).
+9. `PolicyActor.reset` rebuilds a new `Algorithm` without stopping the previous one — the
+   July 2026 slowdown (`fix(ray): stop old APPO algorithm before per-generation rebuild` on
+   `exp/weekend-variants`) addresses exactly this; not yet on `dev`.
+10. `RayRuntimeConfig.disable_cuda=True` by default hides GPUs even with `device="cuda"`;
+    `RayRuntime._initialized` is set but never read; `local_mode=True` is hard-coded.
+11. `get_policy_loss_if_present` reads only the old-stack path, so on the new API stack it
+    always returns NaN — the `policy_loss=NA` in the training log is structural.
+12. `Optimizer.batch_capacity` returns `self._batch_capacity`, which the base class never
+    sets; `Optimizer.__init__` dereferences `config.env` although `config` defaults to `None`.
+13. `OptimizerConfig.environment` resets `env_config = {}` on each call (discarding earlier
+    `_merge_env_config`), and its docstring documents RLlib parameters the signature does not
+    accept.
+14. `EnvStepContext.observation_map` is typed `list[str]` while `BaseEnv.obs_map` is a dict;
+    `EnvStepContext.env_id` is `Optional[int]` while `MechanismContext.env_id` is
+    `Optional[str]`.
+15. `tag_episode_with_env_idx` shadows its `env` parameter immediately and reads
+    `policy_seed` without the None-check applied to `seed`/`mechanism_id`.
+16. `MechanismStatus.init` is never assigned anywhere.
+
 ## Conflict map between the two features
 
 A trial merge of `feature/logging/testing` into `feature/social-influence/testing`
