@@ -173,6 +173,16 @@ Decisions taken for you:
     matches nothing and no figure/CSV is written (by design of the resolver:
     zero series -> nothing rendered). They populate on real runs.
 
+Friction observed while writing the visualization tutorial (not changed):
+
+- The configured schema/queries are only reachable through private attributes
+  (`_reporting_schema`, `_reporting_queries`, `_reporting_*_env`); a public
+  getter would help notebooks and tests.
+- `WandbReporter._figure` is the only way to get the Plotly figure without a
+  run; a public `figure()` would make offline inspection cleaner.
+- `MetricLogger.push_data` at the root requires the exact declared schema type
+  (no subclass), while nested nodes accept runtime subtypes.
+
 Known and left as is: `FisheryRegulatorEnv.aggregate_rewards` sets
 `mean_fines` to `tail_fish.mean()` (copy-paste; `dev` used the violation
 signal). It only feeds `FitnessContext.total_fines`, which the objective does
@@ -180,10 +190,35 @@ not use, so the fitness is unaffected — but please fix the intent.
 
 ## Conflict map between the two features
 
-Both features modify `core/envs/marl_regulated.py`, `core/envs/base.py`,
-`core/optimizers/bilevel.py`, `core/optimizers/es/optimizer.py` and
-`examples/bilevel_fishery/debug.py`. The mechanism branch changes the step
-pipeline and the constructor of the regulated env; the logging branch adds
-`logger`/`reporter` attributes and `push` calls inside the same methods. When
-merging the second feature, keep the mechanism branch's pipeline and re-insert
-the logging `push` calls after `actions`, `rewards` and `obs` are computed.
+A trial merge of `feature/logging/testing` into `feature/social-influence/testing`
+(2026-08-27 evening, discarded) produced 30 conflicting files, in four groups:
+
+1. **Delete vs modify, resolve by deleting** — the logging branch deleted
+   `core/reporting/utils/*.py` (5 files) and moved the fishery variants to
+   `deprecated/` (since deleted), while the mechanism branch only reformatted
+   them: `core/reporting/utils/{env_reduced,env_step_context,es_population,
+   ray_new_api_stack,ray_old_api_stack}.py`, `examples/bilevel_fishery/
+   {bilevel,mechanism_v1,regulated_env_shaefer}.py`. Conversely the mechanism
+   branch deleted `core/envs/regulated.py`, which the logging branch modified
+   (logger pushes): delete it, its logging moved into `marl_regulated.py`.
+2. **Documents to concatenate** — `README.md` (one section per feature),
+   `QUICKSTART.md` (two short runs), `TODO.md` (two status sections),
+   `docs/MERGE_NOTES.md`, `.gitignore`, `examples/registry.py`.
+3. **Shared core, real merge work** — `core/envs/base.py`,
+   `core/envs/marl_regulated.py`, `core/envs/regulator.py`,
+   `core/optimizers/{bilevel,config}.py`, `core/optimizers/es/optimizer.py`,
+   `core/adaptors/ray/{optimizer,optimizer_config,utils}.py`,
+   `core/callbacks.py`, `core/reporting/wandb.py`. Rule of thumb: keep the
+   mechanism branch's control flow (step pipeline, mechanism template, `mechanism=`
+   builder) and re-insert the logging branch's additions (`logger`/`reporter`
+   attributes, `_log(...)` calls after `actions`, `rewards`, `obs`, the
+   `reporting(schema=, queries=)` builders, `_to_logger_payload` in both
+   optimizers, `report_metrics()` in `RegulatorEnv._step`).
+4. **Examples and tests** — `examples/bilevel_fishery/{debug,regulated_env,
+   regulator_env}.py` (the mechanism branch's fishery env has no `infos`-based
+   metrics; the logging branch's `FisheryRegulatedEnv` pushes to the logger —
+   port the `_log` calls into the hook methods of the new env),
+   `tests/conftest.py` (union of both fixture sets).
+
+71 further files merge automatically. Expect the integration merge to take a
+focused day; the unit suites of both branches are the acceptance criterion.
