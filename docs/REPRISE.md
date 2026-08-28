@@ -227,10 +227,14 @@ examples/dummy tutorials` is clean on both branches (that is the CI scope);
 live `regulated_env_ed_hs.py` (`underuse_penalty`, `underuse_severity_m3s`,
 `stock_shortage_severity`) — real bugs for Nadine, not silenced.
 
-Remaining for the week (in order): (1) Rémy's decisions listed above;
-(2) docstring pass on `core/world/*`, `core/adaptors/ray/*`,
-`core/optimizers/config.py` methods (shared files -> do it on the base branch
-and merge); (3) bonus items: 90 % on all of `core/` (World/adaptors need Ray
+Later on 2026-08-27: docstring pass done on the shared core (100 docstrings on
+13 files, on the base branch, merged into both testing branches with 6–7
+conflicts resolved code-identically); the 16 code-review findings it surfaced
+are in `docs/MERGE_NOTES.md`. Cleanup decisions applied (registry moved,
+water forks and archives deleted). Trial merge of the two features: 30
+conflicting files, mapped in the merge notes.
+
+Remaining for the week (in order): (1) bonus items: 90 % on all of `core/` (World/adaptors need Ray
 mocks), ES scatter colored by generation and parallel coordinates
 (logging), an `integration/logging+social` trial merge to surface conflicts
 early; (4) push the three branches and hand `docs/MERGE_NOTES.md` to Nadine.
