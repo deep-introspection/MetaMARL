@@ -93,6 +93,21 @@ instance must not be shared by concurrently stepping envs; today each env gets
 its own decoded candidate, so this holds), context publishing seed tests
 (TODO §13).
 
+Cleanup decided by Rémy on 2026-08-27 and applied to both branches:
+
+- `core/registry.py` moved to `examples/registry.py` (the library no longer
+  imports example code; the YAML loaders import it from there). On the
+  mechanism branch the fresh-water example is not registered: it still uses
+  the pre-mechanism environment API (`@override(MultiAgentRegulatedEnv)` on
+  methods the new base does not define) and will need porting.
+- Deleted: `examples/fresh_water/deprecated/`, the unreferenced
+  `regulated_env_ed_hs-v2/_v3/_v4_no_quota.py` and `regulated_env_raven.py`,
+  and (logging branch) `examples/bilevel_fishery/deprecated/`. Git history
+  keeps them.
+- The live `examples/fresh_water/regulated_env_ed_hs.py` references undefined
+  names (`underuse_penalty`, `underuse_severity_m3s`, `stock_shortage_severity`);
+  left as is for you.
+
 ## feature/logging/testing
 
 State on arrival: the stack imported but could not run — `WandbReporter`
