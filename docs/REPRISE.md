@@ -27,11 +27,12 @@ command merged the base into itself twice on day 1.
 | --- | --- | --- |
 | 0. Shared base: tests revived, coverage/CI config, dead code removed, README/AGENTS/ARCHITECTURE, docstring pass on shared core | **done** | 26 base tests green; CI workflow; 100 docstrings on 13 files |
 | 1. Mechanism branch runnable, tested, documented | **done** | full `pytest`: 458 passed, 3 skipped (unit + integration + 2 notebooks, 08-28); coverage 92–100 % on `core/mechanism`, `core/envs`; 93–97 % on `core/optimizers/{es,config,base}` |
-| 2. Logging branch runnable, tested, wildcards + grouped mean/std, CSV/TensorBoard | **done** | full `pytest`: 500 passed, 3 skipped (unit + integration + notebook, 08-28); coverage 99 % on all of `core/` |
+| 2. Logging branch runnable, tested, wildcards + grouped mean/std, CSV/TensorBoard | **done** | full `pytest`: 533 passed, 3 skipped (unit + integration + notebook, 08-28 pm); coverage 99 % on all of `core/` |
 | 3. Documentation (README, AGENTS, ARCHITECTURE, QUICKSTART per branch, MERGE_NOTES, TODO status) | **done** | files present on both branches; notebooks execute under `tests/notebooks` |
 | 4. Closing: push branches, hand `docs/MERGE_NOTES.md` to Nadine | **pushed 08-28**; handoff to Nadine pending | `origin/chore/cleanup-base`, `origin/feature/*-testing` |
 | Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | **done on both branches** (08-28) | mechanism: 451 unit tests, 98 %; logging: 497 unit tests, 99 % (only unreachable line: `regulated.py:68`, notes §26) |
-| Bonus B. Logging: ES scatter colored by generation, parallel coordinates, episode-level wildcard alignment | not started | see `TODO.md` §5.4, §5.5, §3–4 on the logging branch |
+| Bonus B. Logging: ES scatter colored by generation, parallel coordinates | **done** (08-28 pm) | `Query.color` + `ParallelCoordinatesQuery`; 33 new tests; demo runs with the CSV and offline W&B reporters checked by hand; notes §41 |
+| Bonus B'. Episode-level wildcard alignment (`by_episode/*` vs `iter`) | waiting on Nadine | needs an episode-to-iteration key, her call in `TODO.md` §3–4 |
 | Bonus C. Integration trial of the two features | measured, not built | 30 conflicting files, map in `docs/MERGE_NOTES.md` |
 
 ## Decisions log
@@ -51,6 +52,7 @@ command merged the base into itself twice on day 1.
 | 08-27 | Reporters receive labeled `Series`; wildcards group by first level when ≥ 2 levels | Claude, per TODO |
 | 08-28 | Ignore `.wandb_nadine.env` and `*.env` (the file header wrongly claimed it was ignored) | Rémy |
 | 08-28 | Push all three branches; testing branches renamed `feature/*-testing` | Rémy |
+| 08-28 | Bonus B design: `color` is an optional path on `Query`, resolved like x; parallel coordinates are a separate query type that the base reporter resolves to a table; the first wildcard is the row entity; TensorBoard skips tables with a warning | Claude, per TODO options |
 | 08-28 | Delete the dead code of §24 (old-API-stack module and branch, `reporting/base.py`, two unused `RayOptimizer` methods); `mps_model.py` kept pending the fresh-water cleanup | Rémy |
 
 ## Waiting on
@@ -98,3 +100,10 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters
   copied into `tests/conftest.py`. Full suite 500 green, `core/` at 99 %. Fifteen new findings
   for Nadine (notes §26–40, numbered after the mechanism branch's §17–25 so the two copies
   of the notes can be merged without renumbering). Both testing branches pushed.
+- **2026-08-28 (afternoon)** — Bonus B done on the logging branch: `Query.color` (ES scatters
+  coloured by generation, colorbar and hover on W&B, `color` column in CSV) and
+  `ParallelCoordinatesQuery` (one line per candidate × generation, one axis per optimized
+  parameter, fitness last and as colour; `go.Parcoords` on W&B, wide CSV). The full suite caught
+  a tutorial cell that assumed every outer query has an `x`; fixed. Full suite 533 green.
+  Demo runs checked with `--reporter csv` and `--reporter wandb` (offline). Episode-level
+  alignment stays with Nadine.
