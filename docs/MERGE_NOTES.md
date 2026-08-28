@@ -8,8 +8,8 @@ runs; nothing was pushed to `dev`.
 ## Branch layout
 
 ```
-origin/dev ──► chore/cleanup-base ─────┬──► feature/social-influence/testing
-                                       └──► feature/logging/testing
+origin/dev ──► chore/cleanup-base ─────┬──► feature/social-influence-testing
+                                       └──► feature/logging-testing
 ```
 
 `chore/cleanup-base` holds the cleanup that both features need and that was
@@ -21,10 +21,10 @@ scripts. Each `*/testing` branch is your feature branch plus a merge of that
 base.
 
 Suggested merge order: `chore/cleanup-base` into `dev` first (no behavior
-change), then `feature/social-influence/testing`, then
-`feature/logging/testing` (see the conflict map below).
+change), then `feature/social-influence-testing`, then
+`feature/logging-testing` (see the conflict map below).
 
-## feature/social-influence/testing
+## feature/social-influence-testing
 
 State on arrival: the branch did not import (`@override(MultiAgentEnv)` on
 methods `MultiAgentEnv` does not define, imports of the deleted
@@ -108,7 +108,7 @@ Cleanup decided by Rémy on 2026-08-27 and applied to both branches:
   names (`underuse_penalty`, `underuse_severity_m3s`, `stock_shortage_severity`);
   left as is for you.
 
-## feature/logging/testing
+## feature/logging-testing
 
 State on arrival: the stack imported but could not run — `WandbReporter`
 crashed on every `reduce="mean"` query (wrong keyword), the CSV and
@@ -236,7 +236,7 @@ fixed — several touch design choices that are yours.
 
 ## Conflict map between the two features
 
-A trial merge of `feature/logging/testing` into `feature/social-influence/testing`
+A trial merge of `feature/logging-testing` into `feature/social-influence-testing`
 (2026-08-27 evening, discarded) produced 30 conflicting files, in four groups:
 
 1. **Delete vs modify, resolve by deleting** — the logging branch deleted

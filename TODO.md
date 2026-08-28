@@ -50,7 +50,7 @@ The first goal is **not new features**. The first goal is to make this complete
 abstraction run end-to-end, cover the concerned modules with tests, and verify
 that the new abstraction preserves benchmark behavior.
 
-## Status — 2026-08-27 (branch `feature/social-influence/testing`)
+## Status — 2026-08-27 (branch `feature/social-influence-testing`)
 
 The P0 items are done and the fishery benchmark runs end-to-end through
 `examples/bilevel_fishery/debug.py` (quota + subsidy + social observation,

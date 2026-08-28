@@ -9,7 +9,7 @@ observation), on a laptop, without a Weights & Biases account.
 ```bash
 git clone https://github.com/deep-introspection/bilevel-fishery.git
 cd bilevel-fishery
-git checkout feature/social-influence/testing
+git checkout feature/social-influence-testing
 uv sync --group dev
 ```
 
