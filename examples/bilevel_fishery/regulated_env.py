@@ -20,6 +20,13 @@ The intrinsic reward is the delivered harvest normalized by the maximal
 request, as in the pre-mechanism benchmark. Mechanisms (quota, subsidy,
 penalty, social observation) plug in through ``MultiAgentRegulatedEnv``.
 
+When the env is built with a metric ``schema`` (``FisheryMetricSchema`` or a
+subclass), the hooks push one value per step for every field of that schema
+that the fishery produces (stock, growth, harvests, reference points, quota
+allowance) and per-agent harvest requests, so that the env-level reporter and
+the regulator's fitness aggregation have data; without a schema nothing is
+logged.
+
 References
 ----------
 Pella, J. J., & Tomlinson, P. K. (1969). A generalized stock production
@@ -108,6 +115,23 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         )
         return harvest, restoration
 
+    def _quota_allowed_fraction(self, fish_norm: float) -> float:
+        """Allowed harvest fraction of the quota in force, ``1.0`` without a quota.
+
+        Walks the mechanism (and the children of a composition) for the first
+        one exposing ``allowed_fraction`` and evaluates it at ``fish_norm``.
+        Used only for logging (``quota_stress``, ``allowed_harvest``); the
+        regulation itself happens in ``mechanism.action``.
+        """
+        pending = [self.mechanism]
+        while pending:
+            candidate = pending.pop(0)
+            allowed_fraction = getattr(candidate, "allowed_fraction", None)
+            if callable(allowed_fraction):
+                return float(allowed_fraction(fish_norm))
+            pending.extend(getattr(candidate, "children", ()))
+        return 1.0
+
     # --- hooks -----------------------------------------------------------------------
 
     @reset
@@ -130,10 +154,11 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         for agent_id, action in A_t.items():
             harvest_frac, _ = self._components(action)
             utilities[agent_id] = float(harvest_frac)
-            self._infos[agent_id]["requested_harvest"] = (
-                harvest_frac * full_required_harvest
-            )
+            requested_harvest = harvest_frac * full_required_harvest
+            self._infos[agent_id]["requested_harvest"] = requested_harvest
             self._infos[agent_id]["requested_frac"] = harvest_frac
+            self._log(("by_agent", agent_id, "requested_harvest"), requested_harvest)
+            self._log(("by_agent", agent_id, "requested_frac"), harvest_frac)
         self._update_infos(key="full_required_harvest", values=full_required_harvest)
         return utilities
 
@@ -168,23 +193,51 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
         new_state = {"fish": fish_next, "last_usage": H_realized}
 
+        fish_norm = fish / self.K
+        fish_norm_next = fish_next / self.K
+        total_usage_norm = H_realized / self.K
+        # quota allowance at the pre-transition stock (what the action hook saw)
+        allowed_frac = self._quota_allowed_fraction(fish_norm)
+        allowed_harvest = allowed_frac * full_required_harvest
+
         for agent_id in A_t:
             self._infos[agent_id]["delivered_harvest"] = delivered_harvest[agent_id]
             self._infos[agent_id]["restoration_effort"] = efforts[agent_id]
+            self._log(
+                ("by_agent", agent_id, "delivered_harvest"), delivered_harvest[agent_id]
+            )
         self._update_infos(key="fish", values=fish)
         self._update_infos(key="fish_next", values=fish_next)
-        self._update_infos(key="fish_norm", values=fish / self.K)
-        self._update_infos(key="fish_norm_next", values=fish_next / self.K)
+        self._update_infos(key="fish_norm", values=fish_norm)
+        self._update_infos(key="fish_norm_next", values=fish_norm_next)
         self._update_infos(key="growth", values=growth)
         self._update_infos(key="growth_noise", values=noise)
         self._update_infos(key="restoration", values=restoration)
         self._update_infos(key="H_attempted", values=H)
         self._update_infos(key="H_realized", values=H_realized)
         self._update_infos(key="harvest_to_msy", values=H_realized / max(self.MSY, EPS))
-        self._update_infos(key="total_usage_norm", values=H_realized / self.K)
+        self._update_infos(key="total_usage_norm", values=total_usage_norm)
+        self._update_infos(key="allowed_harvest", values=allowed_harvest)
         self._update_infos(key="B_msy", values=self.B_msy)
         self._update_infos(key="MSY", values=self.MSY)
         self._update_infos(key="F_msy", values=self.F_msy)
+
+        # env-level series (one value per step, aligned with ``iter``); the
+        # field names are those of ``FisheryMetricSchema``
+        self._log(("fish_stock",), fish)
+        self._log(("fish_stock_next",), fish_next)
+        self._log(("fish_norm",), fish_norm)
+        self._log(("fish_norm_next",), fish_norm_next)
+        self._log(("growth",), growth)
+        self._log(("growth_noise",), noise)
+        self._log(("H_attempted",), H)
+        self._log(("H_realized",), H_realized)
+        self._log(("total_usage_norm",), total_usage_norm)
+        self._log(("quota_stress",), allowed_frac)
+        self._log(("allowed_harvest",), allowed_harvest)
+        self._log(("B_msy",), self.B_msy)
+        self._log(("MSY",), self.MSY)
+        self._log(("F_msy",), self.F_msy)
 
         return new_state
 

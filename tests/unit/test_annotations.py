@@ -66,3 +66,35 @@ def test_override_does_not_check_subclass_relationship():
             return "unrelated"
 
     assert Unrelated().run() == "unrelated"
+
+
+@pytest.mark.unit
+def test_inner_descriptor_would_enforce_subclass_if_it_were_bound():
+    """Exercise the ``OverrideCheck`` descriptor that ``override`` never binds.
+
+    ``decorator`` builds an ``OverrideCheck`` and discards it, so the subclass
+    check documented in the module Notes is unreachable through the public
+    decorator. The class is pulled out of the closure here to pin down what
+    it would do if it were bound: bind the function on a proper subclass and
+    raise ``TypeError`` on an unrelated owner.
+    """
+    import inspect
+
+    override_check = inspect.getclosurevars(override(_Parent)).nonlocals[
+        "OverrideCheck"
+    ]
+
+    def run(self):
+        return "bound"
+
+    class Child(_Parent):
+        pass
+
+    override_check(run, _Parent).__set_name__(Child, "run")
+    assert Child().run() == "bound"
+
+    class Unrelated:
+        pass
+
+    with pytest.raises(TypeError, match="must be a subclass of _Parent"):
+        override_check(run, _Parent).__set_name__(Unrelated, "run")

@@ -2,7 +2,12 @@
 
 The outer Evolution Strategies optimizer searches the mechanism parameters
 (``fixed_quota``, ``restoration_subsidy``); the inner APPO optimizer trains the
-fishers' policies against each candidate. Run a short smoke configuration with::
+fishers' policies against each candidate. Every level logs a typed
+``MetricSchema`` and renders the queries of
+:mod:`examples.bilevel_fishery.queries` through the configured reporter
+(Weights & Biases by default, CSV with ``--reporter csv``).
+
+Run a short smoke configuration with::
 
     WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug \\
         --outer-iters 2 --train-iters 2 --num-agents 2 --horizon 20
@@ -17,7 +22,8 @@ import numpy as np
 import ray
 from gymnasium import spaces
 
-from core.callbacks import tag_episode_with_env_idx
+from core.adaptors.ray.schema import RaySchema
+from core.callbacks import log_and_report_episode_metrics, tag_episode_with_env_idx
 from core.mechanism.algorithms.quota import QuotaMechanism
 from core.mechanism.algorithms.social_influence import SocialInfluenceMechanism
 from core.mechanism.algorithms.subsidy import SubsidyMechanism
@@ -25,6 +31,12 @@ from core.mechanism.composition.chained_mechanism import ChainedMechanism
 from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
+from core.optimizers.es.schema import ESSchema
+from core.reporting.config import ReporterConfig
+from core.reporting.csv import CSVConfig
+from core.reporting.wandb import WandbConfig
+from examples.bilevel_fishery import queries
+from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
 from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
@@ -34,6 +46,20 @@ EPS = 1e-8
 ACTION_DIM = 2  # (harvest fraction, restoration effort)
 BASE_OBS_DIM = 2  # (fish_norm, total_usage_norm)
 K = 5_000.0  # carrying capacity, shared by the regulated and regulator envs
+
+
+def build_reporter(args: argparse.Namespace) -> ReporterConfig:
+    """CSV or Weights & Biases reporter, selected by ``--reporter``."""
+    if args.reporter == "csv":
+        return CSVConfig(project=args.project, output_dir=args.output_dir)
+    return WandbConfig(
+        project=args.project,
+        x_disable_stats=True,
+        x_disable_meta=True,
+        quiet=True,
+        max_end_of_run_summary_metrics=0,
+        max_end_of_run_history_metrics=0,
+    )
 
 
 def build_mechanism(*, social: bool = True) -> ChainedMechanism:
@@ -73,21 +99,14 @@ def observation_dim(mechanism: ChainedMechanism, num_agents: int) -> int:
 def build_config(args: argparse.Namespace) -> BilevelConfig:
     mechanism = build_mechanism(social=not args.no_social)
     obs_dim = observation_dim(mechanism, args.num_agents)
+    # ES parameter names are the mechanism template's (``"<i>:<Class>.<field>"``);
+    # the ES schema keys its per-parameter series by these names.
+    optimized = tuple(mechanism.param_names())
 
     return (
         BilevelConfig()
         .world(world_name="fishery_world")
-        .reporting(
-            reporter="wandb",
-            project_name=args.project,
-            settings_dict={
-                "x_disable_stats": True,
-                "x_disable_meta": True,
-                "quiet": True,
-                "max_end_of_run_summary_metrics": 0,
-                "max_end_of_run_history_metrics": 0,
-            },
-        )
+        .reporter(config=build_reporter(args))
         .mechanism(mechanism=mechanism)
         .training(outer_iters=args.outer_iters)
         .ray(
@@ -129,6 +148,14 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 train_iters=args.train_iters,
             )
             .debugging(seed=42, num_seeds=1)
+            .reporting(
+                schema=ESSchema,
+                queries=queries.ES_QUERIES
+                + queries.es_parameter_queries(optimized)
+                + queries.es_candidate_fitness_queries(args.num_candidates)
+                + queries.es_parameter_fitness_queries(optimized)
+                + (queries.es_parallel_coordinates_query(optimized),),
+            )
         )
         .inner(
             APPOptimizerConfig()
@@ -159,6 +186,9 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 },
                 horizon=args.horizon,
                 disable_env_checking=False,
+                schema=FisheryMetricSchema,
+                queries=queries.FISHERY_ENV_QUERIES
+                + queries.FISHERY_ALL_AGENTS_QUERIES,
             )
             .env_runners(
                 num_env_runners=0,
@@ -170,7 +200,10 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 max_requests_in_flight_per_env_runner=1,
             )
             .learners(num_learners=0, num_gpus_per_learner=0)
-            .callbacks(on_episode_created=tag_episode_with_env_idx)
+            .callbacks(
+                on_episode_created=tag_episode_with_env_idx,
+                on_episode_end=log_and_report_episode_metrics,
+            )
             .training(
                 vtrace=True,
                 circular_buffer_num_batches=4,
@@ -224,6 +257,8 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 min_time_s_per_iteration=0,
                 min_sample_timesteps_per_iteration=0,
                 min_train_timesteps_per_iteration=0,
+                schema=RaySchema,
+                queries=queries.RAY_QUERIES,
             )
         )
     )
@@ -250,7 +285,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--no-social", action="store_true", help="drop the social-observation mechanism"
     )
-    parser.add_argument("--project", default="bilevel", help="W&B project name")
+    parser.add_argument("--reporter", choices=("wandb", "csv"), default="wandb")
+    parser.add_argument("--project", default="bilevel", help="reporter project name")
+    parser.add_argument(
+        "--output-dir", default="results", help="CSV reporter output directory"
+    )
     return parser.parse_args(argv)
 
 

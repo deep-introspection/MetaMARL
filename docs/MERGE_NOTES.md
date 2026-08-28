@@ -234,7 +234,13 @@ fixed — several touch design choices that are yours.
     `policy_seed` without the None-check applied to `seed`/`mechanism_id`.
 16. `MechanismStatus.init` is never assigned anywhere.
 
-## Findings from the unit-test pass on the whole core (2026-08-28)
+## Findings from the unit-test passes (2026-08-28)
+
+Findings 17–25 come from the pass on `feature/social-influence-testing` and findings
+26–40 from the pass on `feature/logging-testing`; the numbering was chosen so that the
+two lists merge without renumbering.
+
+### On the mechanism branch
 
 Found while bringing `core/` from 46 % to 97 % coverage without a Ray runtime (the actors
 are instantiated through `X.__ray_metadata__.modified_class`). Each point is pinned by a
@@ -284,6 +290,70 @@ purpose. Nothing was fixed. Points already listed above are not repeated.
     `integration` and `notebook` items last. Any future unit test that patches a
     module-level name used by a Ray actor method has the same exposure.
 
+### On the logging branch
+
+Found while bringing `core/` on this branch from 86 % (with the Ray adaptors, the World
+actor and the callbacks excluded from the figure) to 99 % coverage without a Ray runtime:
+the actors are instantiated through `X.__ray_metadata__.modified_class`, the World is
+replaced by an in-memory fake, and `wandb` is mocked. Each point is pinned by a test that
+documents the current behaviour, so changing it will make a test fail on purpose. Nothing
+was fixed. Points already listed above are not repeated.
+
+26. `RegulatedEnv` (`core/envs/regulated.py:61`) calls `self._debug_remote(...)` on the
+    error path of the mechanism fetch, but no class in the hierarchy defines that method. A
+    failing `World.get_mechanism_by_id` therefore raises `AttributeError` instead of the
+    intended `RuntimeError("Could not fetch mechanism_id=...")`, which is unreachable.
+27. `RegulatorEnv._reset` (`core/envs/regulator.py:47`) reads `self.observation_space`,
+    which `gymnasium.Env` only annotates. No class in the hierarchy assigns it, so
+    `reset()` on a subclass that did not set the attribute raises `AttributeError` before
+    the `is None` guard runs.
+28. `build_optimizer` (`core/optimizers/bilevel.py:106-112`) dereferences the inner, outer
+    and reporter configs without checking them. An incomplete `BilevelConfig` fails with
+    `AttributeError` on `None`, after Ray has already been started, and the reporter is in
+    practice mandatory although `_reporter_cfg` defaults to `None`. The label of the main
+    reporter on line 112 is spelled `"bilvel"`.
+29. `BilevelOptimizer.run` is annotated `-> None` but returns a summary dict, and with
+    `outer_iters=0` that summary reports `outer_iters == 1` because the counter is
+    `outer_iter + 1` with `outer_iter` initialised to 0. `BilevelConfig.training()` always
+    overwrites `output_dir` (reset to `None` when not passed) whereas `outer_iters` ignores
+    `None`.
+30. `MechanismSpace.clip` and `MechanismSpace.sample` (`core/mechanism/space.py:36-38`) have
+    an `...` body instead of raising, so a subclass that forgets to override them silently
+    returns `None`.
+31. `ESConfig.training(generation=...)` (`core/optimizers/es/config.py:74-75`) sets an
+    attribute that `__init__` never declares and that the optimizer never reads (it sets
+    `self.generation = 0` itself); the keyword is a silent no-op, and the swallowed
+    `**kwargs` lets typos through as well.
+32. Two guards in `core/optimizers/es/optimizer.py` are unreachable: the "Fixed-mechanism
+    mode expected ..." `ValueError` on lines 467–472 (the shape check on line 448 already
+    guarantees it) and the "Single-candidate fitness must be finite" guard on lines 353–354
+    (`_update_parameters` filters non-finite values on line 461 before calling it).
+33. `Query` (`core/reporting/query.py:39-40`) does not validate the `Literal` values of
+    `reduce` and `error` at construction: `Query(reduce="max")` is accepted and only fails
+    at resolution time (`core/reporting/base.py:191`).
+34. The `if not node.dynamic` branches of `MetricLogger._build_from_schema`
+    (`core/metrics/logger.py:130-133, 151-153`) are only reachable through an internal call
+    with `dynamic=True`; the public API creates dynamic nodes directly on line 146.
+35. `build_learner` (`core/adaptors/ray/utils.py:274`) iterates over `results["learners"]`
+    including the aggregated `__all_modules__` block, which becomes a pseudo-policy in
+    `LearnerSchema.by_policy`. On line 318 `batch_size` is an `int` field fed by
+    `module_train_batch_size_mean`, a mean, so a non-integer value (128.5) raises a pydantic
+    `ValidationError` instead of rounding.
+36. The `or` fallback trap of finding 17 also affects `gradient_norm` (`utils.py:329`, a
+    norm of exactly 0.0 falls back to `grad_gnorm`) and `build_performance`
+    (`utils.py:196-198`, a throughput of 0.0 falls back to the since-restore value).
+37. `build_rollout` (`utils.py:243-244`) does not reject an episode without `mechanism_id`
+    or `seed`; it files it under the literal keys `"None"`.
+38. `RayOptimizerConfig.reporting` (`core/adaptors/ray/optimizer_config.py:359`) is annotated
+    `-> None` but returns `self` (same pattern as `evaluation`, finding 8).
+39. In the old-API-stack branch of the evaluation callback (`core/callbacks.py:344-357`,
+    copied from RLlib), a batch coming from a stale iteration is ignored for the step
+    count but still counted as a finished unit (`num_units_done += len(results)`), so an
+    evaluation can end with zero recorded steps.
+40. `tests/adaptors/test_callbacks.py` was merged into `tests/unit/test_callbacks.py`:
+    pytest in rootdir mode refuses two test modules with the same basename.
+
+
 ## Conflict map between the two features
 
 A trial merge of `feature/logging-testing` into `feature/social-influence-testing`
@@ -318,3 +388,114 @@ A trial merge of `feature/logging-testing` into `feature/social-influence-testin
 
 71 further files merge automatically. Expect the integration merge to take a
 focused day; the unit suites of both branches are the acceptance criterion.
+
+## 41. ES scatter colour and parallel coordinates (bonus B)
+
+This section closes TODO §5.4 and §5.5 on `feature/logging-testing`. Two things were
+added to the reporting stack, both resolved by the base `Reporter` so that every backend
+receives the same data and only decides how to draw it.
+
+The first addition is a per-point colour on `Query`. A query may name a third path,
+`color`, which the reporter expands and aligns by wildcard binding exactly as it does for
+`x`: a root series such as `generation` is shared by every candidate, while a series bound
+under `by_mechanism/*` is paired with the candidate that owns it, never with another one,
+and its length must equal the length of `y`. The resolved `Series` carries the values in
+its `color` field. `es_parameter_fitness_queries` now colours every fitness-versus-parameter
+point by the outer generation, which is what the `dev` figure did. Weights & Biases draws
+such a series as markers on a shared Viridis colour axis whose colourbar is titled with the
+colour path, with a hover box showing the series label, the x value, the fitness and the
+colour value; the CSV reporter writes the value in a new `color` column, which stays empty
+for queries without a colour; TensorBoard has no per-point colour for scalars, so it logs
+one information line per coloured query and plots the scalars unchanged. A colour is only
+accepted with `reduce="none"`, since an averaged point has no single colour.
+
+The second addition is `ParallelCoordinatesQuery(title, dimensions, color)`, option A of
+TODO §5.5. The base reporter resolves it into a `Table` with one column per axis and one
+row per evaluated entity and index, following two rules. The row entity of an expansion is
+its first wildcard binding, the same convention as the grouping dimension of a mean
+reduction; an expansion without a wildcard is shared by every entity. The axis label of an
+expansion is the last dynamic key bound after that entity wildcard, so the parameter name
+in `by_mechanism/*/by_parameter/fixed_quota/value` and the id bound by a second wildcard
+in `by_mechanism/*/by_parameter/*/value`; when there is none, the leaf field name is used,
+which gives `fitness`. Two paths producing the same label is an error, as is a column
+missing for an entity or series of different lengths for one entity. Rows are emitted
+index-major, that is all candidates of generation 0, then all candidates of generation 1,
+so the figure accumulates over the run. When no entity has been evaluated yet the table
+is empty but its columns are already known, because the reporter reads the schema
+annotations from the first empty dynamic node. Weights & Biases renders the table as one
+`Parcoords` trace with axis ranges padded by five percent of their span (a constant axis
+gets `[v - 0.5, v + 0.5]`) and lines coloured by the colour column; the CSV reporter writes
+a wide file with one column per axis plus a `color:<label>` column, rewritten at every report;
+TensorBoard keeps the base default, which logs a warning and skips the query.
+`es_parallel_coordinates_query(parameter_names)` builds the fishery query and
+`examples/bilevel_fishery/debug.py` registers it next to the fitness scatters.
+
+One caveat applies to both figures. The keys of `by_mechanism` are population slots
+(`"0"` to `"n-1"`) reused at every generation, so the candidate shown in a hover box or
+tracked by a scatter series is a slot index, not a unique candidate: slot `"2"` of
+generation 3 is a different sampled mechanism from slot `"2"` of generation 4, and only the
+generation colour tells them apart.
+
+## Integration trial (2026-08-28)
+
+The branch `feature/integration-trial`, checked out in the worktree
+`../bilevel-fishery-integration`, holds the merged result of `feature/logging-testing`
+into `feature/social-influence-testing`, resolved along the conflict map above: the
+mechanism branch's control flow was kept and the logging branch's loggers, reporters and
+query builders were re-inserted. The outcome of the run on that branch is recorded here.
+
+### Outcome
+
+The merge took one session (2026-08-28) instead of the "focused day" estimated above,
+because both unit-test passes (bonus A) had prepared the ground. Git reported 45
+conflicting files, not 30: the fifteen extra ones were test files that both branches had
+added under the same name. Those were resolved by keeping the mechanism branch's file
+under its name and the logging branch's file under a `_logging` suffix, then removing
+literal duplicates and porting the logging tests to the merged API (`mechanism=` template
+instead of `MechanismSpace`, `ReporterConfig` instead of the W&B plot methods).
+
+Beyond the conflict map, the merge silently dropped `core/reporting/base.py`: the
+mechanism branch had deleted the old 19-line draft while the logging branch rewrote it
+into the `Reporter` base class, and git resolved the pair as a deletion. It was restored
+from `feature/logging-testing`. Seven test files that git merged cleanly were also
+orphaned by the other side's deletions and were removed: the mechanism branch's tests of
+`core/reporting/utils/*` and of the old W&B reporter, and the logging branch's tests of
+`MechanismSpace`/`VectorMechanism`.
+
+Design decisions taken during the resolution, all to be confirmed by Nadine:
+
+1. Reporting is optional everywhere. Without a `reporter_cfg`, no reporter is built at any
+   level and `BilevelOptimizer(reporter=None)` is the default; the logging branch used to
+   raise an `AttributeError` in that case.
+2. `RegulatorEnv._step` calls `inner.report_metrics()`, then passes `inner.logger.peek()`
+   (or `None` without a logger) to `aggregate_rewards(metrics)`. The regulator's
+   `aggregate_rewards` therefore receives the inner optimizer's metric schema, no longer
+   the World contexts. Stub environments in `tests/optimizers/test_config_and_base*.py`
+   and `tests/integration/test_framework_envs.py` still name the argument `ctxs`; harmless,
+   never called on the analytic path.
+3. The fishery env pushes the fields of `FisheryMetricSchema` from its hook methods. Two
+   fields referenced by the queries had no counterpart in the mechanism-based env:
+   `allowed_harvest` and `quota_stress` are now taken from the first mechanism exposing an
+   `allowed_fraction` (searched through compositions), and default to 1.0 without a quota.
+   This mapping is a heuristic.
+4. `MultiAgentRegulatedEnv` logs rewards once, after the mechanism transformation
+   (`by_agent/*/reward`, `reward_mean`); the logging branch's `_aggregate_rewards`
+   (mean sharing) is gone, replaced by the mechanism's reward transformation. The
+   `logging.basicConfig` call inside the library module was dropped.
+5. The ES optimizer names its parameters from `mechanism_template.param_names()`
+   (for example `0:QuotaMechanism.fixed_quota`); in fixed mode, when `to_vector()` is
+   longer than `param_names()`, the payload falls back to positional `parameter_i` names.
+   `debug.py` no longer hard-codes the optimized parameter names.
+6. `RayOptimizer` keeps `_to_logger_payload` but not `_build_agent_policy_map` /
+   `_get_policy_handle`, deleted as dead code on the mechanism branch.
+
+Measurements on the merged branch: `ruff` clean; unit suite 625 passed with `core/` at
+99 % coverage; full suite 634 passed, 3 skipped (the same three as before), in 78 s;
+`examples.bilevel_fishery.debug` runs end to end with `--reporter csv` (257 CSV files,
+including the fitness scatter with the `color` column and the parallel-coordinates table
+keyed by the template's parameter names) and with `--reporter wandb` offline, reaching the
+same `best_fitness` on the tiny smoke configuration.
+
+Not done: the fresh-water and cartpole examples still reference the old `MechanismSpace`
+API (as on the mechanism branch); the episode-level wildcard alignment still waits on
+Nadine (§3–4 of `TODO.md`, Part B).

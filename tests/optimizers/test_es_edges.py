@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-import ray
 
 from core.mechanism.algorithms.quota import QuotaMechanism
 from core.mechanism.algorithms.subsidy import SubsidyMechanism
@@ -210,11 +209,11 @@ class _FakeRegulatorEnv:
 
 
 @pytest.fixture
-def fake_reporter(monkeypatch):
+def fake_reporter():
+    """Reporter stand-in recording every peeked ``ESSchema`` it is asked to render."""
     calls = []
-    monkeypatch.setattr(ray, "get", lambda ref, *a, **k: ref)
     reporter = SimpleNamespace(
-        plot_es_population=SimpleNamespace(remote=lambda **kw: calls.append(kw))
+        report=lambda metrics: calls.append(metrics), close=lambda: None
     )
     return reporter, calls
 
@@ -246,9 +245,10 @@ class TestRun:
         assert len(opt.population_history) == 1
         assert np.isfinite(result["best_fitness"])
         assert set(result) >= {"best_fitness", "best_trajectory", "population_history"}
-        assert len(calls) == 1
-        assert calls[0]["parameter_names"] == opt.parameter_names
-        assert calls[0]["population"].shape == (4, 2)
+        assert len(calls) == 1  # one report per generation
+        peeked = calls[0]
+        assert peeked.generation == [1] and len(peeked.by_mechanism) == 4
+        assert set(peeked.search_mean) == set(opt.parameter_names)
 
     def test_empty_fitness_skips_update(self, fake_reporter):
         reporter, _ = fake_reporter
@@ -275,7 +275,13 @@ class TestRun:
         opt.reporting = reporter
         opt.env = _FakeRegulatorEnv(0, lambda pop: np.array([1.0, 2.0]))
         opt.run()
-        assert calls[0]["population"].shape == (2, 2)  # repeated template vector
-        np.testing.assert_allclose(calls[0]["mean"], [0.3, 0.7])
-        assert calls[0]["parameter_names"] == ["parameter_0", "parameter_1"]
+        peeked = calls[0]
+        # The template has no optimized parameter names: positional names index
+        # its full (fixed) vector, repeated for every candidate.
+        assert list(peeked.search_mean) == ["parameter_0", "parameter_1"]
+        assert peeked.search_mean["parameter_0"].value == pytest.approx([0.3])
+        assert len(peeked.by_mechanism) == 2
+        assert peeked.by_mechanism["1"].by_parameter["parameter_1"].value == (
+            pytest.approx([0.7])
+        )
         assert opt.best_fitness == 2.0

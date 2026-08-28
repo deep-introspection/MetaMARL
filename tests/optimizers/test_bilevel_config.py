@@ -19,7 +19,6 @@ def test_fluent_builders_record_settings():
         .mechanism(mechanism=mech)
         .training(outer_iters=7, output_dir="out")
         .ray(device="cpu", num_cpus=2)
-        .reporting(reporter="wandb", project_name="p", settings_dict={"quiet": True})
         .inner(inner)
         .outer(outer)
     )
@@ -27,25 +26,14 @@ def test_fluent_builders_record_settings():
     assert cfg.mechanism_template is mech
     assert cfg.outer_iters == 7 and cfg.output_dir == "out"
     assert isinstance(cfg.ray_cfg, RayRuntimeConfig) and cfg.ray_cfg.num_cpus == 2
-    assert cfg.wandb_cfg == {
-        "project_name": "p",
-        "config": None,
-        "settings": {"quiet": True},
-    }
     assert cfg.inner_cfg is inner and cfg.outer_cfg is outer
-    assert cfg.reporter is None  # created at build time
+    assert cfg.reporter_cfg is None  # see test_bilevel_config_logging.py
 
 
 @pytest.mark.unit
 def test_mechanism_must_be_a_mechanism():
     with pytest.raises(TypeError, match="Mechanism instance"):
         BilevelConfig().mechanism(mechanism=object())
-
-
-@pytest.mark.unit
-def test_local_reporting_not_available():
-    with pytest.raises(TypeError, match="Local reporting"):
-        BilevelConfig().reporting(reporter="local", project_name="p")
 
 
 @pytest.mark.unit

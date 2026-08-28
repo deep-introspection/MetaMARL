@@ -14,20 +14,23 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import ray
+from ray.rllib.utils.typing import ResultDict
 from ray.train._internal.checkpoint_manager import _TrainingResult
+
+from core.adaptors.ray.schema import EvalSchema, RaySchema, TrainSchema
 
 # TODO temporary
 from core.adaptors.ray.utils import (
+    build_learner,
+    build_performance,
+    build_rollout,
     get_env_steps,
     get_episode_return_mean,
     get_policy_loss_if_present,
 )
 from core.annotations import override
+from core.metrics.logger import MetricLogger
 from core.optimizers.base import Optimizer
-from core.reporting.utils.env_reduced import (
-    ReductionSpec,
-    build_default_fishery_reduction_specs,
-)
 from core.utils import to_float
 
 logger = logging.getLogger(__name__)
@@ -71,6 +74,10 @@ class RayOptimizer(Optimizer):
     ):
         super().__init__(config)
         # self.algo = algo
+
+        # TODO maybe this either needs to be an actor. or atleast have method to serialize data
+        self.logger = MetricLogger.from_schema(RaySchema)
+
         # self.eval_episodes = config.eval_episodes
         # TODO fallback if rollout_fragment_length not in eval_cfg
         self.eval_episodes = (
@@ -88,14 +95,6 @@ class RayOptimizer(Optimizer):
         self._training_losses: list[float] = []
         self._inner_iter: int = 0
         self._es_round: int = 0
-
-        # TODO remove this - temporary for testing
-        self._env_reducers: list[ReductionSpec] = (
-            getattr(config, "env_reducers", None) or []
-        )
-
-        if not self._env_reducers:
-            self._env_reducers = build_default_fishery_reduction_specs()
 
     @property
     @override(Optimizer)
@@ -124,6 +123,32 @@ class RayOptimizer(Optimizer):
         num_mechanisms = num_envs // num_seeds
         return num_mechanisms
 
+    # TODO (nadine) : in the future this could be separated into a different class if justified
+    def _to_logger_payload(
+        self, result: ResultDict, is_eval: bool = False
+    ) -> RaySchema:
+        if is_eval:
+            evaluation = EvalSchema(
+                rollout=build_rollout(result),
+                performance=build_performance(result),
+            )
+            return RaySchema(train=None, eval=evaluation)
+
+        train = TrainSchema(
+            rollout=build_rollout(result),
+            learner=build_learner(result),
+            performance=build_performance(result),
+        )
+        eval_result = result.get("evaluation")
+        evaluation = None
+
+        if isinstance(eval_result, dict):
+            evaluation = EvalSchema(
+                rollout=build_rollout(eval_result),
+                performance=build_performance(eval_result),
+            )
+        return RaySchema(train=train, eval=evaluation)
+
     @override(Optimizer)
     def run(self) -> None:
         """Run one RLlib training iteration on the policy actor.
@@ -142,48 +167,13 @@ class RayOptimizer(Optimizer):
         # Local inner-loop iteration. This resets for each outer ES round.
         self._inner_iter += 1
         step = self._inner_iter
+        self.logger.push(key=("iter",), value=step)
 
         # RLlib's own lifetime training counter, retained only for debugging.
         rllib_training_iteration = int(to_float(result.get("training_iteration")) or 0)
 
-        # TODO make this more dynamic NEW_STACK
-        # TODO move this to world
-        # ray.get(
-        #     self.reporting.plot_ray_result.remote(
-        #         outer_iter=self._es_round,
-        #         training_episode=step,
-        #         results=result,
-        #         prefix="appo/train",
-        #     )
-        # )
-
-        # eval_result = result.get("evaluation")
-        # if eval_result:
-        #     ray.get(
-        #         self.reporting.plot_ray_result.remote(
-        #         outer_iter=self._es_round,
-        #         training_episode=step,
-        #         results=eval_result,
-        #         prefix="appo/eval",
-        #     )
-        #     )
-
-        # TODO reduced env episode plotting
-        # if self._env_reducers:
-        #     latest_env_ctxs = ray.get(
-        #         self.world.get_new_env_step_contexts.remote(opt_id=self.opt_id)
-        #     )
-
-        #     if latest_env_ctxs:
-        #         ray.get(
-        #             self.reporting.plot_env_reduced.remote(
-        #                 ctxs=latest_env_ctxs,
-        #                 outer_iter=self._es_round,
-        #                 training_episode=step,
-        #                 reducers=self._env_reducers,
-        #                 prefix="env_reduced",
-        #             )
-        #         )
+        metrics = self._to_logger_payload(result)
+        self.logger.push_data(metrics)
 
         # TODO temporary to be moved to a logger Extract metrics
         ep_return = get_episode_return_mean(result)
@@ -217,7 +207,9 @@ class RayOptimizer(Optimizer):
         the regulator reads the outcome.
         """
         logger.info("[PPO] Evaluation started")
-        ray.get(self.policy_actor.evaluate.remote())
+        result = ray.get(self.policy_actor.evaluate.remote())
+        metrics = self._to_logger_payload(result, is_eval=True)
+        self.logger.push_data(metrics)
         logger.info("[PPO] Evaluation completed")
 
     @override(Optimizer)
@@ -229,11 +221,13 @@ class RayOptimizer(Optimizer):
         self._inner_iter = 0
         self._es_round += 1
         ray.get(self.policy_actor.reset.remote())
+        self.logger.reset()
 
     @override(Optimizer)
     def stop(self) -> None:
         """Stop the RLlib ``Algorithm`` held by the policy actor."""
         ray.get(self.policy_actor.stop.remote())
+        return self.logger.reduce()
 
     @override(Optimizer)
     def save(self, checkpoint_dir: Optional[str] = None) -> _TrainingResult:

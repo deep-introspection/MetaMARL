@@ -7,9 +7,8 @@ from gymnasium.core import ObsType
 
 from core.annotations import override
 from core.envs.regulator import RegulatorEnv
+from core.metrics.schemas import MetricSchema
 from core.world.context import (
-    Context,
-    EnvStepContext,
     MechanismContext,
     MechanismStatus,
 )
@@ -55,172 +54,88 @@ class FisheryRegulatorEnv(RegulatorEnv):
         return 0.0
 
     @override(RegulatorEnv)
-    def aggregate_rewards(self, ctxs: list[Context]) -> list[float]:
-        """
-        Compute per-mechanism fitness from step-level EnvStepContexts.
+    def aggregate_rewards(self, metrics: MetricSchema) -> list[float]:
+        """Compute one fitness per candidate from the inner optimizer's metrics.
 
-        Semantics:
-        - Group contexts by mechanism
-        - Segment into episodes of length = horizon
-        - Drop incomplete episodes
-        - Compute episode-level metrics
-        - Aggregate exactly like legacy evaluator
+        ``metrics`` is the inner ``RaySchema`` peeked after training; the
+        ``aggregation_status`` split (``train`` or ``eval``) is read, then the
+        rollouts are walked by mechanism, seed and episode. Each episode
+        contributes its tail-averaged reward, biomass and harvest statistics;
+        seeds are averaged per mechanism and folded into a ``FitnessContext``.
         """
 
-        per_mech_metrics: list[dict[str, float]] = []
-        step_ctxs = [
-            ctx
-            for ctx in ctxs
-            if isinstance(ctx.payload, EnvStepContext)
-            and ctx.payload.status == self.aggregation_status
-        ]
-        # logger.info(
-        #     "[Regulator] aggregate_rewards called | "
-        #     f"total_ctxs={len(ctxs)} | "
-        #     f"step_ctxs={len(step_ctxs)}"
-        # )
-
-        if not step_ctxs:
+        if metrics is None:
             logger.warning(
-                "[Regulator] No EnvStepContext received — "
-                "inner loop likely produced no steps"
+                "[Regulator] inner optimizer has no metric logger; nothing to aggregate"
             )
             return []
+        metrics = getattr(metrics, self.aggregation_status.value)
 
-        # --- group by mechanism index and seed ---
-        by_run: dict[tuple[int, int | None], list[Context]] = defaultdict(list)
-
-        # deduplicate
-        seen_steps: set[tuple[int | None, int | None, int]] = set()
-
-        for ctx in step_ctxs:
-            s = ctx.payload
-            key = (s.mechanism, s.seed, ctx.step)
-            if key in seen_steps:
-                continue
-            seen_steps.add(key)
-            by_run[(s.mechanism, s.seed)].append(ctx)
-
-        # logger.info(
-        #     "[Regulator] Grouped step contexts | "
-        #     f"num_mechanisms={len(by_index)} | "
-        #     f"indices={sorted(by_index.keys())}"
-        # )
-
+        per_mech_metrics: list[dict[str, float]] = []
         # TODO when running parallel eval, async may duplicate runs ! should not statistically change the result
         metrics_by_mechanism: dict[int, list[dict[str, Any]]] = defaultdict(list)
         self.trajectories = {}
 
-        # min_len = min(len(v) for v in by_index.values())
-        # logger.info(
-        #     "[Regulator] Aggregating | mechanisms=%d | min_len=%d | total_steps=%d",
-        #     len(by_index),
-        #     min_len,
-        #     len(step_ctxs),
-        # )
-        # # --- compute elastic truncation length ---
-        # max_idx = max(by_index.keys())
-        # fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)
+        # TODO ensure aggregation by policy seed
+        for mechanism_id, mechanism_metrics in metrics.rollout.by_mechanism.items():
+            idx = int(mechanism_id)
 
-        # First aggregation level : one metric record per mechanism-seed run
-        for (idx, seed), steps in by_run.items():
-            # Assume env-runner order == step order
-            steps = sorted(steps, key=lambda ctx: ctx.step)
-            num_steps = len(steps)
+            for seed_id, seed_metrics in mechanism_metrics.by_seed.items():
+                seed = int(seed_id)
 
-            rewards = np.empty(num_steps, dtype=np.float32)
-            fish = np.empty(num_steps, dtype=np.float32)
-            fines = np.empty(num_steps, dtype=np.float32)
-            realized_harvest = np.empty(num_steps, dtype=np.float32)
-            harvest_scores = np.empty(num_steps, dtype=np.float32)
+                for episode_metrics in seed_metrics.by_episode.values():
+                    # TODO this is the mean however this is not good representation for late learning mechanisms
+                    rewards = np.atleast_1d(
+                        np.asarray(episode_metrics.reward_mean, dtype=np.float32)
+                    )
+                    fish = np.atleast_1d(
+                        np.asarray(episode_metrics.fish_norm_next, dtype=np.float32)
+                    )
+                    realized_harvest = np.atleast_1d(
+                        np.asarray(episode_metrics.H_realized, dtype=np.float32)
+                    )
+                    msy = np.atleast_1d(
+                        np.asarray(episode_metrics.MSY, dtype=np.float32)
+                    )
+                    harvest_scores = realized_harvest / np.maximum(msy, 1e-6)
+                    sustainability_penalties = np.maximum(
+                        0.0,
+                        (self.sustainability_threshold - fish)
+                        / max(1e-6, self.sustainability_threshold),
+                    )
 
-            trajectory: list[dict[str, Any]] = []
-
-            for i, s in enumerate(steps):
-                # reward
-                r = s.payload.reward
-
-                # TODO this is the mean however this is not good representation for late learning mechanisms
-                rewards[i] = np.mean(list(r.values()))
-                # selected_agent_id = "utilizer:0"
-
-                # if selected_agent_id not in r:
-                #     raise KeyError(
-                #         f"Missing {selected_agent_id}; available agents: {list(r.keys())}"
-                #     )
-
-                # rewards[i] = float(r[selected_agent_id])
-
-                # Extract fish from info dict
-                info = s.payload.info
-                first_info = next(iter(info.values()))
-                realized_harvest[i] = float(first_info["H_realized"])
-                harvest_scores[i] = float(first_info["harvest_to_msy"])
-                fish[i] = float(first_info["fish_norm_next"])
-                fish_current = float(first_info["fish"])
-
-                # Extract fines from info dict
-                # TODO this is the mean however this is not good representation for late learning mechanisms
-                agent_penalties = [
-                    float(agent_info.get("violation_signal", 0.0))
-                    for agent_info in info.values()
-                    if isinstance(agent_info, dict)
-                ]
-
-                step_fines = float(np.mean(agent_penalties)) if agent_penalties else 0.0
-                fines[i] = step_fines
-
-                # Denormalize for trajectory storage (visualization uses raw values)
-                trajectory.append(
-                    {
-                        "episode": 0,  # TODO get episode
-                        "step": s.step,  # TODO verify s.step == i
-                        "seed": seed,
-                        "fish_population": fish_current,  # TODO do we want fish norm or fish current ?
-                        "realized_harvest": float(realized_harvest[i]),
-                        "harvest_score": float(harvest_scores[i]),
-                        "reward": float(rewards[i]),
-                        "fines": float(step_fines),
-                    }
-                )
-
-            tail_steps = min(
-                self.fitness_tail_steps,
-                num_steps,
-            )
-
-            tail_start = num_steps - tail_steps
-
-            tail_rewards = rewards[tail_start:]
-            tail_fish = fish[tail_start:]
-            tail_fines = fines[tail_start:]
-            tail_realized_harvest = realized_harvest[tail_start:]
-            tail_harvest_scores = harvest_scores[tail_start:]
-
-            self.trajectories.setdefault(idx, {})[seed] = trajectory
-
-            sustainability_penalties = np.maximum(
-                0.0,
-                (self.sustainability_threshold - tail_fish)
-                / max(1e-6, self.sustainability_threshold),
-            )
-
-            metrics_by_mechanism[idx].append(
-                {
-                    "seed": seed,
-                    "mean_reward": float(tail_rewards.mean()),
-                    "reward_std": float(tail_rewards.std()),
-                    "mean_realized_harvest": float(tail_realized_harvest.mean()),
-                    "harvest_score": float(tail_harvest_scores.mean()),
-                    "collapse_rate": float(
-                        (tail_fish < self.sustainability_threshold).mean()
-                    ),
-                    "sustainability_penalty": float(sustainability_penalties.mean()),
-                    "min_fish": float(tail_fish.min()),
-                    "mean_fish": float(tail_fish.mean()),
-                    "mean_fines": float(tail_fines.mean()),
-                }
-            )
+                    num_steps = len(fish)
+                    tail_steps = min(self.fitness_tail_steps, num_steps)
+                    tail_start = num_steps - tail_steps
+                    tail_rewards = rewards[tail_start:]
+                    tail_fish = fish[tail_start:]
+                    tail_realized_harvest = realized_harvest[tail_start:]
+                    tail_harvest_scores = harvest_scores[tail_start:]
+                    sustainability_penalties = np.maximum(
+                        0.0,
+                        (self.sustainability_threshold - tail_fish)
+                        / max(1e-6, self.sustainability_threshold),
+                    )
+                    metrics_by_mechanism[idx].append(
+                        {
+                            "seed": seed,
+                            "mean_reward": float(tail_rewards.mean()),
+                            "reward_std": float(tail_rewards.std()),
+                            "mean_realized_harvest": float(
+                                tail_realized_harvest.mean()
+                            ),
+                            "harvest_score": float(tail_harvest_scores.mean()),
+                            "collapse_rate": float(
+                                (tail_fish < self.sustainability_threshold).mean()
+                            ),
+                            "sustainability_penalty": float(
+                                sustainability_penalties.mean()
+                            ),
+                            "min_fish": float(tail_fish.min()),
+                            "mean_fish": float(tail_fish.mean()),
+                            "mean_fines": float(tail_fish.mean()),
+                        }
+                    )
 
         max_idx = max(metrics_by_mechanism)
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)

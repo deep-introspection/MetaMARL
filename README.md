@@ -88,7 +88,7 @@ docs/                     ARCHITECTURE.md, REPRISE.md (resume file), MERGE_NOTES
 `docs/ARCHITECTURE.md` walks through the same flow with the class names and
 the invariants to respect when extending the framework.
 
-## Mechanisms (this branch)
+## Mechanisms
 
 A regulation is a `Mechanism` (`core/mechanism/base.py`) intervening on the
 agent/environment loop through three optional channels — `action`
@@ -102,8 +102,27 @@ effort), `ThresholdPenaltyMechanism` (penalty below a stock threshold) and
 their dynamics with the decorators of `core/envs/hooks.py` (`@reset`,
 `@action`, `@reward`, `@transition`, `@observation`) on a
 `MultiAgentRegulatedEnv` subclass, and `BilevelConfig().mechanism(mechanism=...)`
-gives the same mechanism template to both levels. `QUICKSTART.md` runs it;
-`tutorials/` teach it; `TODO.md` tracks what remains.
+gives the same mechanism template to both levels. `QUICKSTART.md` runs it and
+`tutorials/` teach it; the first half of `TODO.md` tracks what remains.
+
+## Metrics and reporting
+
+Every level logs into a typed `MetricLogger` built from a pydantic
+`MetricSchema` (`core/metrics/`): the regulated environment logs per-step
+values (`FisheryMetricSchema`), the inner optimizer the RLlib results
+(`RaySchema`), the outer optimizer one record per generation (`ESSchema`, whose
+`inner` field carries the reduced inner schema). `Query` objects
+(`core/reporting/query.py`) select an x path and y paths in those schemas —
+with `"*"` for runtime ids, `reduce="mean", error="std"` for grouped
+averages and `color=` for a per-point colour path — and a `Reporter` backend
+renders the resolved `Series`: Weights & Biases (Plotly figures), CSV
+(long-form files) or TensorBoard (scalars, `uv sync --extra tensorboard`).
+A `ParallelCoordinatesQuery` selects several axes at once and renders as a
+parallel-coordinates figure (W&B) or a wide CSV table.
+`examples/bilevel_fishery/queries.py` holds the reference query bundles
+(including `es_parameter_fitness_queries`, coloured by generation, and
+`es_parallel_coordinates_query`); `QUICKSTART.md` shows the outputs and
+the second half of `TODO.md` tracks what remains (episode-level grouping).
 
 ## Development
 

@@ -27,18 +27,15 @@ See ``examples/bilevel_fishery/debug.py`` for a complete configuration.
 
 import logging
 import uuid
-from typing import Any, Literal, Optional, Self
-
-import ray
-from ray.actor import ActorHandle
+from typing import Any, Optional, Self
 
 from core.adaptors.ray.runtime import DeviceType, RayRuntime, RayRuntimeConfig
 from core.annotations import override
 from core.mechanism.base import Mechanism
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
-from core.reporting.enums import ReporterType
-from core.reporting.wandb import WandbReporter
+from core.reporting.base import Reporter
+from core.reporting.config import ReporterConfig
 from core.world.base import World
 
 logger = logging.getLogger(__name__)
@@ -48,8 +45,8 @@ class BilevelConfig(OptimizerConfig):
     """Fluent configuration of a bilevel run (see module docstring).
 
     Builder methods: :meth:`world`, :meth:`mechanism`, :meth:`training`,
-    :meth:`ray`, :meth:`reporting`, :meth:`inner`, :meth:`outer`. Every
-    method returns ``self``.
+    :meth:`ray`, :meth:`reporter`, :meth:`reporting`, :meth:`inner`,
+    :meth:`outer`. Every method returns ``self``.
     """
 
     def __init__(self, opt_class=None):
@@ -65,20 +62,12 @@ class BilevelConfig(OptimizerConfig):
         self.mechanism_template: Optional[Mechanism] = None
         self.output_dir: str | None = None
 
-        # TODO generalize
-        self.wandb_cfg: dict[str, Any] | None = None
-        self._reporter: ActorHandle[WandbReporter] | None = None
-
     # @override(OptimizerConfig)
     # def _get_logger_schema(self):
     #     return LoggerSchema(
     #         inner: self.inner_cfg._get_logger_schema
     #         outer: self.inner_cfg._get_logger_schema
     #     )
-
-    @property
-    def reporter(self) -> ActorHandle[WandbReporter] | None:
-        return self._reporter
 
     def inner(self, cfg: OptimizerConfig = None) -> Self:
         if cfg is not None:
@@ -144,23 +133,15 @@ class BilevelConfig(OptimizerConfig):
         return self
 
     # TODO remote actor access to credentials
-    def reporting(
-        self,
-        reporter: Literal["wandb", "local"],
-        project_name: str,
-        config: Optional[dict[str, Any]] = None,
-        settings_dict: Optional[dict[str, Any]] = None,
-    ) -> Self:
-        """Select the reporting backend. Only Weights & Biases is available."""
-        if ReporterType(reporter) == ReporterType.wandb:
-            self.wandb_cfg = {
-                "project_name": project_name,
-                "config": config,
-                "settings": settings_dict or {},
-            }
-        elif ReporterType(reporter) == ReporterType.local:
-            raise TypeError("Local reporting is not available yet.")
+    def reporter(self, config: ReporterConfig) -> Self:
+        """Select the reporting backend through a ``ReporterConfig``.
 
+        The config is stamped with the run identity at build time, built once
+        into the primary (bilevel-level) reporter, and copied to the inner and
+        outer levels so each builds its own reporter. Reporting is optional:
+        without a config, no reporter is created at any level.
+        """
+        self.reporter_cfg = config
         return self
 
     @override(OptimizerConfig)
@@ -179,32 +160,20 @@ class BilevelConfig(OptimizerConfig):
             raise ValueError("BilevelConfig requires both .inner(...) and .outer(...)")
 
         RayRuntime.ensure_initialized(self.ray_cfg or RayRuntimeConfig())
-
-        if self.wandb_cfg:
-            project = self.wandb_cfg["project_name"]
-            extra_cfg = self.wandb_cfg.get("config") or {}
-            self._reporter = WandbReporter.options(
-                name=f"{self.world_name}_wandb"
-            ).remote(
-                project=project,
-                name=f"{project}-{self.world_name}",
-                config={
-                    "outer_iters": self.outer_iters,
-                    "world_name": self.world_name,
-                    **extra_cfg,
-                },
-                settings=self.wandb_cfg["settings"],
-            )
-
-        world = World.options(name=self.world_name).remote(reporting=self.reporter)
+        world = World.options(name=self.world_name).remote()
 
         inner_cfg = self.inner_cfg.copy()
         outer_cfg = self.outer_cfg.copy()
 
-        if self.mechanism_template is None:
-            raise ValueError(
-                "BilevelConfig requires .mechanism(mechanism=...) to be set"
-            )
+        # Setup reporting (optional): stamp the run identity on the reporter
+        # config, build the primary reporter and hand a copy to each level.
+        primary_reporter: Optional[Reporter] = None
+        if self.reporter_cfg is not None:
+            self.reporter_cfg.world = self.world_name
+            self.reporter_cfg.outer_iters = self.outer_iters
+            primary_reporter = self.reporter_cfg.build(label="bilvel")
+            inner_cfg.reporter_cfg = self.reporter_cfg.copy()
+            outer_cfg.reporter_cfg = self.reporter_cfg.copy()
 
         outer_cfg.dimension = self.mechanism_template.dimension
         inner_cfg = inner_cfg._merge_env_config({"mechanism": self.mechanism_template})
@@ -228,17 +197,21 @@ class BilevelConfig(OptimizerConfig):
         outer_cfg = outer_cfg._merge_env_config({"mechanism": self.mechanism_template})
 
         inner_opt = inner_cfg.build_optimizer(
-            world=world, world_name=self.world_name, reporting=self.reporter
+            world=world,
+            world_name=self.world_name,
         )
         outer_opt = outer_cfg.build_optimizer(
-            world=world, inner_opt=inner_opt, reporting=self.reporter
+            world=world,
+            inner_opt=inner_opt,
         )
 
         # what if outer_opt does not have that property ??
         # override outer_opt population size with inner_opt batch_size
         # set inner batch capacity to be the same as inner for batch sampling
         outer_opt.batch_capacity = inner_opt.batch_capacity
-        return self.opt_class(config=self, outer=outer_opt, inner=inner_opt)
+        return self.opt_class(
+            config=self, outer=outer_opt, inner=inner_opt, reporter=primary_reporter
+        )
 
 
 class BilevelOptimizer(Optimizer):
@@ -252,9 +225,18 @@ class BilevelOptimizer(Optimizer):
         optional ``converged`` flag (the ES).
     inner : Optimizer
         Inner optimizer, driven by the outer env; kept for lifecycle access.
+    reporter : Reporter, optional
+        Primary (bilevel-level) reporter built from ``config.reporter_cfg``;
+        closed at the end of :meth:`run`. ``None`` disables reporting.
     """
 
-    def __init__(self, config: BilevelConfig, outer: Optimizer, inner: Optimizer):
+    def __init__(
+        self,
+        config: BilevelConfig,
+        outer: Optimizer,
+        inner: Optimizer,
+        reporter: Optional[Reporter] = None,
+    ):
         super().__init__(config)
 
         self.world_name = config.world_name
@@ -266,14 +248,12 @@ class BilevelOptimizer(Optimizer):
 
         self.outer_iter = 0
         self.converged = False
-        self.best_trajectory: list[dict] | None = None
         self.all_trajectories: list[tuple[int, float, list[dict]]] = []
         self.population_history: list[tuple[int, list]] = []
         self.es_metrics_history: list[dict] = []
 
-        # TODO avoid hardcoding prefix
-        # self.wandb_run.define_metric("ppo/ppo_step")
-        # self.wandb_run.define_metric("ppo/*", step_metric="ppo/ppo_step")
+        # Primary reporter (None when reporting is not configured)
+        self.reporting = reporter
 
     def run(self) -> dict[str, Any]:
         """Run the outer generations and return a summary dict.
@@ -302,15 +282,6 @@ class BilevelOptimizer(Optimizer):
 
             outer_metrics = self.outer.run()
 
-            self.metrics.log_dict(
-                {
-                    "bilevel/outer_iter": i,
-                    "bilevel/best_fitness": outer_metrics.get(
-                        "best_fitness", -float("inf")
-                    ),
-                }
-            )
-
             if outer_metrics.get("converged", False):
                 self.converged = True
                 logger.info(
@@ -329,16 +300,14 @@ class BilevelOptimizer(Optimizer):
             self.outer.best_fitness,
         )
 
-        # TODO fig reporter with the new wandb reporter actor
-        if self.config.reporter is not None:
-            ray.get(self.config.reporter.finish.remote())
+        if self.reporting is not None:
+            self.reporting.close()
 
         return {
             "converged": self.converged,
             "outer_iters": self.outer_iter + 1,
             "best_fitness": self.outer.best_fitness,
             "best_mechanism": self.outer.best_candidate,
-            "best_trajectory": self.best_trajectory,
             "all_trajectories": self.all_trajectories,
             "population_history": self.population_history,
         }

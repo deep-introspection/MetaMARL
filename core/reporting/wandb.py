@@ -1,28 +1,69 @@
+"""Weights & Biases reporter: one Plotly figure per query, logged to a run.
+
+A :class:`Query` with a ``color`` path is drawn as a marker-only scatter whose
+points are coloured on a shared Viridis colour axis; a
+:class:`ParallelCoordinatesQuery` becomes a ``go.Parcoords`` trace with one
+axis per table column and lines coloured by the table colour.
+"""
+
 from __future__ import annotations
 
+import uuid
 from typing import Any, Optional
 
 import numpy as np
-import ray
+import plotly.graph_objects as go
 
 import wandb
-from core.reporting.utils.env_reduced import ReductionSpec, plot_env_reduced
-from core.reporting.utils.env_step_context import plot_env_step_context
-from core.reporting.utils.es_population import (
-    plot_es_population as plot_es_population_util,
-)
-from core.reporting.utils.ray_new_api_stack import plot_training_results_new_stack
-from core.world.context import Context
+from core.reporting.base import Reporter
+from core.reporting.config import ReporterConfig
+from core.reporting.query import ParallelCoordinatesQuery, Query, Series, Table
+from core.utils import sanitize_key
 
 
-# TODO inherits from abstract reporter
-@ray.remote
-class WandbReporter:
-    """
-    Ray actor that owns a single W&B run.
+class WandbConfig(ReporterConfig):
+    def __init__(
+        self,
+        *,
+        project: str,
+        x_disable_stats: Optional[bool] = True,
+        x_disable_meta: Optional[bool] = True,
+        quiet: Optional[bool] = True,
+        max_end_of_run_summary_metrics: Optional[int] = 0,
+        max_end_of_run_history_metrics: Optional[int] = 0,
+        **kwargs,
+    ):
+        super().__init__(project=project)
+        self.settings = {
+            "x_disable_stats": x_disable_stats,
+            "x_disable_meta": x_disable_meta,
+            "quiet": quiet,
+            "max_end_of_run_summary_metrics": max_end_of_run_summary_metrics,
+            "max_end_of_run_history_metrics": max_end_of_run_history_metrics,
+        }
 
-    Other actors/processes should never receive the raw wandb.Run object.
-    They only send serializable payloads to this actor.
+    def build(self, *, label: Optional[str] = None) -> WandbReporter:
+
+        name = f"{self.world}-{label}" if label is not None else self.world
+
+        return WandbReporter(
+            project=self.project_name,
+            run_id=uuid.uuid4().hex,
+            group=self.world,
+            name=name,
+            config={
+                "outer_iters": self.outer_iters,
+                "world_name": self.world,
+            },
+            settings=self.settings,
+        )
+
+
+class WandbReporter(Reporter):
+    """Reporter rendering each query as a Plotly figure logged to one W&B run.
+
+    The run is created lazily on the first ``report`` call so that building
+    a reporter never touches the network.
     """
 
     def __init__(
@@ -30,175 +71,156 @@ class WandbReporter:
         *,
         project: str,
         name: str,
+        run_id: str,
+        group: str,
         config: Optional[dict[str, Any]] = None,
         settings: Optional[dict[str, Any]] = None,
     ) -> None:
         self._defined_prefixes: set[str] = set()
-        self._run = wandb.init(
-            project=project,
-            name=name,
-            config=config or {},
-            reinit=True,
-            settings=wandb.Settings(**(settings or {})),
+        self._run: wandb = None
+        self._project = project
+        self._name = name
+        self._run_id = run_id
+        self._group = group
+        self._config = config
+        self._settings = settings
+
+    def _init_run(self):
+        if self._run is None:
+            self._run = wandb.init(
+                project=self._project,
+                id=self._run_id,
+                group=self._group,
+                name=self._name,
+                config=self._config or {},
+                reinit="create_new",
+                settings=wandb.Settings(**(self._settings or {})),
+            )
+
+    @staticmethod
+    def _path_name(path: tuple[str, ...]) -> str:
+        return "/".join(path)
+
+    @classmethod
+    def _figure(cls, query: Query, series: list[Series]) -> go.Figure:
+        fig = go.Figure()
+        for s in series:
+            if s.color is not None:
+                fig.add_trace(cls._colored_scatter(query, s))
+                continue
+            if s.error is not None:
+                upper = (np.asarray(s.y) + np.asarray(s.error)).tolist()
+                lower = (np.asarray(s.y) - np.asarray(s.error)).tolist()
+                fig.add_trace(
+                    go.Scatter(
+                        x=list(s.x) + list(s.x)[::-1],
+                        y=upper + lower[::-1],
+                        mode="lines",
+                        fill="toself",
+                        line=dict(width=0),
+                        name=s.label
+                        if s.label.endswith("±1 std")
+                        else f"{s.label} ±1 std",
+                        hoverinfo="skip",
+                        showlegend=True,
+                    )
+                )
+            fig.add_trace(
+                go.Scatter(
+                    x=s.x,
+                    y=s.y,
+                    mode="lines+markers",
+                    line=dict(width=3 if s.error is not None else 2),
+                    marker=dict(size=4),
+                    name=s.label,
+                )
+            )
+        if query.color is not None and any(s.color is not None for s in series):
+            fig.update_layout(
+                coloraxis=dict(
+                    colorscale="Viridis",
+                    colorbar=dict(title=cls._path_name(query.color)),
+                )
+            )
+        return fig
+
+    @classmethod
+    def _colored_scatter(cls, query: Query, s: Series) -> go.Scatter:
+        """Marker-only trace with one colour per point (shared colour axis)."""
+        color_name = cls._path_name(query.color) if query.color is not None else "color"
+        return go.Scatter(
+            x=s.x,
+            y=s.y,
+            mode="markers",
+            marker=dict(color=s.color, coloraxis="coloraxis", size=7),
+            customdata=[s.label] * len(s.x),
+            hovertemplate=(
+                "%{customdata}<br>"
+                f"{cls._path_name(query.x)}=%{{x}}<br>"
+                "value=%{y}<br>"
+                f"{color_name}=%{{marker.color}}<extra></extra>"
+            ),
+            name=s.label,
         )
 
-    def _ensure_prefix_metrics(self, prefix: str) -> None:
-        if prefix in self._defined_prefixes:
+    @staticmethod
+    def _padded_range(values: list[float]) -> list[float]:
+        """Axis range padded by 5 % of the span (``v ± 0.5`` for a constant column)."""
+        lo, hi = float(min(values)), float(max(values))
+        if hi == lo:
+            return [lo - 0.5, hi + 0.5]
+        pad = 0.05 * (hi - lo)
+        return [lo - pad, hi + pad]
+
+    def _report_table(self, query: ParallelCoordinatesQuery, table: Table) -> None:
+        if not table.rows:
             return
+        self._init_run()
+        if self._run is None:
+            raise RuntimeError("W&B run failed to initialize.")
+        fig = go.Figure(
+            go.Parcoords(
+                line=dict(
+                    color=table.color,
+                    colorscale="Viridis",
+                    showscale=True,
+                    colorbar=dict(title=table.color_label),
+                ),
+                dimensions=[
+                    dict(label=name, values=column, range=self._padded_range(column))
+                    for name, column in zip(
+                        table.columns, map(list, zip(*table.rows)), strict=True
+                    )
+                ],
+            )
+        )
+        fig.update_layout(title=query.title, template="plotly_white", height=650)
+        self._run.log({f"plots/{sanitize_key(query.title)}": fig})
 
-        step_key = f"{prefix}/train_step"
-        self._run.define_metric(step_key)
-        self._run.define_metric(f"{prefix}/*", step_metric=step_key)
+    def _report(self, query: Query, series: list[Series]) -> None:
+        if not series:
+            return
+        self._init_run()
+        if self._run is None:
+            raise RuntimeError("W&B run failed to initialize.")
 
-        self._defined_prefixes.add(prefix)
+        fig = self._figure(query, series)
+        colored = any(s.color is not None for s in series)
+        fig.update_layout(
+            title=query.title,
+            xaxis_title=self._path_name(query.x),
+            yaxis_title="value",
+            hovermode="closest" if colored else "x unified",
+            template="plotly_white",
+            height=650,
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+            ),
+        )
+        fig.update_xaxes(rangeslider_visible=False)
+        self._run.log({f"plots/{sanitize_key(query.title)}": fig})
 
-    def define_metric(
-        self,
-        name: str,
-        *,
-        step_metric: str | None = None,
-        hidden: bool | None = None,
-        summary: str | None = None,
-    ) -> None:
-        kwargs: dict[str, Any] = {}
-        if step_metric is not None:
-            kwargs["step_metric"] = step_metric
-        if hidden is not None:
-            kwargs["hidden"] = hidden
-        if summary is not None:
-            kwargs["summary"] = summary
-
-        self._run.define_metric(name, **kwargs)
-
-    def log(self, payload: dict[str, Any], step: int | None = None) -> None:
-        self._run.log(payload, step=step)
-
-    def log_many(self, records: list[dict[str, Any]]) -> None:
-        for record in records:
-            self._run.log(record["payload"], step=record.get("step"))
-
-    def finish(self) -> None:
+    def close(self) -> None:
         if self._run is not None:
             self._run.finish()
             self._run = None
-
-    def plot_ray_result(
-        self,
-        outer_iter: int,
-        training_episode: int,
-        results: dict[str, Any],
-        prefix: str = "rllib",
-        # plotting controls
-        max_lines_returns: int = 64,
-        max_rows_returns: int = 50_000,
-        max_rows_per_learner_metric: int = 50_000,
-        include_all_modules_in_learner_plots: bool = False,  # usually False
-        skip_learner_plot_keys: Optional[set[str]] = None,
-        learner_plot_whitelist: Optional[set[str]] = None,
-        # UI spam controls
-        log_per_policy_learner_scalars: bool = False,
-        learner_scalar_whitelist: Optional[set[str]] = None,
-        # MODIFIED: glue flags forwarded into plot_training_results_new_stack
-        log_per_series_return_scalars: bool = False,
-        log_return_multiline_plot: bool = False,
-        log_learner_multiline_plots: bool = False,
-        log_mechanism_shaded_plots: bool = True,
-        log_raw_rllib_episode_metrics: bool = False,
-    ) -> None:
-        self._ensure_prefix_metrics(prefix)
-        is_eval = prefix.endswith("/eval")
-        plot_training_results_new_stack(
-            wandb_run=self._run,
-            outer_iter=outer_iter,
-            training_episode=training_episode,
-            results=results,
-            prefix=prefix,
-            max_lines_returns=max_lines_returns,
-            max_rows_returns=max_rows_returns,
-            max_rows_per_learner_metric=max_rows_per_learner_metric,
-            include_all_modules_in_learner_plots=include_all_modules_in_learner_plots,
-            skip_learner_plot_keys=skip_learner_plot_keys,
-            learner_plot_whitelist=learner_plot_whitelist,
-            log_per_policy_learner_scalars=log_per_policy_learner_scalars,
-            learner_scalar_whitelist=learner_scalar_whitelist,
-            log_per_series_return_scalars=log_per_series_return_scalars,
-            log_return_multiline_plot=log_return_multiline_plot,
-            log_learner_multiline_plots=log_learner_multiline_plots and not is_eval,
-            log_mechanism_shaded_plots=log_mechanism_shaded_plots,
-            log_raw_rllib_episode_metrics=True,
-        )
-
-    def plot_env_step(
-        self,
-        *,
-        ctx: Context,
-        prefix: str = "env",
-        obs_keys_skip: Optional[set[str]] = None,
-    ) -> None:
-        self._ensure_prefix_metrics(prefix)
-        plot_env_step_context(
-            wandb_run=self._run, ctx=ctx, prefix=prefix, obs_keys_skip=obs_keys_skip
-        )
-
-    # TODO specific for the environment
-    def plot_env_reduced(
-        self,
-        *,
-        ctxs: list[Context],
-        outer_iter: int,
-        training_episode: int,
-        reducers: list[ReductionSpec],
-        prefix: str = "env_reduced",
-    ) -> None:
-        self._ensure_prefix_metrics(prefix)
-        plot_env_reduced(
-            wandb_run=self._run,
-            ctxs=ctxs,
-            outer_iter=outer_iter,
-            training_episode=training_episode,
-            reducers=reducers,
-            prefix=prefix,
-        )
-
-    def plot_es_population(
-        self,
-        *,
-        generation: int,
-        population: np.ndarray,
-        fitness: np.ndarray,
-        parameter_names: list[str],
-        mean: np.ndarray | None = None,
-        sigma: float | None = None,
-        best_fitness_global: float | None = None,
-        best_candidate_global: np.ndarray | None = None,
-        prefix: str = "es",
-    ) -> None:
-        """
-        Plot one outer-optimizer generation.
-
-        All arguments are serializable and may safely be sent to this Ray actor.
-        The raw wandb.Run remains owned exclusively by WandbReporter.
-        """
-        definition_key = f"es_step::{prefix}"
-
-        if definition_key not in self._defined_prefixes:
-            generation_key = f"{prefix}/generation"
-            self._run.define_metric(generation_key)
-            self._run.define_metric(
-                f"{prefix}/*",
-                step_metric=generation_key,
-            )
-            self._defined_prefixes.add(definition_key)
-
-        plot_es_population_util(
-            wandb_run=self._run,
-            generation=generation,
-            population=population,
-            fitness=fitness,
-            parameter_names=parameter_names,
-            mean=mean,
-            sigma=sigma,
-            best_fitness_global=best_fitness_global,
-            best_candidate_global=best_candidate_global,
-            prefix=prefix,
-        )

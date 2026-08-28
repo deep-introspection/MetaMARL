@@ -1,12 +1,12 @@
-"""Unit tests for ``BilevelConfig.build_optimizer`` and the reporter hand-off.
+"""Unit tests for ``BilevelConfig.build_optimizer`` (mechanism template wiring).
 
-The composition root starts Ray, creates the reporter and ``World`` actors and
-builds both levels. Here ``RayRuntime.ensure_initialized``, ``WandbReporter``
-and ``World`` are patched in the ``core.optimizers.bilevel`` namespace, and the
-inner/outer configs are replaced by recording stubs, so the wiring (mechanism
-template, seed propagation, population sizing) is checked without any Ray
-runtime. The ``None`` branches of the fluent setters and the reporter
-``finish`` call at the end of ``BilevelOptimizer.run`` are covered as well.
+The composition root starts Ray, creates the ``World`` actor and builds both
+levels. Here ``RayRuntime.ensure_initialized`` and ``World`` are patched in
+the ``core.optimizers.bilevel`` namespace, and the inner/outer configs are
+replaced by recording stubs, so the wiring (mechanism template, seed
+propagation, population sizing) is checked without any Ray runtime. The
+``None`` branches of the fluent setters are covered as well. The reporter
+hand-off (``reporter_cfg``) is covered in ``test_bilevel_build_logging.py``.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-import ray
 
 import core.optimizers.bilevel as bilevel_module
 from core.adaptors.ray.runtime import RayRuntimeConfig
@@ -89,7 +88,7 @@ class StubActorClass:
 
 @pytest.fixture
 def patched_actors(monkeypatch):
-    """Patch Ray init, ``World`` and ``WandbReporter`` in the bilevel module."""
+    """Patch Ray init and ``World`` in the bilevel module."""
     init_calls = []
     monkeypatch.setattr(
         bilevel_module.RayRuntime,
@@ -97,17 +96,10 @@ def patched_actors(monkeypatch):
         classmethod(lambda cls, cfg: init_calls.append(cfg)),
     )
     world_handle = SimpleNamespace(kind="world")
-    reporter_handle = SimpleNamespace(kind="reporter")
     world_cls = StubActorClass(world_handle)
-    reporter_cls = StubActorClass(reporter_handle)
     monkeypatch.setattr(bilevel_module, "World", world_cls)
-    monkeypatch.setattr(bilevel_module, "WandbReporter", reporter_cls)
     return SimpleNamespace(
-        init_calls=init_calls,
-        world_cls=world_cls,
-        reporter_cls=reporter_cls,
-        world_handle=world_handle,
-        reporter_handle=reporter_handle,
+        init_calls=init_calls, world_cls=world_cls, world_handle=world_handle
     )
 
 
@@ -131,15 +123,14 @@ def test_build_wires_world_mechanism_seeds_and_population(patched_actors):
 
     opt = cfg.build_optimizer()
 
-    # Ray started with a default runtime config; no reporter without wandb.
+    # Ray started with a default runtime config; no reporter without a config.
     assert len(patched_actors.init_calls) == 1
     assert isinstance(patched_actors.init_calls[0], RayRuntimeConfig)
-    assert cfg.reporter is None
-    assert patched_actors.reporter_cls.remote_kwargs is None
+    assert cfg.reporter_cfg is None and opt.reporting is None
 
-    # World actor named after the config and given the (absent) reporter.
+    # World actor named after the config.
     assert patched_actors.world_cls.options_kwargs == {"name": cfg.world_name}
-    assert patched_actors.world_cls.remote_kwargs == {"reporting": None}
+    assert patched_actors.world_cls.remote_kwargs == {}
 
     # Mechanism template and seeds flow into both levels.
     assert outer.dimension == mechanism.dimension
@@ -152,12 +143,10 @@ def test_build_wires_world_mechanism_seeds_and_population(patched_actors):
     assert inner.build_kwargs == {
         "world": patched_actors.world_handle,
         "world_name": cfg.world_name,
-        "reporting": None,
     }
     assert outer.build_kwargs == {
         "world": patched_actors.world_handle,
         "inner_opt": inner.built,
-        "reporting": None,
     }
 
     # Population size copied from the inner batch capacity.
@@ -177,39 +166,6 @@ def test_build_skips_seed_propagation_when_inner_has_none(patched_actors):
     make_config(inner, outer, mechanism).build_optimizer()
 
     assert outer.env_config == {"mechanism": mechanism}
-
-
-@pytest.mark.unit
-def test_build_creates_wandb_reporter_and_passes_it_down(patched_actors):
-    inner = StubLevelConfig(batch_capacity=3)
-    outer = StubLevelConfig()
-    ray_cfg_marker = RayRuntimeConfig(num_cpus=1)
-    cfg = make_config(inner, outer).reporting(
-        "wandb",
-        project_name="proj",
-        config={"tag": "x"},
-        settings_dict={"mode": "offline"},
-    )
-    cfg.ray_cfg = ray_cfg_marker
-
-    cfg.build_optimizer()
-
-    assert patched_actors.init_calls == [ray_cfg_marker]
-    assert cfg.reporter is patched_actors.reporter_handle
-    assert patched_actors.reporter_cls.options_kwargs == {
-        "name": f"{cfg.world_name}_wandb"
-    }
-    assert patched_actors.reporter_cls.remote_kwargs == {
-        "project": "proj",
-        "name": f"proj-{cfg.world_name}",
-        "config": {"outer_iters": 5, "world_name": cfg.world_name, "tag": "x"},
-        "settings": {"mode": "offline"},
-    }
-    assert patched_actors.world_cls.remote_kwargs == {
-        "reporting": patched_actors.reporter_handle
-    }
-    assert inner.build_kwargs["reporting"] is patched_actors.reporter_handle
-    assert outer.build_kwargs["reporting"] is patched_actors.reporter_handle
 
 
 @pytest.mark.unit
@@ -248,20 +204,3 @@ def test_world_name_gets_a_random_suffix():
     b = BilevelConfig().world(world_name="fishery").world_name
     assert a.startswith("fishery_") and b.startswith("fishery_")
     assert a != b
-
-
-@pytest.mark.unit
-def test_run_finishes_reporter_when_present(monkeypatch):
-    monkeypatch.setattr(ray, "get", lambda ref, *args, **kwargs: ref)
-    finish_calls = []
-    cfg = make_config(StubLevelConfig(), StubLevelConfig()).training(outer_iters=2)
-    cfg._reporter = SimpleNamespace(
-        finish=SimpleNamespace(remote=lambda: finish_calls.append("finish"))
-    )
-    outer = StubOptimizer()
-
-    result = BilevelOptimizer(cfg, outer=outer, inner=object()).run()
-
-    assert finish_calls == ["finish"]
-    assert result["outer_iters"] == 2
-    assert result["best_fitness"] == 1.0

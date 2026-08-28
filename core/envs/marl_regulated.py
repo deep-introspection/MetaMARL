@@ -22,6 +22,11 @@ The mechanism in force is fetched from the ``World`` actor at ``reset`` by
 one is published the environment falls back to the ``mechanism`` template it
 was constructed with and returns zero rewards, so RLlib's environment checks
 can run before training starts.
+
+Metrics are optional: with a ``schema`` the env owns a ``MetricLogger`` fed by
+``_log`` (identity at ``reset``, rewards and ``iter`` at every step, benchmark
+fields from the hooks), and with a ``reporter_cfg`` a ``Reporter`` renders the
+configured ``queries`` against it (see ``core.callbacks``).
 """
 
 import logging
@@ -35,6 +40,11 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 from core.annotations import override
 from core.mechanism.base import Mechanism
+from core.metrics.logger import MetricLogger
+from core.metrics.schemas import MetricSchema
+from core.reporting.base import Reporter
+from core.reporting.config import ReporterConfig
+from core.reporting.query import AnyQuery
 from core.types import AgentID, MultiAgentDict, OptimizerID
 from core.utils import sigmoid
 from core.world.base import World
@@ -75,6 +85,14 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         Temperature of the sigmoid squashing raw policy outputs to ``[0, 1]``.
     action_spaces, observation_spaces : dict, optional
         Per-agent gymnasium spaces (forwarded by the RLlib env creator).
+    env_name : str, optional
+        Label prefix of the env-level reporter.
+    reporter_cfg : ReporterConfig, optional
+        Builds the env-level ``Reporter``; ``None`` disables reporting.
+    queries : tuple[AnyQuery, ...], optional
+        Queries rendered by the env-level reporter.
+    schema : type[MetricSchema], optional
+        Metric schema of the env logger; ``None`` disables logging.
     """
 
     _reset: ClassVar[str | None] = None
@@ -90,6 +108,7 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         mechanism_id: int,
         agents: list[AgentID],
         opt_id: Optional[OptimizerID] = None,
+        env_name: Optional[str] = None,
         horizon: Optional[int] = None,
         mechanism: Optional[Mechanism] = None,
         seed: Optional[int] = None,
@@ -98,6 +117,9 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         action_temperature: float = 4.0,
         action_spaces: Optional[dict] = None,
         observation_spaces: Optional[dict] = None,
+        reporter_cfg: Optional[ReporterConfig] = None,
+        queries: Optional[tuple[AnyQuery, ...]] = None,
+        schema: Optional[type[MetricSchema]] = None,
         **kwargs,
     ):
         super().__init__()
@@ -140,6 +162,24 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         self.S_t: dict[str, Any] = {}
         self.previous_actions: MultiAgentDict = self._zero_actions()
 
+        # Metrics: a typed logger built from ``schema`` (None -> no logging) and
+        # a reporter rendering ``queries`` against it (None -> no reporting).
+        self.logger: Optional[MetricLogger] = (
+            MetricLogger.from_schema(schema) if schema is not None else None
+        )
+        self.reporter: Optional[Reporter] = None
+        if reporter_cfg is not None:
+            reporting_env_id = (
+                f"{env_name}"
+                f"|mode={mode}"
+                f"|m={self.mechanism_id}"
+                f"|ps={policy_seed}"
+                f"|ss={self.seed}"
+            )
+            self.reporter = reporter_cfg.build(label=reporting_env_id)
+            self.reporter.schema = schema
+            self.reporter.add_query(*(queries or ()))
+
     def __init_subclass__(cls, **kwargs):
         """Discover the benchmark hooks declared with :mod:`core.envs.hooks`.
 
@@ -181,6 +221,11 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         self._opt_id = opt_id
 
     # --- helpers -------------------------------------------------------------------
+
+    def _log(self, key: tuple[str, ...], value: Any) -> None:
+        """Push ``value`` under ``key`` if this env has a metric logger."""
+        if self.logger is not None:
+            self.logger.push(key=key, value=value)
 
     def _zero_actions(self) -> MultiAgentDict:
         """Zero action per agent, shaped like the declared action space."""
@@ -256,6 +301,15 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         # The env seed is fixed at construction; RLlib's per-reset seed is ignored.
         self._t = 0
 
+        # Episode identity for the logger; ``iter`` restarts so that per-step
+        # series stay aligned with it (no ``iter`` entry is logged at reset).
+        if self.logger is not None:
+            self.logger.flush(key=("iter",))
+        self._log(("env_id",), self.env_id)
+        self._log(("mechanism_id",), self.mechanism_id)
+        self._log(("seed",), self.seed)
+        self._log(("policy_seed",), self.policy_seed)
+
         # Try to fetch a new mechanism if one is available (published);
         # otherwise keep the current one for subsequent episodes.
         if not self.published_mechanism_assigned:
@@ -281,6 +335,7 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
             # No candidate published yet (e.g. RLlib env checking): inert step.
             self.previous_actions = actions
             self._t += 1
+            self._log(("iter",), self._t)
             return (
                 self.observation({}),
                 {agent_id: 0.0 for agent_id in self.agents},
@@ -303,6 +358,11 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         self.previous_actions = actions
         obs = self.observation({})
 
+        # Single logging point for rewards, whatever the mechanism did to them.
+        for agent_id, r in rewards.items():
+            self._log(("by_agent", agent_id, "reward"), r)
+        self._log(("reward_mean",), float(np.mean(list(rewards.values()))))
+
         time_limit = self.horizon is not None and (self._t + 1) >= self.horizon
         terminated = self._all_agents(False)
         truncated = self._all_agents(bool(time_limit))
@@ -323,6 +383,7 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
             )
         )
         self._t += 1
+        self._log(("iter",), self._t)
         return obs, rewards, terminated, truncated, self._infos
 
     # --- pipeline methods ------------------------------------------------------------

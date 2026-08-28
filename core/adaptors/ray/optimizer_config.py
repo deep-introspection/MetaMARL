@@ -45,8 +45,9 @@ from ray.tune.registry import register_env
 from core.adaptors.ray.optimizer import RayOptimizer
 from core.annotations import override
 from core.callbacks import _evaluate_with_fixed_duration_once
+from core.metrics.schemas import MetricSchema
 from core.optimizers.config import OptimizerConfig
-from core.reporting.wandb import WandbReporter
+from core.reporting.query import AnyQuery
 from core.utils import generate_uuid
 from core.world.base import World
 
@@ -350,12 +351,37 @@ class RayOptimizerConfig(OptimizerConfig):
         return cfg.multi_agent(**kwargs)
 
     @rllib_config_mutator
-    def reporting(cfg, **kwargs) -> None:
-        """Sets the config's reporting settings.
-        Returns:
-            This updated AlgorithmConfig object.
-        """
+    def _reporting_rllib(cfg, **kwargs) -> None:
+        """Deferred ``AlgorithmConfig.reporting`` (raw pass-through)."""
         return cfg.reporting(**kwargs)
+
+    @override(OptimizerConfig)
+    def reporting(
+        self,
+        queries: Optional[tuple[AnyQuery, ...]],
+        schema: Optional[type[MetricSchema]],
+        **kwargs,
+    ) -> None:
+        """Declare the optimizer-level metrics and record the RLlib reporting call.
+
+        Parameters
+        ----------
+        queries : tuple of Query or ParallelCoordinatesQuery, or None
+            Queries rendered by the optimizer-level reporter, stored through
+            ``OptimizerConfig.reporting``.
+        schema : type[MetricSchema] or None
+            Metric schema attached to the optimizer-level reporter.
+        **kwargs
+            Forwarded to the deferred ``AlgorithmConfig.reporting`` (RLlib's
+            own reporting knobs such as ``metrics_num_episodes_for_smoothing``).
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining (the ``None`` annotation is inaccurate).
+        """
+        super().reporting(queries=queries, schema=schema)
+        return self._reporting_rllib(**kwargs)
 
     @rllib_config_mutator
     def checkpointing(cfg, **kwargs) -> None:
@@ -639,7 +665,6 @@ class RayOptimizerConfig(OptimizerConfig):
         *,
         world: ActorHandle[World],
         world_name: Optional[str] = None,
-        reporting: ActorHandle[WandbReporter],
     ):
         """Resolve the RLlib config, register the env and build a ``RayOptimizer``.
 
@@ -659,6 +684,11 @@ class RayOptimizerConfig(OptimizerConfig):
            ``env_creator`` below), and point ``rllib_cfg`` at it.
         6. Freeze a deep copy of this config and hand it to ``RayOptimizer``;
            the ``Algorithm`` itself is built later inside ``PolicyActor``.
+        7. Build the optimizer-level reporter through ``_build_reporter``
+           (``None`` when no ``reporter_cfg`` was set) and attach it as
+           ``opt.reporting``. Each environment receives a copy of
+           ``reporter_cfg`` plus the env-level queries and schema so it can
+           build its own reporter.
 
         Parameters
         ----------
@@ -666,8 +696,6 @@ class RayOptimizerConfig(OptimizerConfig):
             Shared world actor, given to every environment.
         world_name : str, optional
             Required when ``world`` is given; stored in ``world_name``.
-        reporting : ActorHandle[WandbReporter]
-            Reporter handle attached to the optimizer.
 
         Returns
         -------
@@ -784,8 +812,14 @@ class RayOptimizerConfig(OptimizerConfig):
             return self._env_creator(
                 world=world,
                 opt_id=opt_id,
+                env_name=env_name,
                 agents=agents,
                 mechanism_id=mechanism_idx,
+                reporter_cfg=self._reporter_cfg.copy()
+                if self._reporter_cfg is not None
+                else None,
+                queries=self._reporting_queries_env,
+                schema=self._reporting_schema_env,
                 **dict(env_ctx),
             )
 
@@ -801,7 +835,8 @@ class RayOptimizerConfig(OptimizerConfig):
         # TODO do not give world to ray optimizer. temp solution until environment factory
         opt = RayOptimizer(config=cfg)
         opt.world = world
-        opt.reporting = reporting
+
+        opt.reporting = self._build_reporter(label=self.opt_class.__name__)
 
         # register optimizer in world to link contexts to optimizers
         if world is not None:

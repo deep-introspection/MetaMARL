@@ -1,16 +1,32 @@
-"""Helpers for reading RLlib result dictionaries and fingerprinting weights.
+"""Helpers translating RLlib result dictionaries into typed metric schemas.
 
 The metric getters accept both the new API stack layout (``env_runners/...``)
 and the classic one (top-level ``episode_reward_mean``, ``timesteps_total``,
 ``info/learner/...``), returning a neutral default when a key is absent.
+``hash_weights`` fingerprints a weights structure, and the ``build_*``
+functions turn a full result dict into the ``RolloutSchema``,
+``PerformanceSchema`` and ``LearnerSchema`` consumed by the reporting layer.
 """
 
 import hashlib
+from typing import Optional
 
 import numpy as np
 import torch
+from ray.rllib.utils.typing import ResultDict
 
-from core.utils import to_float
+from core.adaptors.ray.schema import (
+    LearnerSchema,
+    MechanismID,
+    MechanismRolloutSchema,
+    PerformanceSchema,
+    PolicyID,
+    PolicyLearnerSchema,
+    RolloutSchema,
+    SeedRolloutSchema,
+)
+from core.envs.schema import EpisodeRolloutSchema
+from core.utils import finite, safe_ratio, to_float
 
 
 def _get_env(result: dict) -> dict:
@@ -142,3 +158,180 @@ def hash_weights(weights) -> str:
 
     update(weights)
     return h.hexdigest()
+
+
+# TODO remove finite
+def build_episode_aggregate(results: ResultDict) -> EpisodeRolloutSchema:
+    """Aggregate episode return and length statistics from ``env_runners``.
+
+    Fields that RLlib does not provide at the aggregate level (total and
+    terminal rewards, terminal values) are left ``None``.
+    """
+    env = results.get("env_runners", {}) or {}
+    return EpisodeRolloutSchema(
+        reward_total=None,
+        reward_mean=finite(env.get("episode_return_mean")),
+        reward_min=finite(env.get("episode_return_min")),
+        reward_max=finite(env.get("episode_return_max")),
+        reward_terminal=None,
+        value_terminal=None,
+        value_penultimate=None,
+        episode_len_mean=finite(env.get("episode_len_mean")),
+        episode_len_min=finite(env.get("episode_len_min")),
+        episode_len_max=finite(env.get("episode_len_max")),
+        num_episodes=finite(env.get("num_episodes")),
+        num_episodes_lifetime=finite(env.get("num_episodes_lifetime")),
+    )
+
+
+def build_performance(results: ResultDict) -> PerformanceSchema:
+    """Collect step counters, throughput and timers into a ``PerformanceSchema``.
+
+    Agent step counts, reported per agent by RLlib, are summed; throughput is
+    read from the ``since_last_reduce`` window and falls back to
+    ``since_last_restore``.
+    """
+    env = results.get("env_runners", {}) or {}
+    timers = results.get("timers", {}) or {}
+    throughput_data = env.get("num_env_steps_sampled_lifetime_throughput")
+    throughput = None
+
+    if isinstance(throughput_data, dict):
+        throughput = finite(
+            throughput_data.get("throughput_since_last_reduce")
+        ) or finite(throughput_data.get("throughput_since_last_restore"))
+
+    # TODO refactor this to get data from env
+    agent_steps = env.get("num_agent_steps_sampled")
+    agent_steps_lifetime = env.get("num_agent_steps_sampled_lifetime")
+    agent_steps_sum = None
+    agent_steps_lifetime_sum = None
+
+    if isinstance(agent_steps, dict):
+        agent_steps_sum = finite(
+            sum((to_float(value) or 0.0) for value in agent_steps.values())
+        )
+
+    if isinstance(agent_steps_lifetime, dict):
+        agent_steps_lifetime_sum = finite(
+            sum((to_float(value) or 0.0) for value in agent_steps_lifetime.values())
+        )
+    return PerformanceSchema(
+        env_steps_this_iter=finite(env.get("num_env_steps_sampled")),
+        env_steps_lifetime=finite(env.get("num_env_steps_sampled_lifetime")),
+        agent_steps_this_iter_sum=agent_steps_sum,
+        agent_steps_lifetime_sum=agent_steps_lifetime_sum,
+        env_steps_throughput=throughput,
+        training_iteration_s=finite(timers.get("training_iteration")),
+        training_step_s=finite(timers.get("training_step")),
+        sample_s=finite(timers.get("sample")),
+        learner_update_s=finite(timers.get("learner_update_timer")),
+        weights_seq_no=finite(env.get("weights_seq_no")),
+    )
+
+
+def build_rollout(results: ResultDict) -> RolloutSchema:
+    """Group the per-episode entries of ``env_runners/by_episode`` by mechanism and seed.
+
+    The ``by_episode`` values are the ``EpisodeRolloutSchema`` objects stored
+    by ``log_and_report_episode_metrics``; each is filed under
+    ``by_mechanism[<mechanism_id>].by_seed[<seed>].by_episode[<episode_id>]``,
+    alongside the aggregate from ``build_episode_aggregate``.
+    """
+    env = results.get("env_runners", {}) or {}
+    episodes = env.get("by_episode", {}) or {}
+    by_mechanism: dict[MechanismID, MechanismRolloutSchema] = {}
+
+    for episode_id, episode in episodes.items():
+        mechanism_id = str(episode.mechanism_id)
+        seed = str(episode.seed)
+        mechanism = by_mechanism.setdefault(mechanism_id, MechanismRolloutSchema())
+        seed_rollout = mechanism.by_seed.setdefault(seed, SeedRolloutSchema())
+        seed_rollout.by_episode[episode_id] = episode
+    return RolloutSchema(
+        aggregate=build_episode_aggregate(results),
+        by_mechanism=by_mechanism,
+    )
+
+
+def build_learner(results: ResultDict) -> LearnerSchema:
+    """Build one ``PolicyLearnerSchema`` per learner module from ``results["learners"]``.
+
+    Besides copying the finite scalar stats, it derives
+    ``policy_relative_entropy`` (entropy / entropy coefficient),
+    ``entropy_pressure`` (entropy * entropy coefficient) and
+    ``sample_staleness`` (sum of the available lag indicators: gradient-update
+    lag, training calls since the last weight sync, outstanding async requests
+    and learner queue wait).
+    """
+    learners = results.get("learners", {}) or {}
+    learner_group = results.get("learner_group", {}) or {}
+    mean_training_calls_since_sync = finite(
+        results.get("mean_num_training_step_calls_since_last_synch_worker_weights")
+    )
+    outstanding_async_reqs = finite(
+        learner_group.get("actor_manager_num_outstanding_async_reqs")
+    )
+    all_modules_stats = learners.get("__all_modules__", {}) or {}
+    learner_queue_wait = finite(
+        all_modules_stats.get("learner_thread_in_queue_wait_timer")
+    )
+    by_policy: dict[PolicyID, PolicyLearnerSchema] = {}
+
+    for learner_id, stats in learners.items():
+        m: dict[str, Optional[float]] = {}
+
+        for key, value in stats.items():
+            value = finite(value)
+            if value is None:
+                continue
+            m[str(key)] = value
+
+        # Legacy optionally unpacked this throughput dict.
+        throughput = stats.get("num_module_steps_trained_lifetime_throughput")
+
+        if isinstance(throughput, dict):
+            m["module_steps_throughput_since_last_reduce"] = finite(
+                throughput.get("throughput_since_last_reduce")
+            )
+
+            m["module_steps_throughput_since_last_restore"] = finite(
+                throughput.get("throughput_since_last_restore")
+            )
+        entropy = m.get("entropy")
+        entropy_coeff = m.get("curr_entropy_coeff")
+
+        m["policy_relative_entropy"] = safe_ratio(entropy, entropy_coeff)
+
+        if entropy is not None and entropy_coeff is not None:
+            m["entropy_pressure"] = float(entropy) * float(entropy_coeff)
+
+        lag1 = m.get("diff_num_grad_updates_vs_sampler_policy")
+        lag2 = mean_training_calls_since_sync
+        lag3 = outstanding_async_reqs
+        lag4 = learner_queue_wait
+        parts = [value for value in (lag1, lag2, lag3, lag4) if value is not None]
+
+        m["sample_staleness"] = float(sum(parts)) if parts else None
+
+        by_policy[learner_id] = PolicyLearnerSchema(
+            batch_size=m.get("module_train_batch_size_mean"),
+            total_loss=m.get("total_loss"),
+            residual_variance=None,
+            sample_staleness=m.get("sample_staleness"),
+            policy_loss=m.get("policy_loss"),
+            policy_entropy=m.get("entropy"),
+            policy_entropy_coeff=m.get("curr_entropy_coeff"),
+            policy_relative_entropy=m.get("policy_relative_entropy"),
+            entropy_pressure=m.get("entropy_pressure"),
+            policy_kl=m.get("kl"),
+            policy_kl_coeff=m.get("curr_kl_coeff"),
+            value_loss=m.get("vf_loss"),
+            value_mean=m.get("value_mean"),
+            value_target=m.get("value_target"),
+            gradient_norm=(
+                m.get("gradients_default_optimizer_global_norm") or m.get("grad_gnorm")
+            ),
+            gradient_noise=m.get("gradient_noise"),
+        )
+    return LearnerSchema(by_policy=by_policy)

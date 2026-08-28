@@ -92,6 +92,7 @@ figures/
 *.parquet
 
 # WandB
+wandb_analysis/
 wandb/
 
 # Ray
@@ -113,6 +114,7 @@ geojsons/
 
 # deprecated
 
+!TODO.md
 !tutorials/*
 
 # Local credential files (never commit)

@@ -33,7 +33,7 @@ from core.world.context import (
 )
 
 if TYPE_CHECKING:
-    from core.optimizers.base import Optimizer
+    pass
 
 
 @ray.remote
@@ -398,14 +398,6 @@ class World:
         #     )
 
         return ctx.id
-
-    def register_optimizer(self, opt: Optimizer) -> OptimizerID:
-        """
-        Register a new optimizer ID in the world.
-
-        This initializes an empty context set for the optimizer.
-        """
-        return self._set_new_opt_id(opt_id=opt.opt_id)
 
     def _set_new_opt_id(self, opt_id: OptimizerID) -> OptimizerID:
         """Ensure an optimizer ID exists in the map and return it.

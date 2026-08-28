@@ -10,6 +10,11 @@ from core.mechanism.algorithms.quota import QuotaMechanism
 from core.mechanism.algorithms.subsidy import SubsidyMechanism
 from core.mechanism.composition.chained_mechanism import ChainedMechanism
 from core.world.context import MechanismContext, MechanismStatus
+from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
+from examples.bilevel_fishery.queries import (
+    FISHERY_ALL_AGENTS_QUERIES,
+    FISHERY_ENV_QUERIES,
+)
 from examples.bilevel_fishery.regulated_env import EPS, FisheryRegulatedEnv
 
 AGENTS = ["u0", "u1"]
@@ -178,3 +183,49 @@ def test_subsidy_shapes_reward_without_touching_ecology(fake_world):
     growth = 0.3 * fish * (1 - fish / 1000.0)
     full = 2.0 * env.F_msy * fish / 2
     assert env.S_t["fish"] == pytest.approx(fish + growth - 2 * 0.5 * full, rel=1e-4)
+
+
+@pytest.mark.unit
+def test_hooks_log_every_field_the_fishery_queries_reference(fake_world):
+    """One value per step for each queried field, aligned with ``iter``."""
+    quota = QuotaMechanism(fixed_quota=0.6, bindings=resource_binding())
+    env = make_env(fake_world, quota, schema=FisheryMetricSchema)
+    env.reset()
+    for _ in range(3):
+        env.step({aid: np.zeros(2) for aid in AGENTS})
+    peeked = env.logger.peek()
+    assert peeked.iter == [1, 2, 3]
+
+    queried = {q.y_paths[0][-1] for q in FISHERY_ENV_QUERIES}
+    for field in queried:
+        assert len(getattr(peeked, field)) == 3, field
+    for query in FISHERY_ALL_AGENTS_QUERIES:
+        field = query.y_paths[0][-1]
+        for aid in AGENTS:
+            assert len(getattr(peeked.by_agent[aid], field)) == 3, (aid, field)
+
+    # logged values match the infos of the last step
+    infos = env._infos
+    assert peeked.H_realized[-1] == pytest.approx(infos["u0"]["H_realized"])
+    assert peeked.fish_norm_next[-1] == pytest.approx(infos["u0"]["fish_norm_next"])
+    assert peeked.allowed_harvest[-1] == pytest.approx(infos["u0"]["allowed_harvest"])
+    assert peeked.quota_stress[-1] == pytest.approx(
+        quota.allowed_fraction(peeked.fish_norm[-1])
+    )
+    assert peeked.by_agent["u0"].delivered_harvest[-1] == pytest.approx(
+        infos["u0"]["delivered_harvest"]
+    )
+
+
+@pytest.mark.unit
+def test_quota_stress_is_one_without_a_quota_mechanism(fake_world):
+    env = make_env(
+        fake_world, SubsidyMechanism(subsidy=0.0, cost=0.0), schema=FisheryMetricSchema
+    )
+    env.reset()
+    env.step({aid: np.zeros(2) for aid in AGENTS})
+    peeked = env.logger.peek()
+    assert peeked.quota_stress == [1.0]
+    assert peeked.allowed_harvest[0] == pytest.approx(
+        env._infos["u0"]["full_required_harvest"]
+    )

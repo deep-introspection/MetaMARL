@@ -13,20 +13,29 @@ class Dummy(RegulatorEnv):
     def _pre_reset(self, seed=None):
         pass
 
-    def aggregate_rewards(self, ctxs):
+    def aggregate_rewards(self, metrics):
         return 0.0
 
 
 class Inner:
+    """Inner optimizer stub with the call shape ``RegulatorEnv`` relies on."""
+
     def __init__(self):
         self.evaluated = 0
         self.runs = 0
+        self.logger = None  # no metric logger: aggregate_rewards receives None
 
     def run(self):
         self.runs += 1
 
     def evaluate(self):
         self.evaluated += 1
+
+    def report_metrics(self):
+        pass
+
+    def reduce_metrics(self):
+        return None
 
 
 @pytest.mark.unit

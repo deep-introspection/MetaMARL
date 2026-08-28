@@ -173,18 +173,19 @@ def test_validate_ctx_schema_exists_ignores_subclasses(world):
 
 
 # ---------------------------------------------------------------------------
-# register_optimizer / _set_new_opt_id
+# _set_new_opt_id
 # ---------------------------------------------------------------------------
+# ``register_optimizer`` was removed on this branch: ``build_optimizer`` calls
+# ``_set_new_opt_id`` directly with the optimizer's ID.
 
 
 @pytest.mark.unit
-def test_register_optimizer_with_explicit_id(world):
-    opt = SimpleNamespace(opt_id="reg")
-    assert world.register_optimizer(opt) == "reg"
+def test_set_new_opt_id_with_explicit_id_is_idempotent(world):
+    assert world._set_new_opt_id("reg") == "reg"
     assert world.get_opt_ctx_ids("reg") == []
     # Idempotent: the existing (possibly populated) list is kept.
     world.append_context(_ctx(_OtherSchema(), opt_id="reg"))
-    assert world.register_optimizer(opt) == "reg"
+    assert world._set_new_opt_id("reg") == "reg"
     assert len(world.get_opt_ctx_ids("reg")) == 1
 
 
@@ -194,7 +195,7 @@ def test_set_new_opt_id_none_draws_fresh_uuid(world):
     b = world._set_new_opt_id(None)
     assert a != b
     assert world.get_opt_ids() == {a, b}
-    assert world.register_optimizer(SimpleNamespace(opt_id=None)) not in {a, b}
+    assert not hasattr(world, "register_optimizer")
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +210,14 @@ def test_set_new_context_generates_id_and_tracks_mechanism(world):
     assert ctx.id == cid
     assert world.get_mechanism_registry() == {cid: ctx.payload}
     assert world.get_opt_ctx_ids("opt") == [cid]
+
+
+@pytest.mark.unit
+def test_set_new_context_appends_to_existing_optimizer_list(world):
+    first = world.set_new_context(_ctx(_OtherSchema(), opt_id="opt"))
+    second = world.set_new_context(_ctx(_OtherSchema(), opt_id="opt"))
+    assert world.get_opt_ctx_ids("opt") == [first, second]
+    assert world.get_opt_ids() == {"opt"}
 
 
 @pytest.mark.unit

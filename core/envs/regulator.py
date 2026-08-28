@@ -8,8 +8,8 @@ Strategies). One outer step evaluates a population of candidate mechanisms:
 2. ``_step(mechanisms)`` publishes one ``MechanismContext`` per (candidate,
    seed) to the ``World``, resets the inner policy, trains it for
    ``train_iters`` inner iterations, optionally evaluates it on ``eval_seeds``,
-   then aggregates the inner ``EnvStepContext`` records into one fitness per
-   candidate with :meth:`aggregate_rewards`;
+   renders the inner reports and aggregates the inner optimizer's accumulated
+   metrics into one fitness per candidate with :meth:`aggregate_rewards`;
 3. consumed contexts are flushed from the World.
 
 Without an inner optimizer the env runs in *analytic* mode: subclasses override
@@ -27,12 +27,9 @@ from gymnasium.core import ActType, ObsType
 from core.annotations import override
 from core.envs.base import BaseEnv
 from core.mechanism.base import Mechanism
+from core.metrics.schemas import MetricSchema
 from core.optimizers.base import Optimizer
-from core.world.context import (
-    Context,
-    MechanismContext,
-    MechanismStatus,
-)
+from core.world.context import MechanismContext, MechanismStatus
 
 
 class RegulatorEnv(BaseEnv):
@@ -132,28 +129,39 @@ class RegulatorEnv(BaseEnv):
             # TODO flush all remote mechanisms and env_step ctx.
             # TODO initializing the envs with the seeds from eval_seeds
             # TODO flush all remote mechanisms and env_step ctx.
+            # TODO eval results accumulate in eval and maintain training data !
             self.inner.evaluate()
 
         ctx_registry = ray.get(self.world.get_ctx_registry.remote())
 
+        # Render the inner reports, then hand the accumulated inner metrics
+        # (one schema instance, non-destructive peek) to the fitness aggregation.
+        self.inner.report_metrics()
+        metrics = self.inner.logger.peek() if self.inner.logger is not None else None
+
         # Aggregate rewards
-        reward = self.aggregate_rewards(ctx_registry.values())
+        reward = self.aggregate_rewards(metrics)
 
         # flush consumed contexts
         ray.get(self.world.flush_ctx.remote(ctx_registry.keys()))
         ray.get(self.world.flush.remote(status=MechanismStatus.eval))
 
-        return None, reward, False, False, {}
+        # return reduced data to outer optimizer
+        # TODO route this through world in future
+        reduced = self.inner.reduce_metrics()
+
+        return None, reward, False, False, {"metrics": reduced}
 
     @abstractmethod
-    def aggregate_rewards(self, ctx: list[Context]) -> SupportsFloat:
-        """Reduce the World contexts produced during the inner loop to fitness values.
+    def aggregate_rewards(self, metrics: Optional[MetricSchema]) -> SupportsFloat:
+        """Reduce the inner optimizer's accumulated metrics to fitness values.
 
         Parameters
         ----------
-        ctx : list[Context]
-            Every context currently held by the World (``EnvStepContext`` and
-            ``MechanismContext`` payloads).
+        metrics : MetricSchema or None
+            ``inner.logger.peek()`` after training (and evaluation): the inner
+            schema holding the per-mechanism, per-seed, per-episode rollouts.
+            ``None`` when the inner optimizer has no metric logger.
 
         Returns
         -------

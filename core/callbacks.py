@@ -1,11 +1,14 @@
 """RLlib hooks used by the inner optimizer.
 
-Two pieces live here. ``tag_episode_with_env_idx`` is an ``on_episode_created``
-callback that stamps each episode ID with the identity of the sub-environment
-that produced it, which is how the ``policy_mapping_fn`` in
-``RayOptimizerConfig`` picks the right RLModule.
-``_evaluate_with_fixed_duration_once`` is a ``custom_evaluation_function`` that
-replaces RLlib's fixed-duration evaluation loop with a strict single round.
+Three pieces live here. ``tag_episode_with_env_idx`` is an
+``on_episode_created`` callback that stamps each episode ID with the identity
+of the sub-environment that produced it, which is how the ``policy_mapping_fn``
+in ``RayOptimizerConfig`` picks the right RLModule.
+``log_and_report_episode_metrics`` is an episode-end callback that flushes the
+environment's metric logger to its reporter and into RLlib's
+``MetricsLogger``. ``_evaluate_with_fixed_duration_once`` is a
+``custom_evaluation_function`` that replaces RLlib's fixed-duration evaluation
+loop with a strict single round.
 """
 
 import logging
@@ -14,6 +17,7 @@ from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.rllib.env.vector.vector_multi_agent_env import VectorMultiAgentEnv
 from ray.rllib.utils.metrics import ENV_RUNNER_RESULTS, EVALUATION_RESULTS, NUM_EPISODES
+from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 
 from core.envs.base import BaseEnv
 
@@ -104,6 +108,56 @@ def tag_episode_with_env_idx(
         episode.id_ = f"env={env_index}|m={mechanism_id}|ps={policy_seed}|ss={seed}|raw={raw_episode_id}"
 
     # TODO inject policy_id to env for traceability and debugging
+
+
+# TODO to be moved to a separate actor in the future for extensibility
+def log_and_report_episode_metrics(
+    *,
+    episode: MultiAgentEpisode,
+    env_runner: MultiAgentEnvRunner,
+    env: VectorMultiAgentEnv,
+    env_index: int,
+    metrics_logger: MetricsLogger,
+    **kwargs,
+) -> None:
+    """Report the sub-environment's episode metrics and hand them to RLlib.
+
+    Intended for the ``on_episode_end`` hook. The sub-environment's
+    ``MetricLogger`` is peeked and sent to the env-level reporter, then
+    reduced and stored in RLlib's ``MetricsLogger`` under
+    ``("by_episode", <episode_id>)`` with ``reduce="item"``, where
+    ``<episode_id>`` is the structured prefix written by
+    ``tag_episode_with_env_idx`` (the ``|raw=...`` suffix is stripped).
+    ``build_rollout`` later regroups these entries by mechanism and seed.
+
+    Parameters
+    ----------
+    episode : MultiAgentEpisode
+        Episode that just ended; only its ``id_`` is used.
+    env_runner : MultiAgentEnvRunner
+        Runner owning the vectorised environment; the sub-env is fetched as
+        ``env_runner.env.envs[env_index].unwrapped``.
+    env : VectorMultiAgentEnv
+        Vector env passed by RLlib; shadowed by the unwrapped sub-environment.
+    env_index : int
+        Position of the sub-environment in the vector env.
+    metrics_logger : MetricsLogger
+        RLlib metrics logger of the env runner.
+    **kwargs
+        Other callback arguments, ignored.
+    """
+    env: BaseEnv = env_runner.env.envs[env_index].unwrapped
+
+    metrics = env.logger.peek()
+    env.reporter.report(metrics)
+    reduced = env.logger.reduce()
+
+    episode_id = episode.id_.partition("|raw=")[0]
+
+    # TODO could we just have the EnvRolloutSchema here ?
+    metrics_logger.log_value(
+        key=("by_episode", episode_id), value=reduced, reduce="item"
+    )
 
 
 def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):

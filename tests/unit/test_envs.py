@@ -77,18 +77,34 @@ def test_base_env_reset_publishes_and_rewinds_time(fake_world):
 def test_regulator_env_trains_inner_optimizer_and_publishes_mechanisms(fake_world):
     calls = {"run": 0, "reset": 0}
 
+    class DummyLogger:
+        def peek(self):
+            return "peeked"
+
+        def reduce(self):
+            return "reduced"
+
     class DummyOptimizer:
+        logger = DummyLogger()
+
         def run(self):
             calls["run"] += 1
 
         def reset(self):
             calls["reset"] += 1
 
+        def report_metrics(self):
+            calls["report"] = calls.get("report", 0) + 1
+
+        def reduce_metrics(self):
+            return self.logger.reduce()
+
     class DummyRegulator(RegulatorEnv):
         def _pre_reset(self, seed=None):
             pass
 
-        def aggregate_rewards(self, ctxs):
+        def aggregate_rewards(self, metrics):
+            assert metrics == "peeked"  # the inner optimizer's peeked metrics
             return 1.0
 
     template = SubsidyMechanism(subsidy=0.1, cost=0.1)
@@ -101,10 +117,11 @@ def test_regulator_env_trains_inner_optimizer_and_publishes_mechanisms(fake_worl
     )
     population = np.array([[0.2], [0.5], [0.8]], dtype=np.float32)
 
-    _, reward, *_ = env.step(population)
+    _, reward, _, _, info = env.step(population)
 
     assert reward == 1.0
-    assert calls == {"run": 5, "reset": 1}
+    assert calls == {"run": 5, "reset": 1, "report": 1}
+    assert info == {"metrics": "reduced"}
 
     mechanism_ctxs = [
         c.payload
@@ -135,3 +152,24 @@ def test_regulator_env_rejects_non_positive_train_iters(fake_world):
 
     with pytest.raises(ValueError):
         DummyRegulator(world=fake_world, optimizer=object(), train_iters=0)
+
+
+@pytest.mark.unit
+def test_base_env_set_opt_id_stamps_published_contexts(fake_world):
+    env = _StepOnlyEnv(world=fake_world)
+    env.set_opt_id("opt_7")
+    env.step(1)
+    assert fake_world.contexts[-1].opt_id == "opt_7"
+    assert fake_world.contexts[-1].env == "_StepOnlyEnv"
+
+
+@pytest.mark.unit
+def test_base_env_reset_ignores_a_different_seed(fake_world):
+    env = _StepOnlyEnv(world=fake_world, seed=11)
+    first_draw = env.rng.random()
+    rng_state = env.rng.bit_generator.state
+    env.reset(seed=99)
+    assert env.seed == 11
+    assert env.rng.bit_generator.state == rng_state  # rng not re-seeded
+    assert env.rng.random() != first_draw
+    assert fake_world.contexts[-1].payload.seed == 11

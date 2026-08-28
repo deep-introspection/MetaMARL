@@ -84,9 +84,9 @@ class TestOptimizerConfig:
             )
         )
         cfg.dimension = 1
-        opt = cfg.build_optimizer(world=fake_world, reporting="reporter")
+        opt = cfg.build_optimizer(world=fake_world)
         assert isinstance(opt, ESOptimizer)
-        assert opt.world is fake_world and opt.reporting == "reporter"
+        assert opt.world is fake_world and opt.reporting is None
         assert opt.id == "opt_0"
         assert isinstance(opt.env, AnalyticEnv) and opt.env._opt_id == "opt_0"
         assert opt.parameter_names == ["restoration_subsidy"]

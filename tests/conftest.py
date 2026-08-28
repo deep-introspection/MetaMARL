@@ -48,9 +48,10 @@ class FakeWorld:
         self.flushed_status.append(status)
 
     def _register_optimizer(self, opt) -> str:
-        return self._set_new_opt_id_impl(opt_id=f"opt_{len(self.opt_ids)}")
+        return self._set_new_opt_id_impl(opt_id=getattr(opt, "opt_id", None))
 
-    def _set_new_opt_id_impl(self, opt_id: str) -> str:
+    def _set_new_opt_id_impl(self, opt_id=None) -> str:
+        opt_id = opt_id or f"opt_{len(self.opt_ids)}"
         self.opt_ids.append(opt_id)
         return opt_id
 

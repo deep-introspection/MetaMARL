@@ -23,11 +23,13 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import ray
 
 from core.envs.base import BaseEnv
 from core.mechanism.base import Mechanism
+from core.metrics.logger import MetricLogger
+from core.metrics.schemas import MetricSchema
 from core.optimizers.base import Optimizer
+from core.optimizers.es.schema import ESCandidateSchema, ESParameterSchema, ESSchema
 
 if TYPE_CHECKING:
     from core.optimizers.es.config import ESConfig
@@ -131,6 +133,9 @@ class ESOptimizer(Optimizer):
         self.previous_population_mean_fitness: float | None = None
 
         self.parameter_names = [f"parameter_{i}" for i in range(self.dimension)]
+
+        # Typed metric logger for one generation at a time (see ESSchema).
+        self.logger = MetricLogger.from_schema(ESSchema)
 
     def _on_env_init(self, env: BaseEnv) -> None:
         mechanism: Mechanism | None = getattr(env, "mechanism_template", None)
@@ -605,6 +610,90 @@ class ESOptimizer(Optimizer):
             self.best_candidate = population[best_idx].copy()
             self.best_mechanism_idx = best_idx
 
+    def _to_logger_payload(
+        self,
+        *,
+        inner: MetricSchema,
+        population: np.ndarray,
+        fitness: np.ndarray,
+        mean: np.ndarray,
+        sigma: float,
+    ) -> ESSchema:
+        """Convert one completed ES generation to its metric schema."""
+        if self.fixed_mode:
+            # Nothing is optimized: log the template's full (fixed) vector so
+            # the parameter panels stay populated.
+            mechanism: Mechanism = self.env.mechanism_template
+            default_vector = np.asarray(mechanism.to_vector(), dtype=np.float32)
+            # ``param_names`` covers the encoded (optimized) entries only, so
+            # it cannot index the full vector of a fixed mechanism; fall back
+            # to positional names whenever the two disagree.
+            parameter_names = list(mechanism.param_names())
+            if len(parameter_names) != default_vector.shape[0]:
+                parameter_names = [
+                    f"parameter_{i}" for i in range(default_vector.shape[0])
+                ]
+            logged_population = np.repeat(
+                default_vector[None, :],
+                repeats=population.shape[0],
+                axis=0,
+            )
+            logged_mean = default_vector
+            logged_best = default_vector
+        else:
+            parameter_names = self.parameter_names
+            logged_population = population
+            logged_mean = mean
+            logged_best = self.best_candidate
+        best_idx = int(np.argmax(fitness))
+
+        return ESSchema(
+            iter=self.generation,
+            generation=self.generation,
+            sigma=sigma,
+            population_size=len(fitness),
+            fitness_mean=float(fitness.mean()),
+            fitness_best=float(fitness[best_idx]),
+            best_mechanism_idx=best_idx,
+            best_fitness_global=float(self.best_fitness),
+            by_mechanism={
+                str(mechanism_idx): ESCandidateSchema(
+                    fitness=float(fitness[mechanism_idx]),
+                    by_parameter={
+                        parameter_name: ESParameterSchema(
+                            value=float(
+                                logged_population[
+                                    mechanism_idx,
+                                    parameter_idx,
+                                ]
+                            )
+                        )
+                        for parameter_idx, parameter_name in enumerate(parameter_names)
+                    },
+                )
+                for mechanism_idx in range(len(fitness))
+            },
+            search_mean={
+                parameter_name: ESParameterSchema(
+                    value=float(logged_mean[parameter_idx])
+                )
+                for parameter_idx, parameter_name in enumerate(parameter_names)
+            },
+            global_best={
+                parameter_name: ESParameterSchema(
+                    value=float(logged_best[parameter_idx])
+                )
+                for parameter_idx, parameter_name in enumerate(parameter_names)
+            },
+            generation_best={
+                parameter_name: ESParameterSchema(
+                    value=float(logged_population[best_idx, parameter_idx])
+                )
+                for parameter_idx, parameter_name in enumerate(parameter_names)
+            },
+            inner=inner,
+        )
+
     def run(self) -> dict[str, Any]:
         logger.info(
             "[ES] Generation started | gen=%d | sigma=%.5f | mean_norm=%.4f",
@@ -621,7 +710,7 @@ class ESOptimizer(Optimizer):
 
         population = self._sample_population()
 
-        _, fitness, _, _, _ = self.env.step(population)
+        _, fitness, _, _, info = self.env.step(population)
         fitness = np.asarray(
             fitness,
             dtype=np.float32,
@@ -684,54 +773,16 @@ class ESOptimizer(Optimizer):
 
         self.generation += 1
 
-        plot_population = population
-        plot_parameter_names = self.parameter_names
-        plot_mean = pre_update_mean
-        plot_best_candidate = self.best_candidate
-
-        if self.fixed_mode:
-            default_mechanism = self.env.mechanism_template
-
-            # Full normalized mechanism vector (fixed + optimized parameters)
-            default_vector = np.asarray(
-                default_mechanism.to_vector(),
-                dtype=np.float32,
-            )
-
-            plot_population = np.repeat(
-                default_vector[None, :],
-                repeats=population.shape[0],
-                axis=0,
-            )
-            plot_parameter_names = default_mechanism.param_names() or [
-                f"parameter_{i}" for i in range(default_vector.shape[0])
-            ]
-            plot_mean = default_vector.copy()
-            plot_best_candidate = default_vector.copy()
-
-        ray.get(
-            self.reporting.plot_es_population.remote(
-                generation=self.generation,
-                population=plot_population,
-                fitness=fitness,
-                parameter_names=plot_parameter_names,
-                mean=plot_mean,
-                sigma=pre_update_sigma,
-                best_fitness_global=self.best_fitness,
-                best_candidate_global=plot_best_candidate,
-                prefix="es",
-            )
+        metrics = self._to_logger_payload(
+            inner=info.get("metrics") if isinstance(info, dict) else None,
+            population=population,
+            fitness=fitness,
+            mean=pre_update_mean,
+            sigma=pre_update_sigma,
         )
 
-        self.metrics.log_dict(
-            {
-                "es/generation": self.generation,
-                "es/best_fitness": (self.best_fitness),
-                "es/mean_fitness": float(fitness.mean()),
-                "es/fitness_var": (fitness_variance),
-                "es/sigma": self.sigma,
-            }
-        )
+        self.logger.push_data(metrics)
+        self.report_metrics()
 
         logger.info(
             "[ES] gen=%d | best=%.4f | mean=%.4f+/-%.4f | var=%.4f | sigma=%.4f",

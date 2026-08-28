@@ -11,7 +11,9 @@ Covers, without a Ray runtime:
   naming, spaces written into ``env_config``, ``policy_mapping_fn``);
 - ``build_optimizer`` with the ``FakeWorld`` fixture, ``register_env`` and
   ``RayOptimizer`` patched in the module namespace, including the train/eval
-  layouts of the inner ``env_creator``.
+  layouts of the inner ``env_creator`` and the reporter plumbing (optimizer
+  level reporter built from ``reporter_cfg``, env-level config copied into
+  every environment).
 """
 
 from __future__ import annotations
@@ -28,7 +30,11 @@ from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 import core.adaptors.ray.optimizer_config as optimizer_config_module
 from core.adaptors.ray.optimizer_config import RayOptimizerConfig, RLlibConfigOp
 from core.callbacks import _evaluate_with_fixed_duration_once
+from core.metrics.schemas import MetricSchema
 from core.optimizers.ppo.config import PPOptimizerConfig
+from core.reporting.base import Reporter
+from core.reporting.config import ReporterConfig
+from core.reporting.query import Query
 
 OBS_SPACE = Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
 ACT_SPACE = Discrete(2)
@@ -53,6 +59,43 @@ class RecordingEnv:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         RecordingEnv.instances.append(self)
+
+
+class RecordingReporter(Reporter):
+    """Reporter that only records what it is asked to render."""
+
+    def __init__(self, label):
+        self.label = label
+        self.reports = []
+
+    def _report(self, query, series):
+        self.reports.append((query.title, series))
+
+    def close(self):
+        pass
+
+
+class RecordingReporterConfig(ReporterConfig):
+    """``ReporterConfig`` building ``RecordingReporter`` instances."""
+
+    built: list[RecordingReporter] = []
+
+    def build(self, *, label=None):
+        reporter = RecordingReporter(label)
+        RecordingReporterConfig.built.append(reporter)
+        return reporter
+
+
+class OptSchema(MetricSchema):
+    pass
+
+
+class EnvSchema(MetricSchema):
+    pass
+
+
+OPT_QUERY = Query(title="opt", x=("iter",), y=("iter",))
+ENV_QUERY = Query(title="env", x=("iter",), y=("iter",))
 
 
 class FakeEnvContext(dict):
@@ -229,7 +272,7 @@ PASSTHROUGH_BUILDERS = [
     ("callbacks", "callbacks", "callbacks"),
     ("offline_data", "offline_data", "offline_data"),
     ("multi_agent", "multi_agent", "multi_agent"),
-    ("reporting", "reporting", "reporting"),
+    ("_reporting_rllib", "reporting", "_reporting_rllib"),
     ("checkpointing", "checkpointing", "checkpointing"),
     ("fault_tolerance", "fault_tolerance", "fault_tolerance"),
     ("rl_module", "rl_module", "rl_module"),
@@ -277,6 +320,32 @@ def test_evaluation_and_debugging_ops_replay_on_rllib_config():
         evaluation_parallel_to_training=False,
     )
     rllib_cfg.debugging.assert_called_once_with(seed=5, log_level="INFO")
+
+
+@pytest.mark.unit
+def test_reporting_stores_schema_and_queries_then_defers_rllib_kwargs():
+    cfg = PPOptimizerConfig()
+    out = cfg.reporting(
+        queries=(OPT_QUERY,), schema=OptSchema, metrics_num_episodes_for_smoothing=5
+    )
+
+    assert out is cfg
+    assert cfg._reporting_schema is OptSchema
+    assert cfg._reporting_queries == (OPT_QUERY,)
+    op = cfg._cfg_ops["_reporting_rllib"]
+    assert op.kwargs == {"metrics_num_episodes_for_smoothing": 5}
+    rllib_cfg = MagicMock(name="AlgorithmConfig")
+    op(rllib_cfg)
+    rllib_cfg.reporting.assert_called_once_with(metrics_num_episodes_for_smoothing=5)
+
+
+@pytest.mark.unit
+def test_reporting_with_none_leaves_previous_declaration():
+    cfg = PPOptimizerConfig().reporting(queries=(OPT_QUERY,), schema=OptSchema)
+    cfg.reporting(queries=None, schema=None)
+    assert cfg._reporting_schema is OptSchema
+    assert cfg._reporting_queries == (OPT_QUERY,)
+    assert cfg._cfg_ops["_reporting_rllib"].kwargs == {}
 
 
 @pytest.mark.unit
@@ -416,28 +485,39 @@ def build_env(monkeypatch):
     )
     monkeypatch.setattr(optimizer_config_module, "RayOptimizer", StubRayOptimizer)
     RecordingEnv.instances = []
+    RecordingReporterConfig.built = []
     return registered
 
 
-def make_buildable_config(*, mechanisms=2, num_seeds=2, eval_seeds=(7,)):
+def make_buildable_config(
+    *, mechanisms=2, num_seeds=2, eval_seeds=(7,), with_reporting=False
+):
     cfg = (
         PPOptimizerConfig()
-        .environment(env=RecordingEnv, horizon=5, env_config={"alpha": 0.5})
+        .environment(
+            env=RecordingEnv,
+            horizon=5,
+            env_config={"alpha": 0.5},
+            queries=(ENV_QUERY,) if with_reporting else None,
+            schema=EnvSchema if with_reporting else None,
+        )
         .env_runners(num_envs_per_env_runner=mechanisms)
         .debugging(seed=3, num_seeds=num_seeds)
         .agents(fisher_specs())
     )
     if eval_seeds is not None:
         cfg.evaluation(seeds=list(eval_seeds), evaluation_duration=1)
+    if with_reporting:
+        cfg.reporting(queries=(OPT_QUERY,), schema=OptSchema)
+        cfg.reporter_cfg = RecordingReporterConfig(project="unit")
     return cfg
 
 
 @pytest.mark.unit
 def test_build_optimizer_resolves_config_and_registers_env(build_env, fake_world):
     cfg = make_buildable_config(mechanisms=2, num_seeds=2, eval_seeds=(7, 8))
-    reporter = object()
 
-    opt = cfg.build_optimizer(world=fake_world, world_name="w", reporting=reporter)
+    opt = cfg.build_optimizer(world=fake_world, world_name="w")
 
     # Evaluation kwargs patched: one runner per (eval seed, train seed) pair.
     eval_kwargs = cfg._cfg_ops["_evaluation_rllib"].kwargs
@@ -471,15 +551,50 @@ def test_build_optimizer_resolves_config_and_registers_env(build_env, fake_world
     assert "freeze" in opt.config._cfg_ops
     assert "freeze" not in cfg._cfg_ops
     assert opt.world is fake_world
-    assert opt.reporting is reporter
+    # No ``reporter_cfg``: the optimizer-level reporter is ``None``.
+    assert opt.reporting is None
     assert opt.opt_id == fake_world.opt_ids[-1]
     assert cfg.world_name == "w"
 
 
 @pytest.mark.unit
+def test_build_optimizer_builds_reporter_and_forwards_env_reporting(
+    build_env, fake_world
+):
+    cfg = make_buildable_config(with_reporting=True)
+
+    opt = cfg.build_optimizer(world=fake_world, world_name="w")
+
+    # Optimizer-level reporter: built once, labelled with the optimizer class
+    # name, carrying the optimizer schema and queries.
+    assert isinstance(opt.reporting, RecordingReporter)
+    assert RecordingReporterConfig.built == [opt.reporting]
+    # The label is ``opt_class.__name__`` (the stub class under this patch).
+    assert opt.reporting.label == cfg.opt_class.__name__ == "StubRayOptimizer"
+    assert opt.reporting.schema is OptSchema
+    assert opt.reporting.queries == (OPT_QUERY,)
+
+    # Each environment receives a *copy* of the reporter config plus the
+    # env-level queries and schema, and the registered env name.
+    env_creator = next(iter(build_env.values()))
+    env_a = env_creator(FakeEnvContext({}, worker_index=1))
+    env_b = env_creator(FakeEnvContext({}, worker_index=1))
+    for env in (env_a, env_b):
+        assert isinstance(env.kwargs["reporter_cfg"], RecordingReporterConfig)
+        assert env.kwargs["reporter_cfg"] is not cfg.reporter_cfg
+        assert env.kwargs["reporter_cfg"].project_name == "unit"
+        assert env.kwargs["queries"] == (ENV_QUERY,)
+        assert env.kwargs["schema"] is EnvSchema
+        assert env.kwargs["env_name"] == cfg.rllib_cfg.env
+    assert env_a.kwargs["reporter_cfg"] is not env_b.kwargs["reporter_cfg"]
+    # The env creator does not build reporters itself.
+    assert len(RecordingReporterConfig.built) == 1
+
+
+@pytest.mark.unit
 def test_build_optimizer_env_creator_train_layout(build_env, fake_world):
     cfg = make_buildable_config(mechanisms=2, num_seeds=2)
-    cfg.build_optimizer(world=fake_world, world_name="w", reporting=None)
+    cfg.build_optimizer(world=fake_world, world_name="w")
     env_creator = next(iter(build_env.values()))
     seeds = cfg.seeds
 
@@ -506,12 +621,16 @@ def test_build_optimizer_env_creator_train_layout(build_env, fake_world):
     assert env.kwargs["alpha"] == 0.5
     # ``mode`` is only read (default ``train``), never written back.
     assert "mode" not in env.kwargs
+    # Without reporting configured, the env-level reporting kwargs are empty.
+    assert env.kwargs["reporter_cfg"] is None
+    assert env.kwargs["queries"] is None and env.kwargs["schema"] is None
+    assert env.kwargs["env_name"] == cfg.rllib_cfg.env
 
 
 @pytest.mark.unit
 def test_build_optimizer_env_creator_eval_layout(build_env, fake_world):
     cfg = make_buildable_config(mechanisms=2, num_seeds=2, eval_seeds=(70, 80))
-    cfg.build_optimizer(world=fake_world, world_name="w", reporting=None)
+    cfg.build_optimizer(world=fake_world, world_name="w")
     env_creator = next(iter(build_env.values()))
     train_seeds, eval_seeds = cfg.seeds, cfg.eval_seeds
 
@@ -538,7 +657,7 @@ def test_build_optimizer_env_creator_eval_layout(build_env, fake_world):
 @pytest.mark.unit
 def test_build_optimizer_without_evaluation_skips_eval_patching(build_env, fake_world):
     cfg = make_buildable_config(eval_seeds=None)
-    cfg.build_optimizer(world=fake_world, world_name="w", reporting=None)
+    cfg.build_optimizer(world=fake_world, world_name="w")
     assert "_evaluation_rllib" not in cfg._cfg_ops
     assert cfg.rllib_cfg.custom_evaluation_function is None
 
@@ -552,7 +671,7 @@ def test_build_optimizer_without_evaluation_skips_eval_patching(build_env, fake_
 @pytest.mark.unit
 def test_build_optimizer_reuses_resolved_rllib_config(build_env, fake_world):
     cfg = make_buildable_config()
-    cfg.build_optimizer(world=fake_world, world_name="w", reporting=None)
+    cfg.build_optimizer(world=fake_world, world_name="w")
     resolved = cfg.rllib_cfg
     cfg._cfg_ops["training"] = RLlibConfigOp(
         fn=lambda c, **k: pytest.fail("ops must not be replayed twice"),
@@ -560,7 +679,7 @@ def test_build_optimizer_reuses_resolved_rllib_config(build_env, fake_world):
         kwargs={},
     )
 
-    cfg.build_optimizer(world=fake_world, world_name="w", reporting=None)
+    cfg.build_optimizer(world=fake_world, world_name="w")
 
     assert cfg.rllib_cfg is resolved
     assert len(build_env) == 2
@@ -571,7 +690,7 @@ def test_build_optimizer_reuses_resolved_rllib_config(build_env, fake_world):
 def test_build_optimizer_requires_world_name_with_world(build_env, fake_world):
     cfg = make_buildable_config()
     with pytest.raises(ValueError, match="world_name must be provided"):
-        cfg.build_optimizer(world=fake_world, reporting=None)
+        cfg.build_optimizer(world=fake_world)
 
 
 @pytest.mark.unit
@@ -579,7 +698,7 @@ def test_build_optimizer_requires_opt_class(build_env, fake_world):
     cfg = make_buildable_config()
     cfg.opt_class = None
     with pytest.raises(ValueError, match="no opt_class"):
-        cfg.build_optimizer(world=fake_world, world_name="w", reporting=None)
+        cfg.build_optimizer(world=fake_world, world_name="w")
 
 
 @pytest.mark.unit
@@ -589,7 +708,7 @@ def test_build_optimizer_without_world_leaves_env_creator_unbound(build_env):
     cfg = make_buildable_config()
     cfg.agent_specs = None
 
-    opt = cfg.build_optimizer(world=None, reporting=None)
+    opt = cfg.build_optimizer(world=None)
 
     assert opt.opt_id is None
     assert opt.world is None
