@@ -15,7 +15,9 @@ machine). Notes for Nadine: `docs/MERGE_NOTES.md`. Contributor guide: `AGENTS.md
 | `feature/social-influence-testing` | `../bilevel-fishery` (main dir) | Nadine's mechanism branch + base |
 | `feature/logging-testing` | `../bilevel-fishery-logging` | Nadine's metrics/reporting branch + base |
 
-`dev` is never modified. Nothing is pushed yet (Rémy decides when).
+`dev` is never modified. All three branches are pushed to `origin` under their own names
+(2026-08-28). The remote refused `feature/x/testing` because `feature/x` exists, hence the
+hyphenated names.
 Run `git merge` **inside the target worktree** — a `cd` chain in one shell
 command merged the base into itself twice on day 1.
 
@@ -27,8 +29,8 @@ command merged the base into itself twice on day 1.
 | 1. Mechanism branch runnable, tested, documented | **done** | full `pytest`: 154 passed, 3 skipped (unit + integration + 2 notebooks); coverage 92–100 % on `core/mechanism`, `core/envs`; 93–97 % on `core/optimizers/{es,config,base}` |
 | 2. Logging branch runnable, tested, wildcards + grouped mean/std, CSV/TensorBoard | **done** | full `pytest`: 130 passed, 3 skipped (unit + integration + notebook); coverage 86 % overall, 97 % on the ES |
 | 3. Documentation (README, AGENTS, ARCHITECTURE, QUICKSTART per branch, MERGE_NOTES, TODO status) | **done** | files present on both branches; notebooks execute under `tests/notebooks` |
-| 4. Closing: push branches, hand `docs/MERGE_NOTES.md` to Nadine | **waiting on Rémy** | push not requested yet |
-| Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | not started | `bilevel.py` 75 %, adaptors/World excluded from the unit figure |
+| 4. Closing: push branches, hand `docs/MERGE_NOTES.md` to Nadine | **pushed 08-28**; handoff to Nadine pending | `origin/chore/cleanup-base`, `origin/feature/*-testing` |
+| Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | **in progress** (08-28) | `bilevel.py` 75 %, adaptors/World excluded from the unit figure |
 | Bonus B. Logging: ES scatter colored by generation, parallel coordinates, episode-level wildcard alignment | not started | see `TODO.md` §5.4, §5.5, §3–4 on the logging branch |
 | Bonus C. Integration trial of the two features | measured, not built | 30 conflicting files, map in `docs/MERGE_NOTES.md` |
 
@@ -47,10 +49,11 @@ command merged the base into itself twice on day 1.
 | 08-27 | Respect Nadine's ignore of `CLAUDE.md`; `AGENTS.md` is the agent guide | Rémy |
 | 08-27 | `BilevelConfig.mechanism(mechanism=...)` is the single builder; mechanism = template | Claude, per TODO |
 | 08-27 | Reporters receive labeled `Series`; wildcards group by first level when ≥ 2 levels | Claude, per TODO |
+| 08-28 | Ignore `.wandb_nadine.env` and `*.env` (the file header wrongly claimed it was ignored) | Rémy |
+| 08-28 | Push all three branches; testing branches renamed `feature/*-testing` | Rémy |
 
 ## Waiting on
 
-- **Rémy**: push the three branches? (outward-facing, not done without a go).
 - **Nadine** (in `docs/MERGE_NOTES.md`): `mean_fines = tail_fish.mean()` intent; undefined
   names in the live `examples/fresh_water/regulated_env_ed_hs.py`; the 16 code-review
   findings; episode-level wildcard alignment; the fresh-water example is not ported to the
@@ -78,3 +81,5 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters
 - **2026-08-27** — Phases 0–3 completed on both branches (see status board). Smoke runs
   of both `debug.py` scripts pass end-to-end. Cleanup decisions applied. Docstring pass
   merged. Trial merge of the two features measured.
+- **2026-08-28** — `.env` files ignored on all branches. Three branches pushed (testing branches
+  renamed with a hyphen). Bonus A started: coverage survey of `core/` delegated.
