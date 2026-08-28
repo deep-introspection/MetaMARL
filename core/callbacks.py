@@ -1,3 +1,16 @@
+"""RLlib hooks used by the inner optimizer.
+
+Three pieces live here. ``tag_episode_with_env_idx`` is an
+``on_episode_created`` callback that stamps each episode ID with the identity
+of the sub-environment that produced it, which is how the ``policy_mapping_fn``
+in ``RayOptimizerConfig`` picks the right RLModule.
+``log_and_report_episode_metrics`` is an episode-end callback that flushes the
+environment's metric logger to its reporter and into RLlib's
+``MetricsLogger``. ``_evaluate_with_fixed_duration_once`` is a
+``custom_evaluation_function`` that replaces RLlib's fixed-duration evaluation
+loop with a strict single round.
+"""
+
 import logging
 import time
 
@@ -26,6 +39,49 @@ def tag_episode_with_env_idx(
     env_index: int,
     **kwargs,
 ):
+    """Rewrite the episode ID to carry the sub-environment identity.
+
+    Registered as ``callbacks(on_episode_created=...)`` on the new API stack.
+    The ID becomes ``"env=<i>|m=<mech>|ps=<policy_seed>|ss=<seed>|raw=<id>"``
+    where ``i`` is the vector index of the sub-environment in its runner,
+    ``mech`` the mechanism candidate index, ``policy_seed`` the seed of the
+    RLModule that should act, ``seed`` the environment dynamics seed, and
+    ``raw`` RLlib's original random ID (kept so the ID stays unique).
+
+    Why go through the episode ID: on the new API stack the
+    ``policy_mapping_fn`` only receives ``(agent_id, episode)``, with no
+    direct handle on the environment instance, so the environment's identity
+    has to be smuggled into the episode itself. Encoding it in the ID also
+    makes the mapping visible in logs and metrics. IDs already starting with
+    ``env=`` are left untouched.
+
+    Parameters
+    ----------
+    episode : MultiAgentEpisode
+        Freshly created episode whose ``id_`` is rewritten in place.
+    env_runner : MultiAgentEnvRunner
+        Runner owning the vectorised environment; the sub-env is fetched as
+        ``env_runner.env.envs[env_index].unwrapped``.
+    env : VectorMultiAgentEnv
+        Vector env passed by RLlib; immediately shadowed by the unwrapped
+        sub-environment and otherwise unused.
+    env_index : int
+        Position of the sub-environment in the vector env.
+    **kwargs
+        Other callback arguments, ignored.
+
+    Raises
+    ------
+    RuntimeError
+        If the sub-environment has no ``mechanism_id`` or ``seed`` (they must
+        be injected by the env creator), or if its ``env_id`` was already set
+        to a different index. ``policy_seed`` is read without such a check.
+
+    Notes
+    -----
+    Side effect: on the first episode the sub-environment's ``env_id`` is set
+    to ``env_index``; ``EnvStepContext.env_id`` is ``None`` before that.
+    """
 
     # Get env identity
     env: BaseEnv = env_runner.env.envs[env_index].unwrapped
@@ -66,6 +122,32 @@ def log_and_report_episode_metrics(
     metrics_logger: MetricsLogger,
     **kwargs,
 ) -> None:
+    """Report the sub-environment's episode metrics and hand them to RLlib.
+
+    Intended for the ``on_episode_end`` hook. The sub-environment's
+    ``MetricLogger`` is peeked and sent to the env-level reporter, then
+    reduced and stored in RLlib's ``MetricsLogger`` under
+    ``("by_episode", <episode_id>)`` with ``reduce="item"``, where
+    ``<episode_id>`` is the structured prefix written by
+    ``tag_episode_with_env_idx`` (the ``|raw=...`` suffix is stripped).
+    ``build_rollout`` later regroups these entries by mechanism and seed.
+
+    Parameters
+    ----------
+    episode : MultiAgentEpisode
+        Episode that just ended; only its ``id_`` is used.
+    env_runner : MultiAgentEnvRunner
+        Runner owning the vectorised environment; the sub-env is fetched as
+        ``env_runner.env.envs[env_index].unwrapped``.
+    env : VectorMultiAgentEnv
+        Vector env passed by RLlib; shadowed by the unwrapped sub-environment.
+    env_index : int
+        Position of the sub-environment in the vector env.
+    metrics_logger : MetricsLogger
+        RLlib metrics logger of the env runner.
+    **kwargs
+        Other callback arguments, ignored.
+    """
     env: BaseEnv = env_runner.env.envs[env_index].unwrapped
 
     metrics = env.logger.peek()
@@ -81,6 +163,50 @@ def log_and_report_episode_metrics(
 
 
 def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
+    """Evaluate for exactly ``evaluation_duration`` units in a single round.
+
+    Adapted from RLlib's ``Algorithm._evaluate_with_fixed_duration``. Used as
+    ``custom_evaluation_function`` so that, with one evaluation env runner per
+    ``(train seed, eval seed)`` and one sub-environment per mechanism, every
+    ``(mechanism, policy seed, eval seed)`` triple is rolled out exactly once.
+
+    Differences from the RLlib original, all on the new API stack path:
+
+    - The remaining units are split across healthy runners once and the loop
+      exits after that round instead of iterating until the duration is met.
+    - If fewer results than healthy runners come back within
+      ``evaluation_sample_timeout_s``, a ``RuntimeError`` is raised rather
+      than re-issuing the work to other runners. Redistribution would
+      evaluate some triples twice and others never, biasing the fitness the
+      regulator computes from the published step contexts.
+    - If the units completed differ from ``evaluation_duration``, a
+      ``RuntimeError`` is raised instead of another round being started.
+    - Evaluation metrics are read back with ``latest_merged_only=True`` so
+      only this call's results are returned.
+    - Three values are returned (the public ``custom_evaluation_function``
+      contract) instead of the five the private RLlib method returns.
+
+    The old API stack branch is kept as in RLlib and is not exercised by this
+    project.
+
+    Parameters
+    ----------
+    algo : Algorithm
+        The algorithm being evaluated; supplies the evaluation config.
+    eval_env_runner_group : EnvRunnerGroup
+        Group of evaluation env runners to sample from.
+
+    Returns
+    -------
+    tuple[dict, int, int]
+        ``(eval_results, env_steps, agent_steps)`` where ``eval_results`` is
+        the ``EVALUATION_RESULTS`` subtree of the metrics logger.
+
+    Raises
+    ------
+    RuntimeError
+        On a missing runner result or an incomplete round (see above).
+    """
     # How many episodes/timesteps do we need to run?
     unit = algo.config.evaluation_duration_unit
     eval_cfg = algo.evaluation_config
@@ -91,6 +217,12 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
     # Remote function used on healthy EnvRunners to sample, get metrics, and
     # step counts.
     def _env_runner_remote(worker, num, round, iter, _force_reset):
+        """Sample ``num[worker_index]`` units on one runner and return metrics.
+
+        Returns ``(env_steps, agent_steps, metrics, iter)``; ``iter`` echoes
+        the algorithm iteration so stale results from slow workers can be
+        discarded. Environments are force-reset only on round 0.
+        """
         # Sample AND get_metrics, but only return metrics (and steps actually taken)
         # to save time. Also return the iteration to check, whether we should
         # discard and outdated result (from a slow worker).

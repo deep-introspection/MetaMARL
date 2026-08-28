@@ -1,3 +1,12 @@
+"""Base configuration objects for optimizers.
+
+``OptimizerConfig`` follows the builder pattern of RLlib's ``AlgorithmConfig``:
+a mutable object configured through chained method calls (``environment``,
+``debugging``, ``training`` ...), then frozen and turned into an ``Optimizer``
+by ``build_optimizer``. Concrete configs (``RayOptimizerConfig``, ``ESConfig``)
+extend it with backend-specific builders.
+"""
+
 from __future__ import annotations
 
 import copy
@@ -22,12 +31,57 @@ if TYPE_CHECKING:
 
 
 class _Config(ABC):
+    """Minimal interface shared by all configuration objects."""
+
     def to_dict(self) -> dict:
         """Converts this configuration to dict format."""
         raise NotImplementedError
 
 
 class OptimizerConfig(_Config, ABC):
+    """Fluent, freezable configuration from which an ``Optimizer`` is built.
+
+    Contract
+    --------
+    - *Fluent*: builder methods mutate ``self`` and return it, so calls
+      chain. Subclasses implement ``training`` (abstract) and may add more.
+    - *Freeze*: ``freeze()`` flips ``_is_frozen``; afterwards any attribute
+      assignment raises ``AttributeError`` (enforced in ``__setattr__``).
+      Freezing is shallow: nested objects such as ``env_config`` stay
+      mutable.
+    - *Copy*: ``copy(copy_frozen=...)`` deep-copies the config and sets the
+      frozen flag of the copy. ``build_optimizer`` always works on
+      ``self.copy(copy_frozen=True)``, so the original stays editable and the
+      optimizer owns an immutable snapshot.
+
+    Parameters
+    ----------
+    opt_class : type[Optimizer], optional
+        Optimizer class instantiated by ``build_optimizer``.
+
+    Attributes
+    ----------
+    env : str or EnvType or None
+        Environment class (or registered name) set by ``environment``.
+    env_config : dict
+        Keyword arguments passed to the environment constructor.
+    horizon : int or None
+        Episode length; also copied into ``env_config["horizon"]``.
+    base_seed : int or None
+        Root seed given to ``debugging``.
+    seeds : list of int
+        Training seeds derived from ``base_seed`` (empty when unseeded).
+    eval_seeds : list of int or None
+        Evaluation seeds; set by subclasses (see
+        ``RayOptimizerConfig.evaluation``).
+    evaluation_config : OptimizerConfig or None
+        Optional nested evaluation config; ``copy(copy_frozen=False)`` also
+        unfreezes it.
+    stats_cls_lookup : dict
+        RLlib ``Stats`` class lookup handed to the optimizer's
+        ``MetricsLogger``.
+    """
+
     # TODO registry to allow opt_class str
     # TODO runtime checking of opt_class
     def __init__(self, opt_class: Optional[Type[Optimizer]] = None):
@@ -85,6 +139,16 @@ class OptimizerConfig(_Config, ABC):
 
     # TODO generalize this function
     def _merge_env_config(self, extra: dict) -> Self:
+        """Shallow-merge ``extra`` into ``env_config`` (``extra`` wins).
+
+        Note that ``environment`` resets ``env_config`` to ``{}`` before
+        filling it, so merges done before that call are lost.
+
+        Returns
+        -------
+        OptimizerConfig
+            ``self`` for chaining.
+        """
         self.env_config = {
             **(self.env_config or {}),
             **extra,
@@ -145,6 +209,22 @@ class OptimizerConfig(_Config, ABC):
         self,
         **env_ctx,
     ) -> BaseEnv:
+        """Instantiate ``self.env`` with the given keyword arguments.
+
+        Parameters
+        ----------
+        **env_ctx
+            Constructor arguments: ``build_optimizer`` passes ``world``,
+            ``opt_id``, ``optimizer`` and the ``env_config`` entries;
+            ``RayOptimizerConfig`` adds ``agents``, ``mechanism_id``, ``seed``,
+            ``policy_seed`` and ``mode``.
+
+        Returns
+        -------
+        BaseEnv
+            A new environment instance. ``self.env`` must be a callable class;
+            string specifiers are not resolved here.
+        """
         return self.env(**env_ctx)
 
     def _build_reporter(self, *, label: str):
@@ -289,6 +369,10 @@ class OptimizerConfig(_Config, ABC):
 
     @abstractmethod
     def training(self):
+        """Set the optimizer's training hyperparameters (backend specific).
+
+        Subclasses define the accepted keyword arguments and return ``self``.
+        """
         raise NotImplementedError
 
     def debugging(
@@ -297,6 +381,26 @@ class OptimizerConfig(_Config, ABC):
         seed: Optional[int] = None,  # base seed
         num_seeds: int = 3,
     ) -> Self:
+        """Derive the training seeds from a base seed.
+
+        Parameters
+        ----------
+        seed : int or None, optional
+            Base seed stored in ``base_seed``. A
+            ``numpy.random.SeedSequence(seed)`` is created and
+            ``generate_state(num_seeds)`` yields ``num_seeds`` independent
+            32-bit integers, stored as Python ints in ``seeds``. The same base
+            seed always yields the same list, and different base seeds give
+            well-separated streams (the SeedSequence hashing spreads them).
+            ``None`` clears ``seeds`` to ``[]``.
+        num_seeds : int, optional
+            Number of training seeds to derive (default 3).
+
+        Returns
+        -------
+        OptimizerConfig
+            ``self`` for chaining.
+        """
         if seed is not None:
             self.base_seed = seed
             ss = np.random.SeedSequence(seed)

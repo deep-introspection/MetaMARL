@@ -1,4 +1,12 @@
-"""Helpers translating RLlib result dictionaries into typed metric schemas."""
+"""Helpers translating RLlib result dictionaries into typed metric schemas.
+
+The metric getters accept both the new API stack layout (``env_runners/...``)
+and the classic one (top-level ``episode_reward_mean``, ``timesteps_total``,
+``info/learner/...``), returning a neutral default when a key is absent.
+``hash_weights`` fingerprints a weights structure, and the ``build_*``
+functions turn a full result dict into the ``RolloutSchema``,
+``PerformanceSchema`` and ``LearnerSchema`` consumed by the reporting layer.
+"""
 
 import hashlib
 from typing import Optional
@@ -22,10 +30,26 @@ from core.utils import finite, safe_ratio, to_float
 
 
 def _get_env(result: dict) -> dict:
+    """Return the ``env_runners`` sub-dict of a result, or ``{}``."""
     return result.get("env_runners", {}) or {}
 
 
 def get_episode_return_mean(result: dict) -> float:
+    """Extract the mean episode return from an RLlib result.
+
+    Looks at ``env_runners/episode_return_mean`` first (new API stack), then
+    the legacy ``episode_reward_mean`` keys.
+
+    Parameters
+    ----------
+    result : dict
+        Result of ``Algorithm.train()``.
+
+    Returns
+    -------
+    float
+        The mean return, or ``0.0`` if no key is present.
+    """
     env = _get_env(result)
     v = to_float(env.get("episode_return_mean"))
     if v is not None:
@@ -37,6 +61,21 @@ def get_episode_return_mean(result: dict) -> float:
 
 
 def get_env_steps(result: dict) -> tuple[int, int]:
+    """Extract environment step counters from an RLlib result.
+
+    Parameters
+    ----------
+    result : dict
+        Result of ``Algorithm.train()``.
+
+    Returns
+    -------
+    tuple[int, int]
+        ``(steps_this_iteration, steps_lifetime)`` read from
+        ``env_runners/num_env_steps_sampled[_lifetime]`` with the legacy
+        ``timesteps_this_iter`` / ``timesteps_total`` as fallback; ``0`` when
+        missing.
+    """
     env = _get_env(result)
     steps_iter = to_float(env.get("num_env_steps_sampled")) or to_float(
         result.get("timesteps_this_iter")
@@ -48,6 +87,23 @@ def get_env_steps(result: dict) -> tuple[int, int]:
 
 
 def get_policy_loss_if_present(result: dict) -> float:
+    """Average ``policy_loss`` across policies, if the result exposes it.
+
+    Reads the classic layout ``info/learner/<policy>/learner_stats/
+    policy_loss``. The new API stack reports losses under
+    ``learners/<module>/policy_loss`` instead, so on that stack this returns
+    NaN and the training log prints ``policy_loss=NA``.
+
+    Parameters
+    ----------
+    result : dict
+        Result of ``Algorithm.train()``.
+
+    Returns
+    -------
+    float
+        Mean of the per-policy losses, or ``nan`` when none is found.
+    """
     learner_info = (result.get("info") or {}).get("learner") or {}
     losses = []
     if isinstance(learner_info, dict):
@@ -60,9 +116,29 @@ def get_policy_loss_if_present(result: dict) -> float:
 
 
 def hash_weights(weights) -> str:
+    """Compute a SHA-256 fingerprint of a (nested) weights structure.
+
+    Used to check that ``PolicyActor.reset`` restores identical parameters
+    across outer iterations and across runs.
+
+    Parameters
+    ----------
+    weights : dict or torch.Tensor or numpy.ndarray or Any
+        Typically the nested dict returned by ``Algorithm.get_weights()``.
+        Dict keys are visited in sorted order so the hash is independent of
+        insertion order; each leaf is hashed together with its ``/``-joined
+        key path.
+
+    Returns
+    -------
+    str
+        Hex digest. Tensors are moved to CPU and hashed by raw bytes, arrays
+        likewise, and any other leaf by its ``repr``.
+    """
     h = hashlib.sha256()
 
     def update(obj, prefix=""):
+        """Recursively feed ``obj`` into the running hash under ``prefix``."""
         if isinstance(obj, dict):
             for key in sorted(obj):
                 update(obj[key], f"{prefix}/{key}")
@@ -86,6 +162,11 @@ def hash_weights(weights) -> str:
 
 # TODO remove finite
 def build_episode_aggregate(results: ResultDict) -> EpisodeRolloutSchema:
+    """Aggregate episode return and length statistics from ``env_runners``.
+
+    Fields that RLlib does not provide at the aggregate level (total and
+    terminal rewards, terminal values) are left ``None``.
+    """
     env = results.get("env_runners", {}) or {}
     return EpisodeRolloutSchema(
         reward_total=None,
@@ -104,6 +185,12 @@ def build_episode_aggregate(results: ResultDict) -> EpisodeRolloutSchema:
 
 
 def build_performance(results: ResultDict) -> PerformanceSchema:
+    """Collect step counters, throughput and timers into a ``PerformanceSchema``.
+
+    Agent step counts, reported per agent by RLlib, are summed; throughput is
+    read from the ``since_last_reduce`` window and falls back to
+    ``since_last_restore``.
+    """
     env = results.get("env_runners", {}) or {}
     timers = results.get("timers", {}) or {}
     throughput_data = env.get("num_env_steps_sampled_lifetime_throughput")
@@ -144,6 +231,13 @@ def build_performance(results: ResultDict) -> PerformanceSchema:
 
 
 def build_rollout(results: ResultDict) -> RolloutSchema:
+    """Group the per-episode entries of ``env_runners/by_episode`` by mechanism and seed.
+
+    The ``by_episode`` values are the ``EpisodeRolloutSchema`` objects stored
+    by ``log_and_report_episode_metrics``; each is filed under
+    ``by_mechanism[<mechanism_id>].by_seed[<seed>].by_episode[<episode_id>]``,
+    alongside the aggregate from ``build_episode_aggregate``.
+    """
     env = results.get("env_runners", {}) or {}
     episodes = env.get("by_episode", {}) or {}
     by_mechanism: dict[MechanismID, MechanismRolloutSchema] = {}
@@ -161,6 +255,15 @@ def build_rollout(results: ResultDict) -> RolloutSchema:
 
 
 def build_learner(results: ResultDict) -> LearnerSchema:
+    """Build one ``PolicyLearnerSchema`` per learner module from ``results["learners"]``.
+
+    Besides copying the finite scalar stats, it derives
+    ``policy_relative_entropy`` (entropy / entropy coefficient),
+    ``entropy_pressure`` (entropy * entropy coefficient) and
+    ``sample_staleness`` (sum of the available lag indicators: gradient-update
+    lag, training calls since the last weight sync, outstanding async requests
+    and learner queue wait).
+    """
     learners = results.get("learners", {}) or {}
     learner_group = results.get("learner_group", {}) or {}
     mean_training_calls_since_sync = finite(
