@@ -12,8 +12,8 @@ machine). Notes for Nadine: `docs/MERGE_NOTES.md`. Contributor guide: `AGENTS.md
 | Branch | Worktree | Role |
 | --- | --- | --- |
 | `chore/cleanup-base` | `../bilevel-fishery-base` | shared cleanup + branch-neutral docs; merged into both testing branches |
-| `feature/social-influence/testing` | `../bilevel-fishery` (main dir) | Nadine's mechanism branch + base |
-| `feature/logging/testing` | `../bilevel-fishery-logging` | Nadine's metrics/reporting branch + base |
+| `feature/social-influence-testing` | `../bilevel-fishery` (main dir) | Nadine's mechanism branch + base |
+| `feature/logging-testing` | `../bilevel-fishery-logging` | Nadine's metrics/reporting branch + base |
 
 `dev` is never modified. Nothing is pushed yet (Rémy decides when).
 Run `git merge` **inside the target worktree** — a `cd` chain in one shell
