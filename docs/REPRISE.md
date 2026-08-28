@@ -199,13 +199,10 @@ testing branches.
 config/docs"); a pointer file was written but not force-added — Rémy to decide
 whether to un-ignore it. `AGENTS.md` carries the agent-facing guidance.
 
-Waiting on Rémy (accumulated):
-
-- Move `core/registry.py` under `examples/` (dependency inversion).
-- Delete unreferenced `examples/fresh_water/` forks and `deprecated/`.
-- `restoration_effectiveness` default (0.0) and `debug.py` value (20.0).
-- `mean_fines = tail_fish.mean()` in the fishery regulator (intent?).
-- Un-ignore `CLAUDE.md`?
+Decided by Rémy (2026-08-27 evening): registry moved to `examples/registry.py`;
+fresh-water forks and all `deprecated/` archives deleted; restoration values
+kept (0.0 default, 20.0 in `debug.py`); `CLAUDE.md` stays ignored (AGENTS.md is
+the agent guide). Still open for Nadine: `mean_fines = tail_fish.mean()`.
 
 ## State at the end of day 1 (2026-08-27, evening)
 
