@@ -1,3 +1,12 @@
+"""Abstract optimizer node of the bilevel optimisation graph.
+
+An ``Optimizer`` owns a frozen ``OptimizerConfig``, an optional environment,
+handles to the shared ``World`` and reporter actors, and upstream/downstream
+links to other optimizers. Concrete implementations (``RayOptimizer`` for the
+inner RL level, the ES optimizer for the outer regulator) implement ``run`` and
+optionally ``evaluate``, ``reset``, ``save`` and ``stop``.
+"""
+
 from abc import ABC, abstractmethod
 from logging import Logger
 from typing import Any, Callable, Optional
@@ -88,10 +97,18 @@ class Optimizer(ABC):
 
     @property
     def env(self) -> BaseEnv | None:
+        """Environment attached to this optimizer.
+
+        Initialised from ``config.env`` (which may be an env *class* rather
+        than an instance) and replaced by ``OptimizerConfig.build_optimizer``
+        with the instantiated environment. ``None`` for optimizers that do
+        not step an environment themselves.
+        """
         return self._env
 
     @env.setter
     def env(self, value: BaseEnv | None) -> None:
+        """Attach an environment and fire ``_on_env_init`` if it is not None."""
         self._env = value
 
         if value is not None:
@@ -103,24 +120,52 @@ class Optimizer(ABC):
 
     @property
     def id(self) -> OptimizerID:
+        """Identifier assigned by the World, raising if not yet set.
+
+        Raises
+        ------
+        RuntimeError
+            If ``set_id`` has not been called.
+        """
         if self.opt_id is None:
             raise RuntimeError("Optimizer ID not set")
         return self.opt_id
 
     @property
     def batch_capacity(self) -> int:
+        """Number of candidates this optimizer can process per iteration.
+
+        The base class returns ``self._batch_capacity`` but never sets it, so
+        subclasses must either override the property (``RayOptimizer``) or
+        assign the attribute (the ES optimizer); otherwise ``AttributeError``
+        is raised. The bilevel driver copies the inner optimizer's capacity
+        onto the outer one to size the ES population.
+        """
         return self._batch_capacity
 
     # TODO make id immutable
     def set_id(self, id: OptimizerID) -> None:
+        """Assign the optimizer ID once.
+
+        Raises
+        ------
+        RuntimeError
+            If an ID is already set.
+        """
         if self.opt_id is not None:
             raise RuntimeError("Optimizer ID already set")
         self.opt_id = id
 
     def set_downstream(self, opt: "Optimizer") -> None:
+        """Register ``opt`` as a downstream (inner) optimizer of this one."""
         self._downstream.add(opt)
 
     def set_upstream(self, opt: "Optimizer") -> None:
+        """Register ``opt`` as an upstream (outer) optimizer of this one.
+
+        Kept for graph consistency checks and to let an inner optimizer reach
+        its parent; the core loop does not traverse ``_upstream``.
+        """
         # this is only for checking!
         # and also to call the upstream optimizer
         self._upstream.add(opt)
@@ -133,7 +178,7 @@ class Optimizer(ABC):
     # TODO default config logic
     @classmethod
     def get_default_config(cls) -> OptimizerConfig:
-        """ """
+        """Return a default config; not provided by the base class."""
         raise NotImplementedError("Optimizers must define a default config explicitly")
 
     @classmethod
@@ -203,4 +248,5 @@ class Optimizer(ABC):
         pass
 
     def stop(self) -> None:
+        """Release resources held by the optimizer (no-op by default)."""
         pass

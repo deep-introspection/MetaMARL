@@ -1,3 +1,20 @@
+"""Ray actor holding the shared state of a bilevel optimisation run.
+
+The ``World`` is the one object both levels of the optimisation talk to. The
+outer regulator publishes ``MechanismContext`` entries into it, the inner RLlib
+environments (living in env-runner processes) fetch those entries and push back
+one ``EnvStepContext`` per transition, and the regulator reads the step contexts
+to compute each candidate's fitness. Because ``World`` is a Ray actor, every
+method is called as ``world.<method>.remote(...)`` and its return value crosses
+a Ray boundary; callers must not rely on mutating a returned object to update
+the World.
+
+Three registries are kept in sync: ``_contexts`` (all contexts by
+``ContextID``), ``_mechanism_registry`` (the ``MechanismContext`` payloads,
+keyed by the ``ContextID`` of their context, not by mechanism index) and
+``_opt_ctx_map`` (context IDs owned by each optimizer).
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, KeysView, Optional
@@ -58,12 +75,38 @@ class World:
 
     # Accessors
     def get_ctx_registry(self) -> dict[ContextID, Context]:
+        """Return the whole context registry.
+
+        Returns
+        -------
+        dict[ContextID, Context]
+            Every registered context, keyed by ID, in insertion order. The
+            regulator uses it to collect step contexts before flushing them.
+        """
         return self._contexts
 
     def get_mechanism_registry(self) -> dict[int, MechanismContext]:
+        """Return the mechanism registry.
+
+        Returns
+        -------
+        dict[ContextID, MechanismContext]
+            Mechanism payloads keyed by the ``ContextID`` of the context that
+            carried them. Despite the ``int`` annotation, keys are UUID
+            strings; the mechanism's batch position lives in
+            ``MechanismContext.index``.
+        """
         return self._mechanism_registry
 
     def get_opt_registry(self) -> KeysView[OptimizerID]:
+        """Return a view of the optimizer IDs known to the world.
+
+        Returns
+        -------
+        KeysView[OptimizerID]
+            Keys of the optimizer-to-contexts map. Used by
+            ``RayOptimizerConfig.build_optimizer`` to draw a fresh unique ID.
+        """
         return self._opt_ctx_map.keys()
 
     def get_context(self, ctx_id: ContextID) -> Context | None:
@@ -166,6 +209,22 @@ class World:
         ]
 
     def get_mechanism(self) -> MechanismContext:
+        """Claim the first published mechanism, regardless of index or seed.
+
+        Legacy accessor: the first entry with status ``published`` is moved to
+        ``assigned`` and returned. The current environments use
+        ``get_mechanism_by_id`` instead, which matches index and seed.
+
+        Returns
+        -------
+        MechanismContext
+            The claimed mechanism, now in status ``assigned``.
+
+        Raises
+        ------
+        RuntimeError
+            If no mechanism is in status ``published``.
+        """
         for m_ctx in self._mechanism_registry.values():
             if m_ctx.status == MechanismStatus.published:
                 m_ctx.status = MechanismStatus.assigned
@@ -177,6 +236,41 @@ class World:
     def get_mechanism_by_id(
         self, mechanism_id: int, seed: int, mode: MechanismStatus
     ) -> MechanismContext:
+        """Fetch the mechanism for ``(mechanism_id, seed)`` and advance its status.
+
+        Called by ``RegulatedEnv._pre_reset`` at the start of every episode.
+        The first registry entry whose ``index`` equals ``mechanism_id``, whose
+        ``seed`` equals ``seed`` and whose status is a valid predecessor of
+        ``mode`` is switched to ``mode`` and returned. Valid predecessors are
+        ``published`` for ``mode=train`` and ``{train, eval}`` for
+        ``mode=eval``.
+
+        Parameters
+        ----------
+        mechanism_id : int
+            Batch position of the candidate (``MechanismContext.index``), not
+            a registry key.
+        seed : int
+            Policy seed the environment was built with
+            (``MechanismContext.seed``).
+        mode : MechanismStatus
+            Target status: ``MechanismStatus.train`` or ``MechanismStatus.eval``.
+
+        Returns
+        -------
+        MechanismContext or None
+            The matching mechanism on the first successful fetch. On later
+            calls with the same arguments the entry is no longer in a
+            predecessor status, so ``None`` is returned; environments treat
+            that as "keep the mechanism you already have". The return
+            annotation does not mention ``None`` but it is a routine outcome.
+
+        Raises
+        ------
+        TypeError
+            If ``mode`` is neither ``train`` nor ``eval``: the predecessor set
+            lookup yields ``None`` and the ``in`` test fails.
+        """
         required_status = {
             MechanismStatus.train: {MechanismStatus.published},
             MechanismStatus.eval: {
@@ -206,6 +300,19 @@ class World:
 
     # TODO fix this function. now the primary key is ctx_id
     def get_mechanism_by_index(self, index: int) -> MechanismContext:
+        """Return the mechanism stored under registry key ``index``.
+
+        Despite the name and the ``int`` annotation, the registry is keyed by
+        the ``ContextID`` string of the publishing context, so this only works
+        when passed that ID; an integer batch index raises ``KeyError``. The
+        TODO above records the mismatch. Use ``get_mechanism_by_id`` to look
+        up a candidate by its batch position.
+
+        Raises
+        ------
+        KeyError
+            If ``index`` is not a registry key.
+        """
         return self._mechanism_registry[index]
 
     def _validate_ctx_schema_exists(self, schema: type[ContextSchema]) -> None:
@@ -220,6 +327,42 @@ class World:
 
     # Mutators
     def append_context(self, ctx: Context, *, singleton: bool = False):
+        """Register a context, assigning it a fresh ID.
+
+        This is the path used by ``BaseEnv._publish`` for every mechanism and
+        step context. The context is stored in ``_contexts``; a
+        ``MechanismContext`` payload is additionally indexed in the mechanism
+        registry; and the ID is appended to the owning optimizer's list,
+        creating that optimizer entry on the fly if needed.
+
+        Parameters
+        ----------
+        ctx : Context
+            Context to store. ``ctx.id`` is always overwritten with a new UUID,
+            so a caller-supplied ID is not preserved; the duplicate check that
+            precedes the overwrite can only fire if the caller passed an ID
+            that already exists.
+        singleton : bool, optional
+            If ``True``, raise when another context with the same payload type
+            is already registered.
+
+        Returns
+        -------
+        ContextID
+            The generated ID now stored in ``ctx.id``.
+
+        Raises
+        ------
+        ValueError
+            If ``singleton`` is requested and violated, or if a caller-supplied
+            ``ctx.id`` already exists.
+
+        Notes
+        -----
+        Unlike ``set_new_context``, this method does not require
+        ``MechanismContext.env_id`` to be set, which is why regulators can
+        publish candidates with ``env_id=None``.
+        """
         # Enforce singleton schemas if requested
         if singleton:
             self._validate_ctx_schema_exists(type(ctx.payload))
@@ -265,6 +408,19 @@ class World:
         return self._set_new_opt_id(opt_id=opt.opt_id)
 
     def _set_new_opt_id(self, opt_id: OptimizerID) -> OptimizerID:
+        """Ensure an optimizer ID exists in the map and return it.
+
+        Parameters
+        ----------
+        opt_id : OptimizerID or None
+            Identifier to register. ``None`` draws a fresh UUID.
+
+        Returns
+        -------
+        OptimizerID
+            The registered identifier. Calling twice with the same ID is a
+            no-op that keeps the existing context list.
+        """
         if opt_id is None:
             opt_id = generate_uuid(registry=self._opt_ctx_map.keys())
 
@@ -342,6 +498,21 @@ class World:
 
     # TODO fix this function. now the primary key is ctx_id
     def flush(self, status: Optional[MechanismStatus] = None) -> None:
+        """Drop mechanisms from the mechanism registry.
+
+        Parameters
+        ----------
+        status : MechanismStatus or None, optional
+            Only remove mechanisms in this status. ``None`` removes all of
+            them. The regulator calls ``flush(status=eval)`` between inner
+            runs so evaluated candidates are not fetched again.
+
+        Notes
+        -----
+        Only ``_mechanism_registry`` is touched. The ``Context`` objects that
+        carried the mechanisms stay in ``_contexts`` and in ``_opt_ctx_map``
+        until ``flush_ctx`` removes them.
+        """
         to_delete = []
 
         for ctx_id, m_ctx in self._mechanism_registry.items():
@@ -353,6 +524,21 @@ class World:
             del self._mechanism_registry[ctx_id]
 
     def flush_ctx(self, ctx_ids: list[ContextID]):
+        """Remove contexts from the context registry.
+
+        Parameters
+        ----------
+        ctx_ids : list[ContextID]
+            IDs to drop; unknown IDs are ignored. The regulator passes the
+            full key set of ``get_ctx_registry`` after scoring a batch.
+
+        Notes
+        -----
+        Only ``_contexts`` is touched. The IDs remain listed in
+        ``_opt_ctx_map`` (so ``get_opt_ctx_ids`` can return IDs that no longer
+        resolve) and any mechanism payload remains in the mechanism registry
+        until ``flush`` removes it.
+        """
         if not ctx_ids:
             return
         for cid in ctx_ids:

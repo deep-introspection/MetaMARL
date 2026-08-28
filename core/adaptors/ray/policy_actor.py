@@ -1,3 +1,12 @@
+"""Ray actor that owns the RLlib ``Algorithm`` of the inner optimizer.
+
+``RayOptimizer`` never holds an ``Algorithm`` itself; it drives this actor
+through ``.remote()`` calls. Building the algorithm inside the actor keeps the
+learner, its env runners and their evaluation counterparts in one process tree
+and lets the outer loop rebuild the policy between ES generations without
+touching the driver.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -15,9 +24,18 @@ logger = logging.getLogger(__name__)
 
 @ray.remote(num_cpus=1)
 class PolicyActor:
-    """
-    Owns the RLlib Algorithm.
-    The Algorithm never leaves this actor.
+    """Own the RLlib ``Algorithm`` of one inner optimizer.
+
+    The ``Algorithm`` is built from ``algo_config`` inside the actor and never
+    leaves it. The weights right after construction are kept in
+    ``_init_weights`` so that ``reset`` can restore the same starting point
+    at each outer iteration.
+
+    Parameters
+    ----------
+    algo_config : AlgorithmConfig
+        Fully resolved RLlib configuration (environment registered, RLModule
+        specs and policy mapping applied). Kept so that ``reset`` can rebuild.
     """
 
     def __init__(self, algo_config: AlgorithmConfig):
@@ -29,6 +47,13 @@ class PolicyActor:
         self._init_weights = self.algo.get_weights()
 
     def train(self) -> ResultDict:
+        """Run one ``Algorithm.train()`` iteration.
+
+        Returns
+        -------
+        ResultDict
+            The raw RLlib result dictionary of the iteration.
+        """
         # TODO config ability to debug remote actors
         # import debugpy, os
         # debugpy.listen(("127.0.0.1", 5678))
@@ -39,9 +64,31 @@ class PolicyActor:
         return self.algo.train()
 
     def evaluate(self) -> ResultDict:
+        """Run one ``Algorithm.evaluate()`` pass on the evaluation env runners.
+
+        With the configuration produced by ``RayOptimizerConfig.evaluation``,
+        this executes ``_evaluate_with_fixed_duration_once``: exactly one
+        episode per ``(mechanism, policy seed, eval seed)`` environment.
+
+        Returns
+        -------
+        ResultDict
+            RLlib evaluation results.
+        """
         return self.algo.evaluate()
 
     def get_metrics(self):
+        """Return the algorithm's ``MetricsLogger`` contents.
+
+        Returns
+        -------
+        dict
+            ``{"reduced": ..., "full": ...}`` where ``reduced`` is
+            ``algo.metrics.reduce()`` and ``full`` is the un-reduced tree from
+            ``algo.metrics.peek(())``. Note that ``reduce()`` consumes
+            windowed statistics, so calling this between iterations changes
+            what the next ``train()`` result reports.
+        """
         reduced = self.algo.metrics.reduce()
         full = self.algo.metrics.peek((), default={})
         return {
@@ -73,7 +120,19 @@ class PolicyActor:
             return np.asarray(actions)
 
     def reset(self):
-        """Reset to initial weights."""
+        """Rebuild the ``Algorithm`` and restore the initial weights.
+
+        A brand-new ``Algorithm`` is built from the stored config, then the
+        weights captured at actor construction are loaded into it, so every
+        outer iteration starts the inner policy from the same parameters. The
+        hash of the restored weights is logged for cross-run comparison.
+
+        Notes
+        -----
+        The previous ``Algorithm`` is replaced without calling ``stop()`` on
+        it, so its env runners and learner threads are left to garbage
+        collection.
+        """
         # TODO verify reset is using the same seed
         # self.algo.set_weights(self._init_weights)
         self.algo = self.algo_config.build_algo()
@@ -87,4 +146,5 @@ class PolicyActor:
         )
 
     def stop(self):
+        """Stop the owned ``Algorithm`` and release its workers."""
         self.algo.stop()
