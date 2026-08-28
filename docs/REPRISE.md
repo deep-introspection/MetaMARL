@@ -27,10 +27,10 @@ command merged the base into itself twice on day 1.
 | --- | --- | --- |
 | 0. Shared base: tests revived, coverage/CI config, dead code removed, README/AGENTS/ARCHITECTURE, docstring pass on shared core | **done** | 26 base tests green; CI workflow; 100 docstrings on 13 files |
 | 1. Mechanism branch runnable, tested, documented | **done** | full `pytest`: 458 passed, 3 skipped (unit + integration + 2 notebooks, 08-28); coverage 92–100 % on `core/mechanism`, `core/envs`; 93–97 % on `core/optimizers/{es,config,base}` |
-| 2. Logging branch runnable, tested, wildcards + grouped mean/std, CSV/TensorBoard | **done** | full `pytest`: 130 passed, 3 skipped (unit + integration + notebook); coverage 86 % overall, 97 % on the ES |
+| 2. Logging branch runnable, tested, wildcards + grouped mean/std, CSV/TensorBoard | **done** | full `pytest`: 500 passed, 3 skipped (unit + integration + notebook, 08-28); coverage 99 % on all of `core/` |
 | 3. Documentation (README, AGENTS, ARCHITECTURE, QUICKSTART per branch, MERGE_NOTES, TODO status) | **done** | files present on both branches; notebooks execute under `tests/notebooks` |
 | 4. Closing: push branches, hand `docs/MERGE_NOTES.md` to Nadine | **pushed 08-28**; handoff to Nadine pending | `origin/chore/cleanup-base`, `origin/feature/*-testing` |
-| Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | **done on the mechanism branch** (08-28); logging branch not started | 451 unit tests, 98 % on all of `core/` after the dead-code deletion of 08-28 |
+| Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | **done on both branches** (08-28) | mechanism: 451 unit tests, 98 %; logging: 497 unit tests, 99 % (only unreachable line: `regulated.py:68`, notes §26) |
 | Bonus B. Logging: ES scatter colored by generation, parallel coordinates, episode-level wildcard alignment | not started | see `TODO.md` §5.4, §5.5, §3–4 on the logging branch |
 | Bonus C. Integration trial of the two features | measured, not built | 30 conflicting files, map in `docs/MERGE_NOTES.md` |
 
@@ -92,3 +92,9 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters
   reporting module, `reporting/base.py`, two unused `RayOptimizer` methods, the old-API-stack
   branch of the evaluation callback (−975 lines net). Full suite 458 green, `core/` at 98 %. Found and fixed a test-order
   pollution (Ray actor export vs monkeypatch, notes §25): Ray-backed tests now run last.
+- **2026-08-28 (evening)** — Bonus A done on the logging branch too: 370 new unit tests by three
+  parallel agents (World, Ray adaptors, callbacks, bilevel optimizer, envs, utils, metrics,
+  reporting, ES), coverage `omit` list dropped from `pyproject.toml`, Ray-last ordering hook
+  copied into `tests/conftest.py`. Full suite 500 green, `core/` at 99 %. Fifteen new findings
+  for Nadine (notes §26–40, numbered after the mechanism branch's §17–25 so the two copies
+  of the notes can be merged without renumbering). Not pushed yet.
