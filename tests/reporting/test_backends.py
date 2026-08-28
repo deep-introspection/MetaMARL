@@ -151,6 +151,12 @@ class TestWandb:
         reporter._report(MEAN, MEAN_SERIES)
         fig = logged[0][f"plots/{sanitize_key(MEAN.title)}"]
         assert [t.name for t in fig.data] == [f"{MEAN.title} ±1 std", MEAN.title]
+        reporter._report(
+            MEAN, [Series("m0", X, [1.0, 2.0, 3.0], error=[0.1, 0.1, 0.1])]
+        )
+        assert [
+            t.name for t in logged[1][f"plots/{sanitize_key(MEAN.title)}"].data
+        ] == ["m0 ±1 std", "m0"]
         assert list(fig.data[1].y) == [2.0, 3.0, 4.0]
         band = list(fig.data[0].y)
         assert band[:3] == [3.0, 4.0, 5.0] and band[3:] == [

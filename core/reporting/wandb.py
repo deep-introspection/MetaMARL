@@ -109,7 +109,9 @@ class WandbReporter(Reporter):
                         mode="lines",
                         fill="toself",
                         line=dict(width=0),
-                        name=f"{s.label} ±1 std",
+                        name=s.label
+                        if s.label.endswith("±1 std")
+                        else f"{s.label} ±1 std",
                         hoverinfo="skip",
                         showlegend=True,
                     )
