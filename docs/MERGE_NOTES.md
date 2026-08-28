@@ -234,6 +234,71 @@ fixed — several touch design choices that are yours.
     `policy_seed` without the None-check applied to `seed`/`mechanism_id`.
 16. `MechanismStatus.init` is never assigned anywhere.
 
+## Findings from the unit-test pass on the logging branch (2026-08-28)
+
+Found while bringing `core/` on this branch from 86 % (with the Ray adaptors, the World
+actor and the callbacks excluded from the figure) to 99 % coverage without a Ray runtime:
+the actors are instantiated through `X.__ray_metadata__.modified_class`, the World is
+replaced by an in-memory fake, and `wandb` is mocked. Each point is pinned by a test that
+documents the current behaviour, so changing it will make a test fail on purpose. Nothing
+was fixed. The numbering continues after the findings 17–25 recorded in the copy of these
+notes on `feature/social-influence-testing`, so that the two lists can be merged without
+renumbering; points already listed above are not repeated.
+
+26. `RegulatedEnv` (`core/envs/regulated.py:61`) calls `self._debug_remote(...)` on the
+    error path of the mechanism fetch, but no class in the hierarchy defines that method. A
+    failing `World.get_mechanism_by_id` therefore raises `AttributeError` instead of the
+    intended `RuntimeError("Could not fetch mechanism_id=...")`, which is unreachable.
+27. `RegulatorEnv._reset` (`core/envs/regulator.py:47`) reads `self.observation_space`,
+    which `gymnasium.Env` only annotates. No class in the hierarchy assigns it, so
+    `reset()` on a subclass that did not set the attribute raises `AttributeError` before
+    the `is None` guard runs.
+28. `build_optimizer` (`core/optimizers/bilevel.py:106-112`) dereferences the inner, outer
+    and reporter configs without checking them. An incomplete `BilevelConfig` fails with
+    `AttributeError` on `None`, after Ray has already been started, and the reporter is in
+    practice mandatory although `_reporter_cfg` defaults to `None`. The label of the main
+    reporter on line 112 is spelled `"bilvel"`.
+29. `BilevelOptimizer.run` is annotated `-> None` but returns a summary dict, and with
+    `outer_iters=0` that summary reports `outer_iters == 1` because the counter is
+    `outer_iter + 1` with `outer_iter` initialised to 0. `BilevelConfig.training()` always
+    overwrites `output_dir` (reset to `None` when not passed) whereas `outer_iters` ignores
+    `None`.
+30. `MechanismSpace.clip` and `MechanismSpace.sample` (`core/mechanism/space.py:36-38`) have
+    an `...` body instead of raising, so a subclass that forgets to override them silently
+    returns `None`.
+31. `ESConfig.training(generation=...)` (`core/optimizers/es/config.py:74-75`) sets an
+    attribute that `__init__` never declares and that the optimizer never reads (it sets
+    `self.generation = 0` itself); the keyword is a silent no-op, and the swallowed
+    `**kwargs` lets typos through as well.
+32. Two guards in `core/optimizers/es/optimizer.py` are unreachable: the "Fixed-mechanism
+    mode expected ..." `ValueError` on lines 467–472 (the shape check on line 448 already
+    guarantees it) and the "Single-candidate fitness must be finite" guard on lines 353–354
+    (`_update_parameters` filters non-finite values on line 461 before calling it).
+33. `Query` (`core/reporting/query.py:39-40`) does not validate the `Literal` values of
+    `reduce` and `error` at construction: `Query(reduce="max")` is accepted and only fails
+    at resolution time (`core/reporting/base.py:191`).
+34. The `if not node.dynamic` branches of `MetricLogger._build_from_schema`
+    (`core/metrics/logger.py:130-133, 151-153`) are only reachable through an internal call
+    with `dynamic=True`; the public API creates dynamic nodes directly on line 146.
+35. `build_learner` (`core/adaptors/ray/utils.py:274`) iterates over `results["learners"]`
+    including the aggregated `__all_modules__` block, which becomes a pseudo-policy in
+    `LearnerSchema.by_policy`. On line 318 `batch_size` is an `int` field fed by
+    `module_train_batch_size_mean`, a mean, so a non-integer value (128.5) raises a pydantic
+    `ValidationError` instead of rounding.
+36. The `or` fallback trap of finding 17 also affects `gradient_norm` (`utils.py:329`, a
+    norm of exactly 0.0 falls back to `grad_gnorm`) and `build_performance`
+    (`utils.py:196-198`, a throughput of 0.0 falls back to the since-restore value).
+37. `build_rollout` (`utils.py:243-244`) does not reject an episode without `mechanism_id`
+    or `seed`; it files it under the literal keys `"None"`.
+38. `RayOptimizerConfig.reporting` (`core/adaptors/ray/optimizer_config.py:359`) is annotated
+    `-> None` but returns `self` (same pattern as `evaluation`, finding 8).
+39. In the old-API-stack branch of the evaluation callback (`core/callbacks.py:344-357`,
+    copied from RLlib), a batch coming from a stale iteration is ignored for the step
+    count but still counted as a finished unit (`num_units_done += len(results)`), so an
+    evaluation can end with zero recorded steps.
+40. `tests/adaptors/test_callbacks.py` was merged into `tests/unit/test_callbacks.py`:
+    pytest in rootdir mode refuses two test modules with the same basename.
+
 ## Conflict map between the two features
 
 A trial merge of `feature/logging-testing` into `feature/social-influence-testing`
