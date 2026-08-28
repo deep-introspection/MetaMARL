@@ -173,6 +173,16 @@ Decisions taken for you:
     matches nothing and no figure/CSV is written (by design of the resolver:
     zero series -> nothing rendered). They populate on real runs.
 
+Friction observed while writing the visualization tutorial (not changed):
+
+- The configured schema/queries are only reachable through private attributes
+  (`_reporting_schema`, `_reporting_queries`, `_reporting_*_env`); a public
+  getter would help notebooks and tests.
+- `WandbReporter._figure` is the only way to get the Plotly figure without a
+  run; a public `figure()` would make offline inspection cleaner.
+- `MetricLogger.push_data` at the root requires the exact declared schema type
+  (no subclass), while nested nodes accept runtime subtypes.
+
 Known and left as is: `FisheryRegulatorEnv.aggregate_rewards` sets
 `mean_fines` to `tail_fish.mean()` (copy-paste; `dev` used the violation
 signal). It only feeds `FitnessContext.total_fines`, which the objective does
