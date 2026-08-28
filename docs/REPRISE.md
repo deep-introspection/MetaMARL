@@ -1,106 +1,80 @@
-# Resume file — bilevel-fishery handoff (Aug 2026)
+# Resume file — bilevel-fishery handoff week (Nadine away, 2026-08-27 → ~09-05)
 
-This file is the single place to resume work from disk. It records where we
-are, the decisions already taken, what was measured, and the next step. Update
-it before any long break, phase close, or context reset.
+**Read this first in every session.** It is the status board of the week: what is
+done, what is in progress, what remains, what waits on a decision, and how to
+resume from disk. Update it before every `/clear`, phase change or break.
 
-## Situation
+Plan of record: `~/.claude/plans/yo-voici-le-delegated-crescent.md` (Rémy's
+machine). Notes for Nadine: `docs/MERGE_NOTES.md`. Contributor guide: `AGENTS.md`.
 
-Nadine left two unintegrated branches, `feature/logging` and
-`feature/social-influence`, each with an AI-assisted `TODO.md` and tutorial
-notebooks. `dev` is the validated reference and is not modified. Rémy owns the
-work for the week of 2026-08-27; Nadine will not merge anything herself.
+## Where things live
 
-Branch strategy:
+| Branch | Worktree | Role |
+| --- | --- | --- |
+| `chore/cleanup-base` | `../bilevel-fishery-base` | shared cleanup + branch-neutral docs; merged into both testing branches |
+| `feature/social-influence/testing` | `../bilevel-fishery` (main dir) | Nadine's mechanism branch + base |
+| `feature/logging/testing` | `../bilevel-fishery-logging` | Nadine's metrics/reporting branch + base |
 
-```
-origin/dev ──► chore/cleanup-base ─────┬──► feature/logging/testing
-                                       └──► feature/social-influence/testing
-```
+`dev` is never modified. Nothing is pushed yet (Rémy decides when).
+Run `git merge` **inside the target worktree** — a `cd` chain in one shell
+command merged the base into itself twice on day 1.
 
-`chore/cleanup-base` carries the cleanup inherited from `dev` that both
-features need (dead tests, config, CI, legacy dirs). Each `*/testing` branch
-is Nadine's branch plus a merge of the base. Nothing is pushed to `dev`.
+## Status board
 
-Scope decisions (with Rémy, 2026-08-27):
+| Phase | Status | Evidence |
+| --- | --- | --- |
+| 0. Shared base: tests revived, coverage/CI config, dead code removed, README/AGENTS/ARCHITECTURE, docstring pass on shared core | **done** | 26 base tests green; CI workflow; 100 docstrings on 13 files |
+| 1. Mechanism branch runnable, tested, documented | **done** | full `pytest`: 154 passed, 3 skipped (unit + integration + 2 notebooks); coverage 92–100 % on `core/mechanism`, `core/envs`; 93–97 % on `core/optimizers/{es,config,base}` |
+| 2. Logging branch runnable, tested, wildcards + grouped mean/std, CSV/TensorBoard | **done** | full `pytest`: 130 passed, 3 skipped (unit + integration + notebook); coverage 86 % overall, 97 % on the ES |
+| 3. Documentation (README, AGENTS, ARCHITECTURE, QUICKSTART per branch, MERGE_NOTES, TODO status) | **done** | files present on both branches; notebooks execute under `tests/notebooks` |
+| 4. Closing: push branches, hand `docs/MERGE_NOTES.md` to Nadine | **waiting on Rémy** | push not requested yet |
+| Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | not started | `bilevel.py` 75 %, adaptors/World excluded from the unit figure |
+| Bonus B. Logging: ES scatter colored by generation, parallel coordinates, episode-level wildcard alignment | not started | see `TODO.md` §5.4, §5.5, §3–4 on the logging branch |
+| Bonus C. Integration trial of the two features | measured, not built | 30 conflicting files, map in `docs/MERGE_NOTES.md` |
 
-- Coverage target: > 90 % on pure modules (`core/mechanism`, `core/envs`,
-  `core/metrics`, `core/reporting`, schemas). Ray adaptors and the `World`
-  actor are excluded from the unit figure (`[tool.coverage.run] omit`) and
-  covered by integration tests; 90 % on all of `core/` is an end-of-week bonus.
-- Social influence: document that only observation augmentation exists (no
-  Jaques et al. KL bonus); do not implement the KL term.
-- Logging: fix and test the existing stack, then implement `"*"` wildcards and
-  grouped mean ± std. ES scatter / parallel coordinates / full CSV and
-  TensorBoard reporters are bonus.
-- Keep `transformers`, `peft`, `bitsandbytes`, etc. in the dependencies even
-  though nothing imports them (likely a planned LLM-policy project); flag only.
+## Decisions log
 
-## Phase 0 — `chore/cleanup-base` (in progress)
+| Date | Decision | By |
+| --- | --- | --- |
+| 08-27 | Shared cleanup on a base branch merged into both testing branches | Rémy |
+| 08-27 | Coverage target > 90 % on pure modules; all of `core/` is a bonus | Rémy |
+| 08-27 | Social influence stays observation-only (no Jaques et al. KL bonus) | Rémy |
+| 08-27 | Logging scope: fix + test + wildcards + grouped mean/std; ES scatter/parallel-coords bonus | Rémy |
+| 08-27 | Keep `transformers/peft/bitsandbytes` dependencies (likely future LLM policies) | Rémy |
+| 08-27 | Delete fresh-water forks and every `deprecated/` archive | Rémy |
+| 08-27 | Move `core/registry.py` to `examples/registry.py` | Rémy |
+| 08-27 | Keep `restoration_effectiveness` 0.0 default / 20.0 in `debug.py` (heuristic, flagged) | Rémy |
+| 08-27 | Respect Nadine's ignore of `CLAUDE.md`; `AGENTS.md` is the agent guide | Rémy |
+| 08-27 | `BilevelConfig.mechanism(mechanism=...)` is the single builder; mechanism = template | Claude, per TODO |
+| 08-27 | Reporters receive labeled `Series`; wildcards group by first level when ≥ 2 levels | Claude, per TODO |
 
-Done:
+## Waiting on
 
-- Unit suite revived (26 tests green). The tests imported the pre-rename
-  `src.*` package and used an `ESConfig.training(dimension=, pop_size=)`
-  signature that no longer exists. They now build `ESOptimizer` directly, set
-  the population through `batch_capacity`, and drive
-  `_sample_population`/`_update_parameters`. The ES search dynamics assertions
-  are unchanged and all pass: Nadine's ES implementation is sound.
-- `tests/conftest.py`: `FakeWorld` (in-memory stand-in for the `World` actor,
-  `ray.get` patched to pass-through) for unit tests; `ray_session` and a
-  `FakeReporter` Ray actor for integration tests.
-- Integration: `test_es_regulator_loop` rewritten against the real `World`
-  actor. The three RLlib-based tests were written against the old
-  mechanism-space API and are skipped with an explicit reason; they are
-  replaced by per-feature smoke tests in Phases 1–2.
-- Removed: `legacy_code/` (both feature branches already delete it), the
-  `_`-prefixed test graveyard and its orphan YAML fixtures, and four `core/`
-  modules with zero importers and broken imports (`core/loggers/schemas.py`,
-  `core/optimizers/ppo/schema.py`, `core/reporting/utils/{visualization_mechanism,bilevel_viz_reporter}.py`).
-- Config: `pytest.ini` no longer covers the nonexistent `src`; coverage config
-  in `pyproject.toml`; dev tooling moved to a `[dependency-groups] dev` group
-  (`pytest`, `pytest-cov`, `ruff`, `nbconvert`, `ipykernel`); `black/isort/
-  mypy/flake8` dropped (never configured). `.github/workflows/ci.yml` runs
-  lint, unit (with coverage), and integration jobs.
+- **Rémy**: push the three branches? (outward-facing, not done without a go).
+- **Nadine** (in `docs/MERGE_NOTES.md`): `mean_fines = tail_fish.mean()` intent; undefined
+  names in the live `examples/fresh_water/regulated_env_ed_hs.py`; the 16 code-review
+  findings; episode-level wildcard alignment; the fresh-water example is not ported to the
+  mechanism API.
 
-Findings on `dev` worth knowing (not fixed on the base, flagged for the
-feature branches or for Nadine):
+## Known traps (details in `AGENTS.md`)
 
-- `ESConfig.training(**kwargs)` silently swallows unknown keywords. A typo in a
-  hyperparameter name is dropped without error.
-- `OptimizerConfig.build_optimizer()` references `opt_id` before assignment
-  when `world is None` (`NameError`); building without a World is impossible.
-- `ESOptimizer.run()` hard-depends on a reporting actor
-  (`self.reporting.plot_es_population.remote`) — W&B is not optional.
-- `RayOptimizerConfig.freeze()` is an RLlib mutator: it records the RLlib-side
-  freeze and does not freeze the Python config object (base `OptimizerConfig`
-  does). Tested as observed behavior; design question for Nadine.
-- `RegulatedEnv.mechanism_id` is annotated `str` but `EnvStepContext.mechanism`
-  is `Optional[int]`; in practice it is an int index.
-- `RegulatedEnv._pre_reset` calls `self._debug_remote(...)`, which is not
-  defined anywhere (only reached when the World fetch fails).
-- `core/registry.py` imports from `examples/` (library depends on examples);
-  wheel builds exclude `examples*` so the built package is broken.
-- Ruff on the whole repo (after dropping the `legacy_code` exclusion): ~160
-  lint findings, mostly in `examples/`; 45 files need `ruff format`. To be
-  cleaned per branch, not on the base.
+Run scripts as modules (`python -m examples.bilevel_fishery.debug`); Ray + `uv run` is
+handled in `RayRuntimeConfig`; clear `__pycache__` after switching branches; never
+`git commit --amend` before the suite is green; `WANDB_MODE=offline` for runs.
 
-Waiting on Rémy:
-
-- Move `core/registry.py` under `examples/` (or make registration lazy).
-- Delete unreferenced `examples/fresh_water/` forks (`regulated_env_ed_hs-v2.py`,
-  `_v3.py`, `_v4_no_quota.py`, `regulated_env_raven.py`) and
-  `examples/fresh_water/deprecated/` (still imported by `core/registry.py`).
-
-Next step: commit the config/CI/deletion lot, then create
-`feature/social-influence/testing` and start Phase 1 (make the branch
-importable — see the plan).
-
-## Commands
+## Resume commands
 
 ```bash
+# any worktree
 uv sync --group dev
-uv run ruff check . && uv run ruff format --check .
-uv run python -m pytest -m "not integration and not notebook"   # unit + coverage
-uv run python -m pytest -m integration --no-cov                   # needs Ray
+uv run ruff check core tests examples/bilevel_fishery examples/cartpole examples/dummy examples/registry.py tutorials
+uv run python -m pytest -m "not integration and not notebook"      # unit + coverage
+WANDB_MODE=offline uv run python -m pytest                          # everything (~1–2 min)
+WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters 2 --train-iters 2 --num-agents 2 --horizon 20
 ```
+
+## Day log
+
+- **2026-08-27** — Phases 0–3 completed on both branches (see status board). Smoke runs
+  of both `debug.py` scripts pass end-to-end. Cleanup decisions applied. Docstring pass
+  merged. Trial merge of the two features measured.
