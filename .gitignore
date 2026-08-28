@@ -110,3 +110,6 @@ CLAUDE.md
 
 # GeoJSONs directory (project-specific large files)
 geojsons/
+# Local credential files (never commit)
+.wandb_nadine.env
+*.env
