@@ -30,7 +30,7 @@ step) and must be updated before a break or a phase change.
 | `core/envs/base.py` | `BaseEnv`: template method publishing every step to the World |
 | `core/envs/regulator.py` | `RegulatorEnv`: the outer env (publish candidates, train inner, aggregate) |
 | `core/envs/marl_regulated.py` | `MultiAgentRegulatedEnv`: the inner, mechanism-regulated multi-agent env |
-| `core/mechanism/` | the mechanism abstraction (see the branch-specific README section) |
+| `core/mechanism/` | the mechanism abstraction: a `MechanismSpace` protocol with `encode`/`decode`/`clip`/`sample` and a `VectorMechanism` value object; the social-influence refactor of this package lives on `feature/social-influence-testing` |
 | `core/world/` | `World` actor and the context schemas (`MechanismStatus` lifecycle) |
 | `core/reporting/` | reporting backends |
 | `examples/registry.py` | string-to-class registry for the YAML experiment loaders (`examples/*/bilevel.py`) |
@@ -61,23 +61,29 @@ step) and must be updated before a break or a phase change.
 
 ```bash
 uv sync --group dev
-uv run ruff check . && uv run ruff format --check .
+uv run ruff check core tests examples/bilevel_fishery examples/cartpole examples/dummy tutorials
+uv run ruff format --check .                                          # fresh_water is excluded from lint until it is ported
 uv run python -m pytest -m "not integration and not notebook"      # fast, with coverage
 uv run python -m pytest -m integration --no-cov                      # starts a local Ray
 uv run python -m pytest -m notebook --no-cov                         # executes tutorials/
 WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug   # the reference run
 ```
 
-Coverage is measured on `core/` minus the Ray adaptors and the World
-(`[tool.coverage]` in `pyproject.toml`); those are exercised by the
-integration suite. Target: above 90 % on the pure modules.
+Coverage is measured on all of `core/` with branch coverage and no omit list
+(`[tool.coverage.run]` in `pyproject.toml`): the Ray actors are unit-tested
+through their unwrapped classes (`X.__ray_metadata__.modified_class`) and the
+World through the `FakeWorld` fixture, so no module is excluded. The unit suite
+currently reports 99 %; keep it above 90 %.
 
 ## Conventions
 
 - Python 3.12, `uv`, `ruff` (lint + format, line length 88). Code, comments,
   docstrings, commit messages and documentation are in English.
 - NumPy-style docstrings with array shapes and units; every module has a
-  docstring saying what it is for.
+  docstring saying what it is for. Every public symbol (a name not starting
+  with `_`) in `core/` and `examples/bilevel_fishery/` carries a docstring and
+  full type hints (pass of 2026-09-01, commit 080d43c); keep it that way when
+  adding one.
 - Validation of public parameters raises `ValueError`; `assert` is for
   internal invariants only.
 - Tests: TDD when fixing a bug (a failing test first), `pytest` markers

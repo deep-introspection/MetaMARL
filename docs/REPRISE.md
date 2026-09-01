@@ -31,9 +31,9 @@ command merged the base into itself twice on day 1.
 | 3. Documentation (README, AGENTS, ARCHITECTURE, QUICKSTART per branch, MERGE_NOTES, TODO status) | **done** | files present on both branches; notebooks execute under `tests/notebooks` |
 | 4. Closing: push branches, hand `docs/MERGE_NOTES.md` to Nadine | **pushed 08-28**; handoff to Nadine pending | `origin/chore/cleanup-base`, `origin/feature/*-testing` |
 | Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | **done on both branches** (08-28) | mechanism: 451 unit tests, 98 %; logging: 497 unit tests, 99 % (only unreachable line: `regulated.py:68`, notes §26) |
-| Bonus B. Logging: ES scatter colored by generation, parallel coordinates | **done** (08-28 pm) | `Query.color` + `ParallelCoordinatesQuery`; 33 new tests; demo runs with the CSV and offline W&B reporters checked by hand; notes §41 |
+| Bonus B. Logging: ES scatter colored by generation, parallel coordinates | **done** (08-28 pm) | `Query.color` + `ParallelCoordinatesQuery`; 33 new tests; demo runs with the CSV and offline W&B reporters checked by hand; notes, section "ES scatter colour and parallel coordinates" |
 | Bonus B'. Episode-level wildcard alignment (`by_episode/*` vs `iter`) | waiting on Nadine | needs an episode-to-iteration key, her call in `TODO.md` §3–4 |
-| Bonus C. Integration trial of the two features | measured, not built | 30 conflicting files, map in `docs/MERGE_NOTES.md` |
+| Bonus C. Integration trial of the two features | **built and pushed** (`origin/feature/integration-trial`, 09-01) | logging merged into mechanism; 30-file conflict map in `docs/MERGE_NOTES.md`; outcome and decisions recorded in the notes on that branch |
 
 ## Decisions log
 

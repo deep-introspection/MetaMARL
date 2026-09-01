@@ -110,11 +110,16 @@ parallel-coordinates figure (W&B) or a wide CSV table.
 ## Development
 
 ```bash
-uv run ruff check . && uv run ruff format --check .
+uv run ruff check core tests examples/bilevel_fishery examples/cartpole examples/dummy tutorials
+uv run ruff format --check .
 uv run python -m pytest -m "not integration and not notebook"   # unit tests + coverage
 uv run python -m pytest -m integration --no-cov                   # needs a local Ray runtime
 uv run python -m pytest -m notebook --no-cov                      # executes the tutorials
 ```
+
+The lint command lists the linted directories explicitly because
+`examples/fresh_water` is excluded until it is ported: it still references four
+undefined names, so a plain `ruff check .` fails.
 
 Continuous integration (`.github/workflows/ci.yml`) runs the lint, unit and
 integration jobs on every push. `AGENTS.md` documents the conventions and the

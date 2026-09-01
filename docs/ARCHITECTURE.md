@@ -49,9 +49,12 @@ matter:
 candidate is published it steps inertly (zero rewards, no dynamics) so that
 RLlib's environment checks can run. Each `step` normalizes the raw policy
 actions (sigmoid squashing), applies the benchmark dynamics and the mechanism,
-and publishes an `EnvStepContext`. The exact step pipeline and the way the
-mechanism plugs in differ between `dev` and the mechanism feature branch; see
-the README section of the branch you are on.
+and publishes an `EnvStepContext`. On this branch `core/mechanism/` defines a
+`MechanismSpace` protocol (`encode`, `decode`, `clip`, `sample`) and a
+`VectorMechanism` value object, and the fishery environment applies the decoded
+mechanism inside its `_step` override, which the `step` template method calls;
+the hook-based step pipeline and the social-influence observation live on
+`feature/social-influence-testing`.
 
 Identity flows through the episode id: `core/callbacks.py::tag_episode_with_env_idx`
 rewrites it to `env={i}|m={mechanism_id}|ps={policy_seed}|ss={seed}|raw=...`,
@@ -98,8 +101,8 @@ outer env so that one `MechanismContext` is published per (candidate, seed).
   usually, a `FitnessContext`-like schema. Declare the observation space so
   that it matches the benchmark features plus whatever the mechanism appends.
 - **A new mechanism** must be a pure value object that can be encoded to and
-  decoded from a normalized vector; how it is applied depends on the branch
-  (see the branch README).
+  decoded from a normalized vector through a `MechanismSpace`; on this branch
+  the regulated environment applies it in its `_step` override.
 - **A new reporting backend** implements the reporter interface of
   `core/reporting/`; on the logging feature branch that means rendering
   labeled `Series` resolved from `Query` objects.

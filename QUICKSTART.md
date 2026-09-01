@@ -19,8 +19,8 @@ uv sync --group dev
 uv run python -m pytest -m "not integration and not notebook"
 ```
 
-About ninety unit tests run in a few seconds, with a coverage table for
-`core/`.
+Five hundred and thirty unit tests run in about ten seconds (530 passed on
+2026-09-01, commit 080d43c), followed by a coverage table for `core/`.
 
 ## 3. Run a short experiment
 
@@ -43,16 +43,33 @@ generations. It takes about a minute. The log ends with:
 
 With `--reporter csv`, every query becomes one long-form CSV under
 `results/bilevel/<world>-<owner>/<query title>.csv`, with columns
-`query, x, series, value, error`:
+`query, x, series, value, error, color`. The `error` column is empty unless the
+query asked for a `std` band, and the `color` column is empty unless the query
+named a colour path: on the ES parameter scatters it holds the generation index
+of each point, so the same population slot can be told apart across
+generations.
 
 - `...-ESOptimizer/` — one value per generation: `Fitness_over_generations.csv`,
-  `ES_search_mean.csv`, `Fitness_vs_fixed_quota.csv` (one series per candidate,
-  parameter value on x), `Mean_candidate_fitness_1_std.csv`;
+  `ES_search_mean.csv`, `Fitness_vs_fixed_quota.csv` and
+  `Fitness_vs_restoration_subsidy.csv` (one series per candidate, parameter
+  value on x, generation in `color`), `Mean_candidate_fitness_1_std.csv`,
+  `Generation-best_mechanism_parameters.csv`; the one exception to the long
+  format is `Parallel_coordinates_of_evaluated_mechanisms.csv`, a wide table
+  with one column per axis (`fixed_quota, restoration_subsidy, fitness`) plus a
+  `color:fitness` column;
 - `...-RayOptimizer/` — one value per training iteration: `Train_reward.csv`,
-  `Training_timing.csv`, ...;
-- `...-regulated_env_...|mode=train|ps=...|ss=.../` — one value per environment
-  step of the last episode: `Fish_biomass.csv`, `Realized_harvest.csv`,
-  `Reward_all_agents.csv`, `Mean_reward_across_agents_1_std.csv`, ...
+  `Training_timing.csv`, `Train_episode_length.csv`, ...;
+- `...-regulated_env_...|mode=train|ps=...|ss=.../` and the matching
+  `...|mode=eval|...` directory — one value per environment step of the last
+  episode: `Fish_biomass.csv`, `Realized_harvest.csv`, `Reward_all_agents.csv`,
+  `Mean_reward_across_agents_1_std.csv`, ...
+
+Two further directories are created empty and can be ignored: `<world>-bilvel`
+(the label of the bilevel optimizer's own reporter, a typo in
+`core/optimizers/bilevel.py`) and `<world>-None|mode=train|ps=None|ss=None`
+(the environment instance RLlib builds for its space checks, which never
+receives an optimizer id). Directory names contain `|` and `=`, so quote them in
+a shell.
 
 ```python
 import pandas as pd

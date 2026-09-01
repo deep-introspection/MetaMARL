@@ -115,8 +115,11 @@ crashed on every `reduce="mean"` query (wrong keyword), the CSV and
 TensorBoard reporters implemented an older `_report` signature,
 `RayOptimizer.stop()` had a typo, `core/adaptors/ray/protocols.py` imported a
 removed package, and `FisheryMetricSchema` could not be instantiated (its
-`Optional` fields had no default, so pydantic made them required). Fixed, and
-the fishery run works end-to-end with W&B offline or the CSV reporter:
+`Optional` fields had no default, so pydantic made them required). All of this
+was fixed (`protocols.py` was first repaired in `816ee3c`, then deleted
+altogether in `c27df49` because nothing imported it; the directory no longer
+holds that file), and the fishery run works end-to-end with W&B offline or the
+CSV reporter:
 
 ```bash
 WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug \
@@ -334,7 +337,7 @@ A trial merge of `feature/logging-testing` into `feature/social-influence-testin
 71 further files merge automatically. Expect the integration merge to take a
 focused day; the unit suites of both branches are the acceptance criterion.
 
-## 41. ES scatter colour and parallel coordinates (bonus B)
+## ES scatter colour and parallel coordinates (bonus B)
 
 This section closes TODO §5.4 and §5.5 on `feature/logging-testing`. Two things were
 added to the reporting stack, both resolved by the base `Reporter` so that every backend
@@ -380,3 +383,54 @@ One caveat applies to both figures. The keys of `by_mechanism` are population sl
 tracked by a scatter series is a slot index, not a unique candidate: slot `"2"` of
 generation 3 is a different sampled mechanism from slot `"2"` of generation 4, and only the
 generation colour tells them apart.
+
+## Findings from the documentation audit of the logging branch (2026-09-01)
+
+Found on commit `080d43c` while checking every claim of `README.md`,
+`QUICKSTART.md`, `AGENTS.md` and `docs/ARCHITECTURE.md` against the tree.
+Nothing was fixed; each point was reproduced with the command quoted. The
+numbering continues after finding 40; number 41 is skipped because the bonus B
+section above carried it as a heading number and `docs/REPRISE.md` refers to it
+that way.
+
+42. `examples/cartpole/` is on the pre-mechanism API and fails at import.
+    `WANDB_MODE=offline uv run python -m examples.cartpole.main_appo` stops with
+    `NameError: When using the @override decorator, aggregate_rewards must
+    override the respective method (with the same name) of
+    MultiAgentRegulatedEnv!`, raised by `core/annotations.py:57` for the
+    `@override(MultiAgentRegulatedEnv)` on `aggregate_rewards` in
+    `examples/cartpole/regulated_env.py:135`; `aggregate_rewards` now lives on
+    `RegulatorEnv` only. `main_ppo.py` fails the same way. `examples/dummy/`
+    imports cleanly but is only used by those two entry points. Both directories
+    are linted by CI and by nothing else.
+43. `examples/fresh_water/debug.py` fails before building anything:
+    `WANDB_MODE=offline uv run python -m examples.fresh_water.debug` raises
+    `TypeError: OptimizerConfig.reporting() got an unexpected keyword argument
+    'reporter'`. On this branch `reporting()` takes `schema=` and `queries=`
+    only, and the reporter is attached with `BilevelConfig.reporter(config=...)`,
+    as `examples/bilevel_fishery/debug.py` does. This is on top of the four
+    undefined names already noted in the fresh-water environment.
+44. `examples/bilevel_fishery/bilevel.py::from_yaml` cannot run. It instantiates
+    the registered mechanism space with `max_fine`, `default_prop_quota`,
+    `default_min_stock` and `default_target_stock`, none of which
+    `FisheryMechanismSpace.__init__` (`examples/bilevel_fishery/mechanism_v1.py`)
+    accepts; its keywords are `use_stochastic_roundting`, `optimize_params` and
+    the `default_*` values of the six `ALL_PARAMS`. The call therefore raises
+    `TypeError` on the first YAML experiment. No test covers this loader (the
+    `from_yaml` test in `tests/optimizers/test_config_and_base.py` exercises
+    `ESConfig.from_yaml`, not this one).
+45. Reporter side effects of a short run. With the default W&B reporter, the
+    two-generation smoke command of `QUICKSTART.md` creates ten offline runs
+    under `wandb/`, one `wandb.init` per reporter owner (the bilevel optimizer,
+    the ES and Ray optimizers, and every environment instance, including the
+    one RLlib builds for its space checks). With `--reporter csv`, two
+    directories are created and stay empty: `<world>-bilvel` (the label typo of
+    finding 28, `core/optimizers/bilevel.py:185`) and
+    `<world>-None|mode=train|ps=None|ss=None`, the environment instance RLlib
+    builds before any optimizer id is set. Directory names contain `|` and `=`,
+    which is legal but awkward in shells and on some file systems.
+46. `TensorBoardReporter` exists (`core/reporting/tensor_board.py`) and
+    `tensorboard` is in the `dev` dependency group, but
+    `examples/bilevel_fishery/debug.py` only offers `--reporter wandb` and
+    `--reporter csv` (`choices=("wandb", "csv")`, line 273). The TensorBoard
+    backend is reachable only from tests and hand-written configs.

@@ -1863,23 +1863,42 @@ Already supported / expected to work now:
 - [x] Nested ES `inner: MetricSchema` runtime specialization to `RaySchema`.
 - [x] Deep runtime specialization to fishery episode and agent schemas.
 
-Still required:
+Shipped since this section was written (reconciled on 2026-09-01 against
+commit 080d43c; the status block at the top of this file and the
+"feature/logging-testing" section of `docs/MERGE_NOTES.md` hold the details):
 
-- [ ] Dynamic mechanism IDs.
-- [ ] Dynamic seed IDs.
-- [ ] Dynamic episode IDs.
-- [ ] Dynamic policy IDs.
-- [ ] Dynamic agent IDs.
-- [ ] Dynamic ES parameter keys.
-- [ ] Mechanism mean ±std across seeds through Query API.
-- [ ] Train-vs-eval shaded mechanism plots through Query API.
-- [ ] ES exact candidate/mean/best mixed trace styling.
-- [ ] ES all-candidate parameter scatter in one plot.
-- [ ] ES generation color metadata.
-- [ ] ES parallel coordinates.
-- [ ] Generation-best ES parameter schema/queries.
-- [ ] Full unit tests.
-- [ ] Full integration parity tests.
-- [ ] CSV reporter.
-- [ ] TensorBoard reporter.
-- [ ] Legacy visualization cleanup after parity.
+- [x] Dynamic mechanism, seed, policy and agent IDs: `"*"` wildcards in
+  `Query` paths, resolved by the base `Reporter`.
+- [x] Dynamic ES parameter keys: the parameter dicts are keyed by
+  `ParameterName`, and `es_parameter_fitness_queries(parameter_names)` builds
+  one scatter per optimized parameter.
+- [x] Mechanism mean ±std across seeds through the Query API:
+  `reduce="mean", error="std"` groups on the first wildcard (option B of §3.1,
+  no schema change).
+- [x] ES all-candidate parameter scatter in one plot (`Fitness vs <parameter>`,
+  one series per population slot).
+- [x] ES generation color metadata: `Query.color`, rendered as marker colour on
+  W&B and as the `color` column of the CSV files (§5.4).
+- [x] ES parallel coordinates: `ParallelCoordinatesQuery` (§5.5).
+- [x] Generation-best ES parameter schema and queries: `ESSchema.generation_best`
+  and `Generation-best mechanism parameters`.
+- [x] Full unit tests: 530 unit tests, 99 % coverage of `core/` without a Ray
+  runtime.
+- [x] CSV reporter (`core/reporting/csv.py`, one long-form file per query).
+- [x] TensorBoard reporter (`core/reporting/tensor_board.py`, scalars only;
+  parallel coordinates are skipped with a warning).
+- [x] Legacy visualization cleanup: `core/reporting/utils/` and
+  `examples/bilevel_fishery/deprecated/` are deleted (the empty `deprecated/`
+  directory that may remain on disk is untracked).
+
+Still open:
+
+- [ ] Dynamic episode IDs: episode-level wildcard queries over `by_episode`
+  need an episode-to-iteration key (§3–§4, decision pending with Nadine).
+- [ ] Train-vs-eval shaded mechanism plots through the Query API: not built;
+  the train and eval environments report into separate owners.
+- [ ] ES exact candidate/mean/best mixed trace styling: `Fitness over
+  generations` carries the mean, generation-best and global-best lines, but
+  the trace styles were not compared against the `dev` figures.
+- [ ] Full integration parity tests: `tests/integration/` covers the fishery
+  reporting path end-to-end but does not compare figures with `dev`.
