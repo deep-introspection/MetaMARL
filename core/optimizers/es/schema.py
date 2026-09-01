@@ -7,6 +7,7 @@ from core.metrics.schemas import MetricSchema
 
 MechanismID: TypeAlias = str
 
+
 class ESParameterSchema(MetricSchema):
     value: Optional[float] = Field(
         default=None,
@@ -21,9 +22,7 @@ class ESCandidateSchema(MetricSchema):
     )
 
     # Parameter names are runtime-defined by MechanismSpace.
-    by_parameter: dict[str, ESParameterSchema] = Field(
-        default_factory=dict
-    )
+    by_parameter: dict[str, ESParameterSchema] = Field(default_factory=dict)
 
 
 class ESSchema(MetricSchema):
@@ -52,14 +51,8 @@ class ESSchema(MetricSchema):
         json_schema_extra={"reduce": ReduceProtocol.SERIES},
     )
 
-    by_mechanism: dict[MechanismID, ESCandidateSchema] = Field(
-        default_factory=dict
-    )
+    by_mechanism: dict[MechanismID, ESCandidateSchema] = Field(default_factory=dict)
 
-    search_mean: dict[MechanismID, ESParameterSchema] = Field(
-        default_factory=dict
-    )
-    global_best: dict[MechanismID, ESParameterSchema] = Field(
-        default_factory=dict
-    )
+    search_mean: dict[MechanismID, ESParameterSchema] = Field(default_factory=dict)
+    global_best: dict[MechanismID, ESParameterSchema] = Field(default_factory=dict)
     inner: Optional[MetricSchema] = None

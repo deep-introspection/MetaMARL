@@ -1,7 +1,5 @@
 from typing import SupportsFloat
 
-import numpy as np
-
 from core.world.context import ContextSchema
 
 
@@ -45,7 +43,7 @@ class FitnessContext(ContextSchema):
         """
         Construct fitness context from evaluation metrics.
         """
-        # TODO 
+        # TODO
         # objective = mean_reward - sustainability_weight * (1.0 - mean_fish)
         # objective = harvest_score
         objective = harvest_score + sustainability_weight * mean_fish

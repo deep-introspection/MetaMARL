@@ -1,15 +1,14 @@
 from __future__ import annotations
+
 # TODO what is an ABCMeta
 from abc import ABC, abstractmethod
-from collections import deque
 from typing import Self, TypeAlias, Union
 
 # NOTE this is restrictive can be relaxed in the future
-PrimitiveType : TypeAlias = Union[int, float, bool, str]
+PrimitiveType: TypeAlias = Union[int, float, bool, str]
 
 
 class Metric(ABC):
-
     @abstractmethod
     def __len__(self) -> int:
         """Returns the length of the internal values list."""
@@ -17,7 +16,7 @@ class Metric(ABC):
 
     def __float__(self):
         value = self.peek(compile=True)
-        if isinstance(value, (list)): #, tuple, deque 
+        if isinstance(value, (list)):  # , tuple, deque
             raise ValueError(f"Can not convert {self} to float.")
         return float(value)
 
@@ -32,10 +31,11 @@ class Metric(ABC):
 
     @abstractmethod
     def peek(
-        self, compile: bool = True,
+        self,
+        compile: bool = True,
     ) -> Union[PrimitiveType, list[PrimitiveType]]:
         """Returns the result of reducing the internal values list.
-        
+
         Note that this method does NOT alter the internal values list in this process.
         Thus, users can call this method to get an accurate look at the reduced value(s)
         given the current internal values list.
@@ -52,7 +52,7 @@ class Metric(ABC):
         compile: bool = True,
     ) -> Union[PrimitiveType, list[PrimitiveType], Metric]:
         """Reduces the internal values.
-        
+
         This method should NOT be called directly by users.
         It can be used as a hook to prepare the stats object for sending it to the root metrics logger and starting a new 'reduce cycle'.
 
@@ -67,9 +67,7 @@ class Metric(ABC):
         """
 
     @abstractmethod
-    def push(self, value: PrimitiveType) -> None:
-        ...
+    def push(self, value: PrimitiveType) -> None: ...
 
     @abstractmethod
-    def flush(self) -> None:
-        ...
+    def flush(self) -> None: ...

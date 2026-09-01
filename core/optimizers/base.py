@@ -10,7 +10,6 @@ from core.envs.base import BaseEnv
 from core.metrics.schemas import MetricSchema
 from core.optimizers.config import OptimizerConfig
 from core.reporting.base import Reporter
-from core.reporting.wandb import WandbReporter
 from core.types import OptimizerID
 from core.world.base import World
 
@@ -83,11 +82,11 @@ class Optimizer(ABC):
     # @reporting.setter
     # def world(self, reporting: ActorHandle[WandbReporter]) -> None:
     #     self._reporting = reporting
-    
+
     @property
     def env(self) -> BaseEnv | None:
         return self._env
-    
+
     @env.setter
     def env(self, value: BaseEnv | None) -> None:
         self._env = value
@@ -144,9 +143,7 @@ class Optimizer(ABC):
         Destructively reduce and return all accumulated optimizer metrics.
         """
         if self.logger is None:
-            raise RuntimeError(
-                f"{type(self).__name__} has no MetricLogger."
-            )
+            raise RuntimeError(f"{type(self).__name__} has no MetricLogger.")
 
         return self.logger.reduce()
 

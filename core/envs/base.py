@@ -1,6 +1,5 @@
 from abc import abstractmethod
 from typing import Any, Optional, SupportsFloat
-import uuid
 
 import numpy as np
 import ray
@@ -12,11 +11,11 @@ from core.mechanism.space import MechanismSpace
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.reporting.base import Reporter
+from core.reporting.config import ReporterConfig
 from core.reporting.query import Query
 from core.types import OptimizerID
 from core.world.base import World
 from core.world.context import Context, ContextSchema, EnvStepContext, MechanismStatus
-from core.reporting.config import ReporterConfig
 
 
 class BaseEnv(Env):
@@ -36,7 +35,7 @@ class BaseEnv(Env):
         reporter_cfg: Optional[ReporterConfig],
         queries: Optional[tuple[Query]] = None,
         schema: Optional[MetricSchema] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         super().__init__()
         self.world = world
@@ -59,7 +58,9 @@ class BaseEnv(Env):
         self.obs_map: Optional[dict[int, str]] = None
 
         # logger
-        self.logger: Optional[MetricLogger] = MetricLogger.from_schema(schema) if schema else None
+        self.logger: Optional[MetricLogger] = (
+            MetricLogger.from_schema(schema) if schema else None
+        )
 
         # reporter
         mechanism_id = getattr(self, "mechanism_id", None)
@@ -133,7 +134,7 @@ class BaseEnv(Env):
         )
         self._t += 1
         if self.logger is not None:
-            self.logger.push(key=("iter", ), value=self._t)
+            self.logger.push(key=("iter",), value=self._t)
         return obs, reward, terminated, truncated, info
 
     @override(Env)
@@ -142,7 +143,7 @@ class BaseEnv(Env):
         # TODO what are the options used for ?
 
         if seed is not None and self.seed is not None and seed != self.seed:
-            pass # do not mutate seed after construction
+            pass  # do not mutate seed after construction
         # if seed is not None and and seed != self.seed;
         #     self.seed = seed
         #     self.rng = np.random.default_rng(seed)

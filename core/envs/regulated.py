@@ -2,20 +2,12 @@ import logging
 from abc import abstractmethod
 from typing import Optional, SupportsFloat
 
-import numpy as np
 import ray
 
 from core.annotations import override
 from core.envs.base import BaseEnv
 from core.mechanism.base import Mechanism
-from core.mechanism.space import MechanismSpace
-from core.types import OptimizerID
-from core.world.base import World
-from core.world.context import MechanismContext, MechanismStatus
-
-from pathlib import Path
-import os
-import json
+from core.world.context import MechanismContext
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +20,12 @@ class RegulatedEnv(BaseEnv):
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
-        
+
         # mechanism_space can be a class or an instance
         self.mechanism_id = mechanism_id
         self.m_ctx: MechanismContext = None
         self.m: Mechanism = None
-        
+
         self._using_default_mechanism = True
 
     @property
@@ -41,11 +33,11 @@ class RegulatedEnv(BaseEnv):
         if self.m is not None:
             return self.m
         return self.m_space.default()
-    
+
     @property
     def published_mechanism_assigned(self) -> bool:
         return self.m is not None and not self._using_default_mechanism
-    
+
     @override(BaseEnv)
     def _pre_reset(self, seed: Optional[int] = None):
         # Try to fetch a new mechanism if one is available (published)
@@ -56,13 +48,13 @@ class RegulatedEnv(BaseEnv):
                 "mechanism_id must be injected at env creation."
             )
 
-        if not self.published_mechanism_assigned: 
+        if not self.published_mechanism_assigned:
             try:
                 new_ctx = ray.get(
                     self.world.get_mechanism_by_id.remote(
-                        mechanism_id = self.mechanism_id, 
+                        mechanism_id=self.mechanism_id,
                         seed=self.policy_seed,
-                        mode=self.mode
+                        mode=self.mode,
                     )
                 )
             except Exception as e:

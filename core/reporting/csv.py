@@ -11,7 +11,6 @@ from core.reporting.query import Query
 
 
 class CSVConfig(ReporterConfig):
-
     def __init__(
         self,
         *,
@@ -26,12 +25,7 @@ class CSVConfig(ReporterConfig):
         *,
         label: Optional[str] = None,
     ) -> CSVReporter:
-
-        name = (
-            f"{self.world}-{label}"
-            if label is not None
-            else self.world
-        )
+        name = f"{self.world}-{label}" if label is not None else self.world
 
         return CSVReporter(
             output_dir=self.output_dir / self.project_name / name,
@@ -39,7 +33,6 @@ class CSVConfig(ReporterConfig):
 
 
 class CSVReporter(Reporter):
-
     def __init__(
         self,
         *,
@@ -63,11 +56,7 @@ class CSVReporter(Reporter):
         x_name = "/".join(query.x)
         y_name = "/".join(query.y)
 
-        filename = (
-            f"{'__'.join(query.y)}"
-            f"_vs_"
-            f"{'__'.join(query.x)}.csv"
-        )
+        filename = f"{'__'.join(query.y)}_vs_{'__'.join(query.x)}.csv"
 
         path = self._output_dir / filename
 
@@ -78,10 +67,12 @@ class CSVReporter(Reporter):
         ) as file:
             writer = csv.writer(file)
 
-            writer.writerow([
-                x_name,
-                y_name,
-            ])
+            writer.writerow(
+                [
+                    x_name,
+                    y_name,
+                ]
+            )
 
             writer.writerows(
                 zip(

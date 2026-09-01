@@ -1,13 +1,17 @@
+from typing import Optional, TypeAlias
+
 from pydantic import Field
-from typing import Generic, Optional, TypeAlias, TypeVar
-from core.metrics.schemas import MetricSchema
-from core.metrics.enums import ReduceProtocol
+
 from core.envs.schema import EpisodeRolloutSchema
+from core.metrics.enums import ReduceProtocol
+from core.metrics.schemas import MetricSchema
 
 PolicyID: TypeAlias = str
 EpisodeID: TypeAlias = str
 MechanismID: TypeAlias = str
 SeedID: TypeAlias = str
+
+
 class PolicyLearnerSchema(MetricSchema):
     batch_size: Optional[int] = Field(
         default=None,
@@ -15,11 +19,8 @@ class PolicyLearnerSchema(MetricSchema):
     )
     # Value, Q, advantage debugging
     total_loss: Optional[float] = Field(
-            default=None,
-            json_schema_extra={
-                "source": "total_loss"
-            }
-        )
+        default=None, json_schema_extra={"source": "total_loss"}
+    )
     residual_variance: Optional[float] = Field(
         default=None,
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
@@ -33,22 +34,13 @@ class PolicyLearnerSchema(MetricSchema):
 
     # Policy (π) debugging
     policy_loss: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MEAN
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     policy_entropy: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MEAN
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     policy_entropy_coeff: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MEAN
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     policy_relative_entropy: Optional[float] = Field(
         default=None,
@@ -59,16 +51,10 @@ class PolicyLearnerSchema(MetricSchema):
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
     policy_kl: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MEAN
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     policy_kl_coeff: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MEAN
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     # TODO what is total loss ?
     # TODO kl vs kl loss
@@ -77,10 +63,7 @@ class PolicyLearnerSchema(MetricSchema):
 
     # Value (V) debgging
     value_loss: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "reduce": ReduceProtocol.MEAN
-        }
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     value_mean: Optional[float] = Field(
         default=None,
@@ -107,6 +90,7 @@ class PolicyLearnerSchema(MetricSchema):
         default=None,
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
+
 
 class PerformanceSchema(MetricSchema):
     env_steps_this_iter: Optional[float] = Field(
@@ -156,13 +140,23 @@ class PerformanceSchema(MetricSchema):
 
 class SeedRolloutSchema(MetricSchema):
     by_episode: dict[EpisodeID, EpisodeRolloutSchema] = Field(default_factory=dict)
+
+
 class MechanismRolloutSchema(MetricSchema):
     by_seed: dict[SeedID, SeedRolloutSchema] = Field(default_factory=dict)
+
+
 class RolloutSchema(MetricSchema):
     aggregate: EpisodeRolloutSchema
-    by_mechanism: dict[MechanismID, MechanismRolloutSchema] = Field(default_factory=dict)
+    by_mechanism: dict[MechanismID, MechanismRolloutSchema] = Field(
+        default_factory=dict
+    )
+
+
 class LearnerSchema(MetricSchema):
     by_policy: dict[PolicyID, PolicyLearnerSchema] = Field(default_factory=dict)
+
+
 class TrainSchema(MetricSchema):
     rollout: RolloutSchema
     learner: LearnerSchema
@@ -173,11 +167,13 @@ class EvalSchema(MetricSchema):
     rollout: RolloutSchema
     performance: PerformanceSchema
 
+
 class RaySchema(MetricSchema):
     train: Optional[TrainSchema] = None
     eval: Optional[EvalSchema] = None
 
-# TODO 
+
+# TODO
 # num_env_steps_sampled_lifetime_throughput
 # timers
 # throughput_since_last_restore

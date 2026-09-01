@@ -1,13 +1,12 @@
-import yaml
 import numpy as np
+import yaml
 from gymnasium import spaces
-
 from ray.rllib.models import ModelCatalog
 
 from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
+from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
-from core.optimizers.appo.config import APPOptimizerConfig
 from core.registry import REGISTRY
 
 # Register model once

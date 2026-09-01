@@ -1,16 +1,13 @@
 from __future__ import annotations
+
 from core.annotations import override
 from core.metrics.metric.base import PrimitiveType
 from core.metrics.metric.series import SeriesMetric
 
 
 class MinMetric(SeriesMetric):
-
     @override(SeriesMetric)
-    def push(
-        self,
-        value: PrimitiveType
-    ) -> PrimitiveType:
+    def push(self, value: PrimitiveType) -> PrimitiveType:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise TypeError(
                 f"MinMetric only accepts int or float, got {type(value).__name__}."
@@ -21,8 +18,10 @@ class MinMetric(SeriesMetric):
         self,
         compile: bool = True,
     ) -> PrimitiveType | list[PrimitiveType] | None:
-        if not compile : return list(self.values)
-        if not self.values: return None
+        if not compile:
+            return list(self.values)
+        if not self.values:
+            return None
         return min(self.values)
 
     # TODO move to base cls
@@ -30,10 +29,12 @@ class MinMetric(SeriesMetric):
         self,
         compile: bool = True,
     ) -> PrimitiveType | MinMetric | None:
-        if not self.values: return None if compile else MinMetric()
+        if not self.values:
+            return None if compile else MinMetric()
         min = self.peek(compile=True)
         self.flush()
-        if compile: return min
+        if compile:
+            return min
 
         metric = MinMetric()
         metric.values = [min]

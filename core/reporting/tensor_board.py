@@ -12,7 +12,6 @@ from core.reporting.query import Query
 
 
 class TensorBoardConfig(ReporterConfig):
-
     def __init__(
         self,
         *,
@@ -27,12 +26,7 @@ class TensorBoardConfig(ReporterConfig):
         *,
         label: Optional[str] = None,
     ) -> TensorBoardReporter:
-
-        name = (
-            f"{self.world}-{label}"
-            if label is not None
-            else self.world
-        )
+        name = f"{self.world}-{label}" if label is not None else self.world
 
         return TensorBoardReporter(
             log_dir=self.log_dir / self.project_name / name,
@@ -40,7 +34,6 @@ class TensorBoardConfig(ReporterConfig):
 
 
 class TensorBoardReporter(Reporter):
-
     def __init__(
         self,
         *,

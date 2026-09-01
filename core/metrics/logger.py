@@ -1,16 +1,17 @@
 from __future__ import annotations
+
 from abc import ABC
-from dataclasses import dataclass
-from typing import Any, ClassVar, get_args, get_origin
-from typing import TypeAlias
-import tree # dm_tree
+from typing import Any, ClassVar, TypeAlias, get_args, get_origin
+
+import tree  # dm_tree
 
 from core.metrics.enums import ReduceProtocol
-from core.metrics.schemas import MetricSchema
-from core.metrics.metric.factory import MetricFactory
 from core.metrics.metric.base import Metric
+from core.metrics.metric.factory import MetricFactory
+from core.metrics.schemas import MetricSchema
 
 Path: TypeAlias = tuple[str, ...]
+
 
 class Node(dict[str, "Node | Metric"]):
     schema: type[MetricSchema]
@@ -50,6 +51,7 @@ class Node(dict[str, "Node | Metric"]):
 
         return self.schema.model_construct(**values)
 
+
 class MetricLogger(ABC):
     _TOKEN: ClassVar[object] = object()
     _schema: type[MetricSchema]
@@ -85,7 +87,7 @@ class MetricLogger(ABC):
 
     @classmethod
     def _build_from_schema(
-        cls, 
+        cls,
         schema: type[MetricSchema],
         *,
         prefix: Path = (),
@@ -103,12 +105,13 @@ class MetricLogger(ABC):
             args = get_args(ann)
             if type(None) in args:
                 non_none = tuple(arg for arg in args if arg is not type(None))
-                if len(non_none) == 1: ann = non_none[0]
+                if len(non_none) == 1:
+                    ann = non_none[0]
             extra = field.json_schema_extra or {}
-            
+
             if isinstance(ann, type) and issubclass(ann, MetricSchema):
                 child, child_ref = cls._build_from_schema(ann, prefix=path)
-                if not node.dynamic: 
+                if not node.dynamic:
                     node[field_name] = child
                     refs.update(child_ref)
                 continue
@@ -117,14 +120,16 @@ class MetricLogger(ABC):
             if get_origin(ann) is dict:
                 _, value_ann = get_args(ann)
 
-                if not (isinstance(value_ann, type) and issubclass(value_ann, MetricSchema)):
+                if not (
+                    isinstance(value_ann, type) and issubclass(value_ann, MetricSchema)
+                ):
                     raise TypeError(
                         f"{schema.__name__}.{field_name} must be "
                         f"dict[ID, MetricSchema], got {ann!r}"
                     )
                 node[field_name] = Node(schema=value_ann, dynamic=True)
                 continue
-            
+
             protocol = extra.get("reduce", ReduceProtocol.MEAN)
             metric = MetricFactory.create(protocol)
             if not node.dynamic:
@@ -134,14 +139,8 @@ class MetricLogger(ABC):
         return node, refs
 
     def _resolve_path(
-            self, 
-            path: Path,
-            *,
-            node: Node,
-            index: int,
-            prefix: Path
-            ) -> Metric:
-
+        self, path: Path, *, node: Node, index: int, prefix: Path
+    ) -> Metric:
         if node.dynamic:
             if index >= len(path):
                 raise KeyError(f"Expected dynamic ID at path: {path}")
@@ -192,30 +191,35 @@ class MetricLogger(ABC):
         )
 
     # TODO refactor into one push function
-    def push_data(self, data: MetricSchema, prefix: Path = (), node: Node | None = None) -> None:
+    def push_data(
+        self, data: MetricSchema, prefix: Path = (), node: Node | None = None
+    ) -> None:
         """Push all leaf values of a MetricSchema into their correspondi ng metrics."""
 
         if node is None:
             if not prefix and type(data) is not self._schema:
                 raise TypeError(
-                    f"Expected {self._schema.__name__}, "
-                    f"got {type(data).__name__}."
+                    f"Expected {self._schema.__name__}, got {type(data).__name__}."
                 )
             node = self._tree
 
         for field_name in type(data).model_fields:
             value = getattr(data, field_name)
-            if value is None: continue
+            if value is None:
+                continue
             path = prefix + (field_name,)
             try:
                 child_node = node[field_name]
             except KeyError:
-                raise KeyError(f"Unknown logger field {field_name!r} at {prefix} for {type(data).__name__}."
-            ) from None
+                raise KeyError(
+                    f"Unknown logger field {field_name!r} at {prefix} for {type(data).__name__}."
+                ) from None
 
             if isinstance(value, MetricSchema):
                 if not isinstance(child_node, Node):
-                    raise TypeError(f"Expected Node at {path}, got {type(child_node).__name__}.")
+                    raise TypeError(
+                        f"Expected Node at {path}, got {type(child_node).__name__}."
+                    )
                 runtime_schema = type(value)
                 declared_schema = child_node.schema
                 if declared_schema is None:
@@ -226,7 +230,9 @@ class MetricLogger(ABC):
                             f"{runtime_schema.__name__} is not a subclass of "
                             f"{declared_schema.__name__} at {path}."
                         )
-                    child_node, refs = self._build_from_schema(runtime_schema, prefix=path)
+                    child_node, refs = self._build_from_schema(
+                        runtime_schema, prefix=path
+                    )
                     node[field_name] = child_node
                     self._refs.update(refs)
 
@@ -239,17 +245,19 @@ class MetricLogger(ABC):
                 declared_schema = child_node.schema
 
                 if declared_schema is None:
-                    raise RuntimeError(f"Dynamic node at {path} has no declared schema.")
+                    raise RuntimeError(
+                        f"Dynamic node at {path} has no declared schema."
+                    )
 
                 for dynamic_id, dynamic_child in value.items():
-                    if not isinstance(dynamic_child, MetricSchema): # TODO only verify it is a metric schema not that its env
+                    if not isinstance(
+                        dynamic_child, MetricSchema
+                    ):  # TODO only verify it is a metric schema not that its env
                         raise TypeError(
                             f"Expected MetricSchema at {path + (dynamic_id,)}, "
                             f"got {type(dynamic_child).__name__}."
                         )
-                    
 
-                    
                     runtime_schema = type(dynamic_child)
 
                     if not issubclass(runtime_schema, declared_schema):
@@ -269,19 +277,18 @@ class MetricLogger(ABC):
                         child_node[dynamic_id] = runtime_node
                         self._refs.update(refs)
 
-                    elif not isinstance(runtime_node,  Node):
+                    elif not isinstance(runtime_node, Node):
                         raise TypeError(
                             f"Expected runtime Node at {runtime_path}, got "
                             f"{type(runtime_node).__name__}."
                         )
 
-                    elif (
-                        runtime_node.schema is not runtime_schema
-                    ):
-                        raise TypeError(f"Runtime schema changed at {runtime_path}: "
+                    elif runtime_node.schema is not runtime_schema:
+                        raise TypeError(
+                            f"Runtime schema changed at {runtime_path}: "
                             f"{runtime_node.schema.__name__} -> {runtime_schema.__name__}."
                         )
-                    
+
                     self.push_data(
                         dynamic_child,
                         prefix=runtime_path,
@@ -292,15 +299,13 @@ class MetricLogger(ABC):
 
             if not isinstance(child_node, Metric):
                 raise TypeError(
-                    f"Expected Metric at {path}, "
-                    f"got {type(child_node).__name__}."
+                    f"Expected Metric at {path}, got {type(child_node).__name__}."
                 )
             child_node.push(value)
 
-
     def push(self, key: Path, value: Any) -> None:
         # TODO narrow down Any to stricter type annotation
-        """Logs a new value or item under a (strictly existing) path to the logger """
+        """Logs a new value or item under a (strictly existing) path to the logger"""
 
         metric = self._refs.get(key)
         if metric is None:
@@ -323,6 +328,7 @@ class MetricLogger(ABC):
         Returns all accumulated values as a MetricSchema
         without destructively reducing them.
         """
+
         def _peek(path: Path, metric: Metric):
             try:
                 return metric.peek(compile=False)
@@ -330,6 +336,7 @@ class MetricLogger(ABC):
                 raise ValueError(
                     f"Error peeking metric {metric} at path {path}."
                 ) from e
+
         peeked = tree.map_structure_with_path(
             _peek,
             self._tree,
@@ -340,6 +347,7 @@ class MetricLogger(ABC):
         """
         Reduces all logged values based on their settings and returns a MetricSchema object.
         """
+
         def _reduce(path: Path, metric: Metric):
             try:
                 return metric.reduce(compile=True)
@@ -348,12 +356,12 @@ class MetricLogger(ABC):
                 raise ValueError(
                     f"Error reducing metrics {metric} at path {path}."
                 ) from e
+
         reduced = tree.map_structure_with_path(
             _reduce,
             self._tree,
         )
         return self._tree.construct(reduced)
-            
 
     def compile(self) -> dict:
         """
@@ -364,7 +372,7 @@ class MetricLogger(ABC):
     def reset(self) -> None:
         """
         Resets all data stored in this MetricLogger.
-        """ 
+        """
         for path, metric in self._refs.items():
             try:
                 metric.flush()
@@ -380,7 +388,8 @@ class MetricLogger(ABC):
         """
         metric = self._refs.get(key)
 
-        if metric is None: raise KeyError(f"Unknown logger path: {key}")
+        if metric is None:
+            raise KeyError(f"Unknown logger path: {key}")
 
         try:
             metric.flush()

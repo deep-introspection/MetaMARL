@@ -9,7 +9,6 @@ from core.metrics.metric.sum import SumMetric
 
 
 class MetricFactory:
-
     @staticmethod
     def create(protocol: ReduceProtocol) -> Metric:
         match protocol:

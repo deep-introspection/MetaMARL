@@ -1,19 +1,18 @@
-from functools import cached_property
 import uuid
 from dataclasses import dataclass
-from typing import Callable, Optional, Self, TypeAlias, Any
-import numpy as np
-import torch
+from typing import Any, Callable, Optional, Self, TypeAlias
 
+import numpy as np
 import ray
+import torch
 from gymnasium import Space
 from ray.actor import ActorHandle
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
-from ray.rllib.core.rl_module.rl_module import RLModuleSpec
-from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
-from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.rllib.core.rl_module.default_model_config import DefaultModelConfig
+from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
+from ray.rllib.core.rl_module.rl_module import RLModuleSpec
+from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.rllib.utils.typing import AgentID
 from ray.tune.registry import register_env
 
@@ -21,13 +20,11 @@ from core.adaptors.ray.optimizer import RayOptimizer
 from core.annotations import override
 from core.callbacks import _evaluate_with_fixed_duration_once
 from core.metrics.schemas import MetricSchema
-from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
-from core.reporting.config import ReporterConfig
 from core.reporting.query import Query
-from core.reporting.wandb import WandbReporter
 from core.utils import generate_uuid
 from core.world.base import World
+
 # from core.adaptors.ray.protocols import PolicyResultMapper, from_new_api, from_old_api
 
 # TODO override environment to attach docstrings
@@ -40,13 +37,15 @@ class AgentSpec:
     observation_space: Space
     action_space: Space
 
-FnID : TypeAlias = str
+
+FnID: TypeAlias = str
+
 
 @dataclass
 class RLlibConfigOp:
-    fn : Callable[..., AlgorithmConfig]
-    args : tuple[Any, ...] # TODO remove any
-    kwargs : dict[ str, Any] # TODO remove any
+    fn: Callable[..., AlgorithmConfig]
+    args: tuple[Any, ...]  # TODO remove any
+    kwargs: dict[str, Any]  # TODO remove any
 
     def __call__(self, cfg: AlgorithmConfig) -> AlgorithmConfig:
         return self.fn(cfg, *self.args, **self.kwargs)
@@ -75,11 +74,7 @@ class RayOptimizerConfig(OptimizerConfig):
     # TODO let mutator accept an explicit ID
     def rllib_config_mutator(fn):
         def wrapper(self, *args, **kwargs):
-            self._cfg_ops[fn.__name__] = RLlibConfigOp(
-                    fn = fn,
-                    args = args,
-                    kwargs = kwargs
-                )
+            self._cfg_ops[fn.__name__] = RLlibConfigOp(fn=fn, args=args, kwargs=kwargs)
             return self
 
         return wrapper
@@ -126,11 +121,7 @@ class RayOptimizerConfig(OptimizerConfig):
             cfg.model.update(kwargs)
             return cfg
 
-        self._cfg_ops["model"] = RLlibConfigOp(
-            fn = _set_model,
-            args=(),
-            kwargs={}
-        )
+        self._cfg_ops["model"] = RLlibConfigOp(fn=_set_model, args=(), kwargs={})
         return self
 
     @rllib_config_mutator
@@ -170,13 +161,14 @@ class RayOptimizerConfig(OptimizerConfig):
         return cfg.evaluation(**kwargs)
 
     def evaluation(
-            self, 
-            base_seed: Optional[int] = None, 
-            num_seeds: Optional[int] = None,
-            seeds: Optional[list[int]] = None,
-            **kwargs) -> None:
-        eval_config : dict = kwargs.setdefault("evaluation_config", {})
-        eval_env_config : dict = eval_config.setdefault("env_config", {})
+        self,
+        base_seed: Optional[int] = None,
+        num_seeds: Optional[int] = None,
+        seeds: Optional[list[int]] = None,
+        **kwargs,
+    ) -> None:
+        eval_config: dict = kwargs.setdefault("evaluation_config", {})
+        eval_env_config: dict = eval_config.setdefault("env_config", {})
         eval_env_config["mode"] = "eval"
 
         if seeds is not None:
@@ -221,10 +213,10 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @override(OptimizerConfig)
     def reporting(
-        self, 
-        queries: Optional[tuple[Query]], 
+        self,
+        queries: Optional[tuple[Query]],
         schema: Optional[type[MetricSchema]],
-        **kwargs
+        **kwargs,
     ) -> None:
         super().reporting(queries=queries, schema=schema)
         return self._reporting_rllib(**kwargs)
@@ -256,7 +248,7 @@ class RayOptimizerConfig(OptimizerConfig):
             This updated AlgorithmConfig object.
         """
         return cfg.experimental(**kwargs)
-    
+
     def _parse_episode_identity(self, episode_id: str) -> dict[str, str]:
         parts = episode_id.split("|")
 
@@ -281,6 +273,7 @@ class RayOptimizerConfig(OptimizerConfig):
         if seed is None:
             return "xavier_uniform_"
         counter = {"i": 0}
+
         def init_(tensor, **kwargs):
             layer_seed = int(seed) + counter["i"]
             counter["i"] += 1
@@ -289,6 +282,7 @@ class RayOptimizerConfig(OptimizerConfig):
             torch.manual_seed(layer_seed)
             torch.nn.init.xavier_uniform_(tensor, **kwargs)
             torch.random.set_rng_state(state)
+
         return init_
 
     def _apply_agents_to_rllib(self) -> list[AgentID]:
@@ -306,7 +300,7 @@ class RayOptimizerConfig(OptimizerConfig):
             raise ValueError(
                 f"num_envs_per_env_runner={num_envs} must be divisible by num_seeds={num_seeds}"
             )
-        
+
         # Get number of mechanisms (one policy per mechanism, per seed)
         num_mechanisms = num_envs // num_seeds
 
@@ -318,16 +312,16 @@ class RayOptimizerConfig(OptimizerConfig):
             base_policy = spec.get("policy")
 
             # TODO (nadinemgh) this does not guarantee tht different mechanism's policy will be
-                # initiated with the same seed !
-                # what we want :
-                # run mechanism 0, seed 101
-                # run mechanism 1, seed 101
-                # run mechanism 2, seed 101
-                # run mechanism 0, seed 202
-                # run mechanism 1, seed 202
-                # run mechanism 2, seed 202
+            # initiated with the same seed !
+            # what we want :
+            # run mechanism 0, seed 101
+            # run mechanism 1, seed 101
+            # run mechanism 2, seed 101
+            # run mechanism 0, seed 202
+            # run mechanism 1, seed 202
+            # run mechanism 2, seed 202
             for seed in self.seeds:
-                # TODO verify case when null seed            
+                # TODO verify case when null seed
                 for m_idx in range(num_mechanisms):
                     policy_id = f"{base_policy}_m{m_idx}_s{seed}"
                     policies[policy_id] = (
@@ -344,7 +338,9 @@ class RayOptimizerConfig(OptimizerConfig):
                             vf_share_layers=False,
                             fcnet_kernel_initializer=self._seeded_xavier_uniform(seed),
                             fcnet_bias_initializer="zeros_",
-                            head_fcnet_kernel_initializer=self._seeded_xavier_uniform(seed),
+                            head_fcnet_kernel_initializer=self._seeded_xavier_uniform(
+                                seed
+                            ),
                             head_fcnet_bias_initializer="zeros_",
                         ),
                     )
@@ -355,12 +351,10 @@ class RayOptimizerConfig(OptimizerConfig):
                 agent_type_map[agent_id] = base_policy
                 observation_spaces[agent_id] = obs_space
                 action_spaces[agent_id] = act_space
-        
+
         self.rllib_cfg = self.rllib_cfg.rl_module(
-                rl_module_spec=MultiRLModuleSpec(
-                    rl_module_specs=module_specs
-                )
-            )
+            rl_module_spec=MultiRLModuleSpec(rl_module_specs=module_specs)
+        )
 
         self.env_config.update({"observation_spaces": observation_spaces})
         self.env_config.update({"action_spaces": action_spaces})
@@ -428,7 +422,7 @@ class RayOptimizerConfig(OptimizerConfig):
             num_eval_runners = num_eval_seeds * num_train_seeds
             num_eval_episodes = num_eval_runners * self.num_mechanisms
             evaluation_op.kwargs["evaluation_num_env_runners"] = num_eval_runners
-            #TODO verify this
+            # TODO verify this
             evaluation_op.kwargs["evaluation_duration"] = num_eval_episodes
             evaluation_op.kwargs["custom_evaluation_function"] = (
                 _evaluate_with_fixed_duration_once
@@ -458,10 +452,7 @@ class RayOptimizerConfig(OptimizerConfig):
         if self.agent_specs:
             agents = self._apply_agents_to_rllib()
 
-        env_counter = {
-            "train": 0,
-            "eval": 0
-            }
+        env_counter = {"train": 0, "eval": 0}
 
         def env_creator(env_ctx):
             mode = env_ctx.get("mode", "train")
@@ -536,27 +527,26 @@ class RayOptimizerConfig(OptimizerConfig):
     @override(OptimizerConfig)
     def freeze(cfg, **kwargs) -> None:
         return cfg.freeze(**kwargs)
-    
+
     @rllib_config_mutator
     @override(OptimizerConfig)
     def training(cfg, **kwargs) -> None:
         return cfg.training(**kwargs)
-    
+
     @rllib_config_mutator
     def _debugging_rllib(cfg, seed: Optional[int] = None, **kwargs):
         return cfg.debugging(seed=seed, **kwargs)
-    
-    
+
     @override(OptimizerConfig)
     def debugging(
         self,
         *,
-        seed: Optional[int] = None, #base seed
+        seed: Optional[int] = None,  # base seed
         num_seeds: int = 3,
         **kwargs,
     ) -> Self:
         """Sets the debugging related configuration."""
-        
+
         super().debugging(seed=seed, num_seeds=num_seeds)
         if seed is not None:
             env_runners_op = self._cfg_ops.get("_env_runners")
@@ -566,6 +556,6 @@ class RayOptimizerConfig(OptimizerConfig):
                 env_runners_op.kwargs["num_envs_per_env_runner"] = (
                     env_runners_op.kwargs.get("num_envs_per_env_runner", 1) * num_seeds
                 )
-                
+
         # Lazy construction
         return self._debugging_rllib(seed=seed, **kwargs)

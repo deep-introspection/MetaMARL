@@ -1,19 +1,18 @@
-from abc import ABC, abstractmethod
 import copy
+from abc import ABC, abstractmethod
 from typing import Self, Union
+
 from core.reporting.base import Reporter
-from core.reporting.query import Query
 
 
 class ReporterConfig(ABC):
-
     def __init__(
-            self,
-            project: str,
+        self,
+        project: str,
     ):
         self.project_name: str = project
         self._world_name: Union[str | None] = None
-        self._outer_iters: Union[int | None] = None 
+        self._outer_iters: Union[int | None] = None
 
     @property
     def world(self) -> None:
@@ -22,7 +21,6 @@ class ReporterConfig(ABC):
     @world.setter
     def world(self, world: str) -> None:
         self._world_name = world
-
 
     @property
     def outer_iters(self) -> None:
@@ -35,7 +33,6 @@ class ReporterConfig(ABC):
     def copy(self) -> Self:
         """Return a deep copy of this reporter configuration."""
         return copy.deepcopy(self)
-
 
     @abstractmethod
     def build(self) -> Reporter:

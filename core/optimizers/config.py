@@ -12,13 +12,14 @@ from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 
 from core.envs.base import BaseEnv
 from core.metrics.schemas import MetricSchema
-from core.reporting.query import Query
 from core.reporting.config import ReporterConfig
+from core.reporting.query import Query
 from core.types import EnvConfigDict, EnvType
 from core.world.base import World
 
 if TYPE_CHECKING:
     from core.optimizers.base import Optimizer
+
 
 class _Config(ABC):
     def to_dict(self) -> dict:
@@ -63,7 +64,7 @@ class OptimizerConfig(_Config, ABC):
         self._reporting_queries: Optional[tuple[Query]] = None
 
     @property
-    def reporter_cfg(self) -> None: 
+    def reporter_cfg(self) -> None:
         return self._reporter_cfg
 
     @reporter_cfg.setter
@@ -176,13 +177,13 @@ class OptimizerConfig(_Config, ABC):
             opt.set_id(opt_id)
 
         env = cfg._env_creator(
-            world=world, 
-            opt_id=opt_id, 
-            optimizer=inner_opt, 
+            world=world,
+            opt_id=opt_id,
+            optimizer=inner_opt,
             reporter_cfg=cfg.reporter_cfg.copy(),
             queries=cfg._reporting_queries,
             schema=cfg._reporting_schema,
-            **self.env_config
+            **self.env_config,
         )
         opt.env = env
 
@@ -194,8 +195,8 @@ class OptimizerConfig(_Config, ABC):
         env: Optional[Union[str, EnvType]] = None,
         train_iters: Optional[int] = None,
         horizon: Optional[int] = None,
-        queries: Optional[tuple[Query]]=None,
-        schema: Optional[type[MetricSchema]]=None,
+        queries: Optional[tuple[Query]] = None,
+        schema: Optional[type[MetricSchema]] = None,
         *,
         env_config: Optional[EnvConfigDict] = None,
         observation_space: Optional[Space] = None,
@@ -270,18 +271,18 @@ class OptimizerConfig(_Config, ABC):
         if queries is not None:
             self._reporting_queries_env = queries
         if schema is not None:
-            self._reporting_schema_env =schema
+            self._reporting_schema_env = schema
 
         return self
-    
+
     @abstractmethod
     def training(self):
         raise NotImplementedError
-    
+
     def debugging(
         self,
         *,
-        seed: Optional[int] = None, #base seed
+        seed: Optional[int] = None,  # base seed
         num_seeds: int = 3,
     ) -> Self:
         if seed is not None:
@@ -293,10 +294,10 @@ class OptimizerConfig(_Config, ABC):
         return self
 
     def reporting(
-            self, 
-            queries: Optional[tuple[Query]], 
-            schema: Optional[MetricSchema],
-        ) -> Self:
+        self,
+        queries: Optional[tuple[Query]],
+        schema: Optional[MetricSchema],
+    ) -> Self:
         if schema is not None:
             self._reporting_schema = schema
         if queries is not None:

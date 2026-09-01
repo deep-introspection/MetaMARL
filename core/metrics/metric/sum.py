@@ -6,12 +6,8 @@ from core.metrics.metric.series import SeriesMetric
 
 
 class SumMetric(SeriesMetric):
-
     @override(SeriesMetric)
-    def push(
-        self,
-        value: PrimitiveType
-    ) -> PrimitiveType:
+    def push(self, value: PrimitiveType) -> PrimitiveType:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise TypeError(
                 f"SumMetric only accepts int or float, got {type(value).__name__}."
@@ -22,7 +18,8 @@ class SumMetric(SeriesMetric):
         self,
         compile: bool = True,
     ) -> PrimitiveType | list[PrimitiveType]:
-        if not compile : return list(self.values)
+        if not compile:
+            return list(self.values)
         return sum(self.values)
 
     # TODO move to base cls
@@ -32,7 +29,8 @@ class SumMetric(SeriesMetric):
     ) -> PrimitiveType | SumMetric:
         sum = self.peek(compile=True)
         self.flush()
-        if compile: return sum
+        if compile:
+            return sum
 
         metric = SumMetric()
         metric.values = [sum]

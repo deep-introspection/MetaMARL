@@ -1,11 +1,11 @@
 from __future__ import annotations
+
 from core.annotations import override
 from core.metrics.metric.base import PrimitiveType
 from core.metrics.metric.series import SeriesMetric
 
 
 class MeanMetric(SeriesMetric):
-
     @override(SeriesMetric)
     def push(self, value: PrimitiveType) -> None:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -19,18 +19,22 @@ class MeanMetric(SeriesMetric):
         self,
         compile: bool = True,
     ) -> float | list[float]:
-        if not compile : return list(self.values)
-        if not self.values: return None
+        if not compile:
+            return list(self.values)
+        if not self.values:
+            return None
         return sum(self.values) / len(self.values)
 
     def reduce(
         self,
         compile: bool = True,
     ) -> float | MeanMetric:
-        if not self.values: return None if compile else MeanMetric()
+        if not self.values:
+            return None if compile else MeanMetric()
         mean = self.peek(compile=True)
         self.flush()
-        if compile: return mean
+        if compile:
+            return mean
 
         metric = MeanMetric()
         metric.values = [mean]

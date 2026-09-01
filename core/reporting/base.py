@@ -5,6 +5,7 @@ from core.metrics.metric.base import PrimitiveType
 from core.metrics.schemas import MetricSchema
 from core.reporting.query import Query
 
+
 class Reporter(ABC):
     """Base interface for reporting reduced metric results.
 
@@ -38,36 +39,38 @@ class Reporter(ABC):
         return self._schema
 
     @schema.setter
-    def schema(self, schema:  type[MetricSchema]) -> None:
+    def schema(self, schema: type[MetricSchema]) -> None:
         if self._schema is not None:
             raise AttributeError(
-            "Reporter schema has already been set and cannot be changed."
-        )
+                "Reporter schema has already been set and cannot be changed."
+            )
         self._schema = schema
 
-
     def _resolve_path(
-            self, 
-            path: Path, 
-            metrics: MetricSchema | dict[str, MetricSchema],
-            *,
-            index: int = 0
-        ) -> list[PrimitiveType]:
+        self,
+        path: Path,
+        metrics: MetricSchema | dict[str, MetricSchema],
+        *,
+        index: int = 0,
+    ) -> list[PrimitiveType]:
         """
         Returns the Metric object following the Path in a metric schema
         """
-        if index >= len(path): raise KeyError(f"Path does not point to a metric: {path}")
+        if index >= len(path):
+            raise KeyError(f"Path does not point to a metric: {path}")
         key = path[index]
 
         if isinstance(metrics, dict):
             try:
                 child = metrics[key]
-            except KeyError: raise KeyError(f"Unknown metric path: {path}") from None
-        
+            except KeyError:
+                raise KeyError(f"Unknown metric path: {path}") from None
+
         else:
             try:
                 child = getattr(metrics, key)
-            except AttributeError: raise KeyError(f"Unknown metric path: {path}") from None
+            except AttributeError:
+                raise KeyError(f"Unknown metric path: {path}") from None
 
         if index == len(path) - 1:
             if not isinstance(child, list):
@@ -109,7 +112,6 @@ class Reporter(ABC):
                 )
         return x, ys
 
-
     @abstractmethod
     def _report(
         self,
@@ -125,7 +127,7 @@ class Reporter(ABC):
             y: Resolved values for the query's y dimension.
         """
         ...
-    
+
     def report(self, metrics: MetricSchema) -> None:
         """Report all applicable configured views for a metric schema.
 
@@ -142,6 +144,5 @@ class Reporter(ABC):
 
     @abstractmethod
     def close(self) -> None:
-        """Close the reporter instance
-        """
+        """Close the reporter instance"""
         ...

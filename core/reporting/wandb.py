@@ -1,31 +1,31 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any, Optional
+
 import numpy as np
 import plotly.graph_objects as go
-import uuid
-import wandb
 
+import wandb
 from core.metrics.metric.base import PrimitiveType
-from core.metrics.metric.series import SeriesMetric
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig
 from core.reporting.query import Query
 from core.utils import sanitize_key
 
-class WandbConfig(ReporterConfig):
 
+class WandbConfig(ReporterConfig):
     def __init__(
-            self, 
-            *,
-            project: str,
-            x_disable_stats: Optional[bool] = True,
-            x_disable_meta: Optional[bool] = True,
-            quiet: Optional[bool]= True,
-            max_end_of_run_summary_metrics: Optional[int] = 0,
-            max_end_of_run_history_metrics: Optional[int] = 0,
-            **kwargs
-        ):
+        self,
+        *,
+        project: str,
+        x_disable_stats: Optional[bool] = True,
+        x_disable_meta: Optional[bool] = True,
+        quiet: Optional[bool] = True,
+        max_end_of_run_summary_metrics: Optional[int] = 0,
+        max_end_of_run_history_metrics: Optional[int] = 0,
+        **kwargs,
+    ):
         super().__init__(project=project)
         self.settings = {
             "x_disable_stats": x_disable_stats,
@@ -35,29 +35,21 @@ class WandbConfig(ReporterConfig):
             "max_end_of_run_history_metrics": max_end_of_run_history_metrics,
         }
 
-    def build(
-            self, 
-            *,
-            label: Optional[str] = None
-        ) -> WandbReporter:
-
-        name = (
-            f"{self.world}-{label}"
-            if label is not None
-            else self.world
-        )
+    def build(self, *, label: Optional[str] = None) -> WandbReporter:
+        name = f"{self.world}-{label}" if label is not None else self.world
 
         return WandbReporter(
-                project = self.project_name,
-                run_id = uuid.uuid4().hex,
-                group = self.world,
-                name = name,
-                config = {
-                    "outer_iters": self.outer_iters,
-                    "world_name": self.world,
-                },
-                settings=self.settings,
-            )
+            project=self.project_name,
+            run_id=uuid.uuid4().hex,
+            group=self.world,
+            name=name,
+            config={
+                "outer_iters": self.outer_iters,
+                "world_name": self.world,
+            },
+            settings=self.settings,
+        )
+
 
 class WandbReporter(Reporter):
     """
@@ -106,12 +98,12 @@ class WandbReporter(Reporter):
     def _series_label(path: tuple[str, ...]) -> str:
         return "/".join(path)
 
-    def _raw_series_figure(self,
+    def _raw_series_figure(
+        self,
         query: Query,
         x: list[PrimitiveType],
         ys: list[list[PrimitiveType]],
     ) -> go.Figure:
-
         fig = go.Figure()
 
         for path, values in zip(
@@ -123,9 +115,7 @@ class WandbReporter(Reporter):
                     x=x,
                     y=values,
                     mode="lines+markers",
-                    name=self._series_label(
-                        path
-                    ),
+                    name=self._series_label(path),
                 )
             )
 
@@ -155,7 +145,9 @@ class WandbReporter(Reporter):
                     y=upper.tolist() + lower[::-1].tolist(),
                     mode="lines",
                     fill="toself",
-                    line=dict(width=0,),
+                    line=dict(
+                        width=0,
+                    ),
                     name="±1 std",
                     hoverinfo="skip",
                     showlegend=True,
@@ -167,7 +159,9 @@ class WandbReporter(Reporter):
                 x=x,
                 y=mean.tolist(),
                 mode="lines+markers",
-                line=dict(width=3,),
+                line=dict(
+                    width=3,
+                ),
                 marker=dict(size=4),
                 name="mean",
             )
@@ -181,18 +175,18 @@ class WandbReporter(Reporter):
         x: list[PrimitiveType],
         ys: list[list[PrimitiveType]],
     ) -> None:
-
         self._init_run()
         if self._run is None:
             raise RuntimeError("W&B run failed to initialize.")
         if not ys:
             return
-        
+
         if query.reduce == "none":
             fig = self._raw_series_figure(query=query, x=x, ys=ys)
         elif query.reduce == "mean":
             fig = self._mean_figure(query=query, x=x, y=ys)
-        else: raise ValueError(f"Unknown query reduction: {query.reduce!r}")
+        else:
+            raise ValueError(f"Unknown query reduction: {query.reduce!r}")
 
         x_name = self._path_name(query.x)
 
@@ -203,13 +197,15 @@ class WandbReporter(Reporter):
             hovermode="x unified",
             template="plotly_white",
             height=650,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+            ),
         )
 
         fig.update_xaxes(rangeslider_visible=False)
         plot_name = sanitize_key(query.title)
         self._run.log({f"plots/{plot_name}": fig})
-        
+
     def close(self) -> None:
         if self._run is not None:
             self._run.finish()

@@ -5,19 +5,10 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import ray
-from ray.rllib.utils.typing import AgentID
+from ray.rllib.utils.typing import AgentID, ResultDict
 from ray.train._internal.checkpoint_manager import _TrainingResult
-from ray.rllib.utils.typing import ResultDict
 
 from core.adaptors.ray.schema import EvalSchema, RaySchema, TrainSchema
-from core.annotations import override
-from core.optimizers.base import Optimizer
-from core.metrics.logger import MetricLogger
-from core.world.base import World
-
-# Deprecated
-from core.reporting.wandb import WandbReporter
-from core.utils import to_float
 
 # TODO temporary
 from core.adaptors.ray.utils import (
@@ -28,6 +19,12 @@ from core.adaptors.ray.utils import (
     get_episode_return_mean,
     get_policy_loss_if_present,
 )
+from core.annotations import override
+from core.metrics.logger import MetricLogger
+from core.optimizers.base import Optimizer
+
+# Deprecated
+from core.utils import to_float
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +94,10 @@ class RayOptimizer(Optimizer):
             return self.algo.get_policy(policy_id)
 
     # TODO (nadine) : in the future this could be separated into a different class if justified
-    def _to_logger_payload(self, result: ResultDict, is_eval: bool = False) -> RaySchema:
-        if is_eval :
+    def _to_logger_payload(
+        self, result: ResultDict, is_eval: bool = False
+    ) -> RaySchema:
+        if is_eval:
             evaluation = EvalSchema(
                 rollout=build_rollout(result),
                 performance=build_performance(result),
@@ -108,7 +107,7 @@ class RayOptimizer(Optimizer):
         train = TrainSchema(
             rollout=build_rollout(result),
             learner=build_learner(result),
-            performance=build_performance(result)
+            performance=build_performance(result),
         )
         eval_result = result.get("evaluation")
         evaluation = None
@@ -119,7 +118,7 @@ class RayOptimizer(Optimizer):
                 performance=build_performance(eval_result),
             )
         return RaySchema(train=train, eval=evaluation)
-    
+
     @override(Optimizer)
     def run(self) -> None:
         logger.info("[PPO] Training step started")
@@ -132,9 +131,7 @@ class RayOptimizer(Optimizer):
         self.logger.push(key=("iter",), value=step)
 
         # RLlib's own lifetime training counter, retained only for debugging.
-        rllib_training_iteration = int(
-            to_float(result.get("training_iteration")) or 0
-        )
+        rllib_training_iteration = int(to_float(result.get("training_iteration")) or 0)
 
         metrics = self._to_logger_payload(result)
         self.logger.push_data(metrics)
