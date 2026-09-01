@@ -477,7 +477,11 @@ Design decisions taken during the resolution, all to be confirmed by Nadine:
    fields referenced by the queries had no counterpart in the mechanism-based env:
    `allowed_harvest` and `quota_stress` are now taken from the first mechanism exposing an
    `allowed_fraction` (searched through compositions), and default to 1.0 without a quota.
-   This mapping is a heuristic.
+   This mapping is a heuristic written during the merge, for logging only: with two quotas
+   in a composition only the first is read, and a regulating mechanism without
+   `allowed_fraction` (a tax, say) logs 1.0 as if unconstrained. Alternatives: make
+   `allowed_fraction` part of the mechanism contract, aggregated by compositions; or drop
+   the two fields from the schema and the queries.
 4. `MultiAgentRegulatedEnv` logs rewards once, after the mechanism transformation
    (`by_agent/*/reward`, `reward_mean`); the logging branch's `_aggregate_rewards`
    (mean sharing) is gone, replaced by the mechanism's reward transformation. The
@@ -485,9 +489,13 @@ Design decisions taken during the resolution, all to be confirmed by Nadine:
 5. The ES optimizer names its parameters from `mechanism_template.param_names()`
    (for example `0:QuotaMechanism.fixed_quota`); in fixed mode, when `to_vector()` is
    longer than `param_names()`, the payload falls back to positional `parameter_i` names.
-   `debug.py` no longer hard-codes the optimized parameter names.
-6. `RayOptimizer` keeps `_to_logger_payload` but not `_build_agent_policy_map` /
-   `_get_policy_handle`, deleted as dead code on the mechanism branch.
+   `debug.py` no longer hard-codes the optimized parameter names. The naming itself
+   predates the merge on both branches; the merge added only the positional fallback,
+   which could instead raise.
+6. (Information, not a decision.) `RayOptimizer` keeps `_to_logger_payload` but not
+   `_build_agent_policy_map` / `_get_policy_handle`: git offered the logging branch's copy,
+   which still had them, and the merge kept their deletion, decided on 2026-08-28 (§24).
+   Worth knowing only if a local script still calls them.
 
 Measurements on the merged branch: `ruff` clean; unit suite 625 passed with `core/` at
 99 % coverage; full suite 634 passed, 3 skipped (the same three as before), in 78 s;
