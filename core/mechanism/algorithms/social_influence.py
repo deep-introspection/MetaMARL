@@ -55,28 +55,49 @@ class SocialInfluenceMechanism(Mechanism):
 
     @property
     def dimension(self) -> int:
+        """Always ``0``: the mechanism has no optimized parameter."""
         return 0
 
     def encode(self) -> np.ndarray:
+        """Return an empty ``float32`` vector (nothing is optimized)."""
         return np.empty(0, dtype=np.float32)
 
     def decode(self, x: np.ndarray) -> Self:
+        """Validate that ``x`` is empty and return this instance unchanged."""
         self._validate(x)
         return self
 
     def clip(self) -> Self:
+        """Return this instance: ``influence_weight`` is validated at construction."""
         return self
 
     def param_names(self) -> list[str]:
+        """Return an empty list (nothing is optimized)."""
         return []
 
     def to_vector(self) -> np.ndarray:
+        """Return an empty vector: nothing about this mechanism is shown to agents.
+
+        ``influence_weight`` is reserved and has no effect, so it is not
+        exposed either.
+        """
         return np.empty(0, dtype=np.float32)
 
     # --- channels -------------------------------------------------------------
 
     @override(Mechanism)
-    def observation(self, observation_dict: MultiAgentDict, **kwargs) -> MultiAgentDict:
+    def observation(
+        self, observation_dict: MultiAgentDict, **kwargs: Any
+    ) -> MultiAgentDict:
+        """Append the previous-step actions of every peer to each observation.
+
+        Consumes the ``previous_actions`` binding (``MultiAgentDict`` of the
+        last delivered actions) and the ``agent_ids`` binding (peer ordering)
+        from ``kwargs``. For agent ``i`` the flattened actions of the other
+        agents are concatenated after ``o_i`` in ``agent_ids`` order, giving a
+        ``float32`` vector of size ``len(o_i) + (N - 1) * d``. Rewards are not
+        touched.
+        """
         previous_actions = kwargs["previous_actions"]
         agent_ids = list(kwargs["agent_ids"])
 

@@ -69,23 +69,35 @@ class BilevelConfig(OptimizerConfig):
     #         outer: self.inner_cfg._get_logger_schema
     #     )
 
-    def inner(self, cfg: OptimizerConfig = None) -> Self:
+    def inner(self, cfg: Optional[OptimizerConfig] = None) -> Self:
+        """Set the inner (policy learning) config, typically an ``APPOptimizerConfig``.
+
+        The inner optimizer trains the agents' policies against each mechanism
+        candidate; ``build_optimizer`` injects the mechanism template into its
+        ``env_config`` and reads its seeds and batch capacity.
+        """
         if cfg is not None:
             self.inner_cfg = cfg
         return self
 
-    def outer(self, cfg: OptimizerConfig = None) -> Self:
+    def outer(self, cfg: Optional[OptimizerConfig] = None) -> Self:
+        """Set the outer (mechanism search) config, typically an ``ESConfig``.
+
+        ``build_optimizer`` sets its ``dimension`` from the mechanism template,
+        copies the inner seeds into its ``env_config`` and sizes its population
+        from the inner batch capacity.
+        """
         if cfg is not None:
             self.outer_cfg = cfg
         return self
 
-    def world(self, *, world_name: str, **kwargs) -> Self:
+    def world(self, *, world_name: str, **kwargs: Any) -> Self:
         """Name the shared ``World`` actor (a random suffix keeps runs distinct)."""
         if world_name is not None:
             self.world_name = f"{world_name}_{uuid.uuid4().hex[:8]}"
         return self
 
-    def mechanism(self, *, mechanism: Mechanism, **kwargs) -> Self:
+    def mechanism(self, *, mechanism: Mechanism, **kwargs: Any) -> Self:
         """Set the mechanism template shared by the inner and outer optimizers.
 
         The template fixes the optimizer space (``mechanism.dimension``,
@@ -101,7 +113,7 @@ class BilevelConfig(OptimizerConfig):
         return self
 
     def training(
-        self, *, outer_iters: int, output_dir: str | None = None, **kwargs
+        self, *, outer_iters: int, output_dir: str | None = None, **kwargs: Any
     ) -> Self:
         """Set the number of outer (ES) generations and an optional output directory."""
         if outer_iters is not None:
@@ -118,7 +130,7 @@ class BilevelConfig(OptimizerConfig):
         omp_threads: int = 1,
         logging_level: str = "ERROR",
         runtime_env: Optional[dict] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Self:
         """Configure the local Ray runtime (device, CPU/GPU counts, runtime env)."""
         self.ray_cfg = RayRuntimeConfig(
@@ -145,7 +157,7 @@ class BilevelConfig(OptimizerConfig):
         return self
 
     @override(OptimizerConfig)
-    def build_optimizer(self):
+    def build_optimizer(self) -> "BilevelOptimizer":
         """Start Ray, create the actors, build both levels and return a ``BilevelOptimizer``.
 
         The ES population size is set to the inner optimizer's ``batch_capacity``

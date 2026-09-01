@@ -107,7 +107,7 @@ class RayRuntimeConfig:
 
         torch.set_default_device(self.device)
 
-    def initialize(self):
+    def initialize(self) -> None:
         """Apply environment variables, quieten library loggers and ``ray.init``.
 
         Ray is started in ``local_mode=True`` with the dashboard and metrics
@@ -164,7 +164,7 @@ class RayRuntime:
     _initialized = False
 
     @classmethod
-    def ensure_initialized(cls, cfg: RayRuntimeConfig):
+    def ensure_initialized(cls, cfg: RayRuntimeConfig) -> None:
         """Initialise Ray with ``cfg`` unless it is already running.
 
         Parameters

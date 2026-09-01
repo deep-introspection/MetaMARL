@@ -64,10 +64,12 @@ class Reporter(ABC):
 
     @property
     def schema(self) -> type[MetricSchema] | None:
+        """Schema the queries are resolved against (``None`` until set)."""
         return self._schema
 
     @schema.setter
     def schema(self, schema: type[MetricSchema]) -> None:
+        """Set the schema once; a second assignment raises ``AttributeError``."""
         if self._schema is not None:
             raise AttributeError(
                 "Reporter schema has already been set and cannot be changed."

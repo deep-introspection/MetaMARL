@@ -10,6 +10,7 @@ touching the driver.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 import ray
@@ -77,7 +78,7 @@ class PolicyActor:
         """
         return self.algo.evaluate()
 
-    def get_metrics(self):
+    def get_metrics(self) -> dict[str, Any]:
         """Return the algorithm's ``MetricsLogger`` contents.
 
         Returns
@@ -101,9 +102,22 @@ class PolicyActor:
         policy_id: str,
         obs_batch: np.ndarray,
     ) -> np.ndarray:
-        """
-        obs_batch: [B, obs_dim]
-        returns:  [B, act_dim]
+        """Sample actions for a batch of observations from one RLModule.
+
+        Parameters
+        ----------
+        policy_id : str
+            RLModule ID (``<policy>_m<mechanism_idx>_s<seed>``).
+        obs_batch : numpy.ndarray
+            Observations, shape ``(B, obs_dim)``.
+
+        Returns
+        -------
+        numpy.ndarray
+            Actions, shape ``(B, act_dim)``. The new API stack path samples
+            from the inference distribution; if it fails, the old-stack
+            ``Policy.compute_single_action`` fallback is used without
+            exploration.
         """
         try:
             module = self.algo.get_module(policy_id)
@@ -119,7 +133,7 @@ class PolicyActor:
                 actions.append(a)
             return np.asarray(actions)
 
-    def reset(self):
+    def reset(self) -> None:
         """Rebuild the ``Algorithm`` and restore the initial weights.
 
         A brand-new ``Algorithm`` is built from the stored config, then the
@@ -145,6 +159,6 @@ class PolicyActor:
             hash_weights(weights),
         )
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the owned ``Algorithm`` and release its workers."""
         self.algo.stop()

@@ -30,6 +30,7 @@ class CSVConfig(ReporterConfig):
         self.output_dir = Path(output_dir)
 
     def build(self, *, label: Optional[str] = None) -> CSVReporter:
+        """Create a :class:`CSVReporter` writing under ``output_dir/project/<world>[-<label>]/``."""
         name = f"{self.world}-{label}" if label is not None else str(self.world)
         return CSVReporter(output_dir=self.output_dir / self.project_name / name)
 
@@ -45,9 +46,11 @@ class CSVReporter(Reporter):
 
     @property
     def output_dir(self) -> Path:
+        """Directory receiving one CSV file per query."""
         return self._output_dir
 
     def path_for(self, query: Query | ParallelCoordinatesQuery) -> Path:
+        """File of ``query``: its sanitized title with a ``.csv`` suffix inside :attr:`output_dir`."""
         return self._output_dir / f"{sanitize_key(query.title)}.csv"
 
     @staticmethod
@@ -80,4 +83,5 @@ class CSVReporter(Reporter):
             )
 
     def close(self) -> None:
+        """Nothing to release: every file is closed right after it is written."""
         pass

@@ -76,12 +76,14 @@ class Query:
 
     @property
     def y_paths(self) -> tuple[Path, ...]:
+        """The y paths as a tuple, whether ``y`` was given as one path or several."""
         if self.y and isinstance(self.y[0], tuple):
             return cast(tuple[Path, ...], self.y)
         return (cast(Path, self.y),)
 
     @property
     def has_wildcards(self) -> bool:
+        """Whether ``x`` or any y path contains the ``"*"`` wildcard."""
         return WILDCARD in self.x or any(WILDCARD in p for p in self.y_paths)
 
 

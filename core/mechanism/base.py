@@ -93,14 +93,16 @@ class Mechanism(ABC):
         bindings = getattr(self, "bindings", None) or {}
         return {name: binding(env) for name, binding in bindings.items()}
 
-    def action(self, action_dict: MultiAgentDict, **kwargs) -> MultiAgentDict:
+    def action(self, action_dict: MultiAgentDict, **kwargs: Any) -> MultiAgentDict:
         """Transform agent actions (identity by default)."""
         return action_dict
 
-    def observation(self, observation_dict: MultiAgentDict, **kwargs) -> MultiAgentDict:
+    def observation(
+        self, observation_dict: MultiAgentDict, **kwargs: Any
+    ) -> MultiAgentDict:
         """Transform agent observations (identity by default)."""
         return observation_dict
 
-    def reward(self, reward_dict: MultiAgentDict, **kwargs) -> MultiAgentDict:
+    def reward(self, reward_dict: MultiAgentDict, **kwargs: Any) -> MultiAgentDict:
         """Transform agent rewards (identity by default)."""
         return reward_dict

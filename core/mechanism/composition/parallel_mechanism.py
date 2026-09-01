@@ -61,9 +61,11 @@ class ParallelMechanism(Mechanism):
 
     @property
     def dimension(self) -> int:
+        """Sum of the children's dimensions."""
         return sum(child.dimension for child in self.children)
 
     def param_names(self) -> list[str]:
+        """Children's parameter names prefixed by ``"<index>:<ClassName>."``."""
         names: list[str] = []
         for index, child in enumerate(self.children):
             prefix = f"{index}:{type(child).__name__}"
@@ -71,16 +73,20 @@ class ParallelMechanism(Mechanism):
         return names
 
     def encode(self) -> np.ndarray:
+        """Concatenate the children's encodings in tuple order."""
         return _concat(child.encode() for child in self.children)
 
     def to_vector(self) -> np.ndarray:
+        """Concatenate the children's agent-facing vectors in tuple order."""
         return _concat(child.to_vector() for child in self.children)
 
     def decode(self, x: np.ndarray) -> ParallelMechanism:
+        """Slice ``x`` by child dimension and return a copy with decoded children."""
         x = self._validate(x)
         return replace(self, children=tuple(_decode_children(self.children, x)))
 
     def clip(self) -> ParallelMechanism:
+        """Return a copy whose children are each clipped."""
         return replace(self, children=tuple(child.clip() for child in self.children))
 
     # --- channels -------------------------------------------------------------
@@ -95,24 +101,42 @@ class ParallelMechanism(Mechanism):
 
     @override(Mechanism)
     def action(
-        self, action_dict: MultiAgentDict, *, env: Any, **kwargs
+        self, action_dict: MultiAgentDict, *, env: Any, **kwargs: Any
     ) -> MultiAgentDict:
+        """Apply every child's ``action`` to a deep copy of ``action_dict`` and merge.
+
+        Each child receives ``kwargs`` merged with its own bindings resolved
+        against ``env``; ``action_merge(original, outputs)`` combines the
+        results, with ``outputs`` in child order.
+        """
         return self.action_merge(
             action_dict, self._fan_out("action", action_dict, env, kwargs)
         )
 
     @override(Mechanism)
     def reward(
-        self, reward_dict: MultiAgentDict, *, env: Any, **kwargs
+        self, reward_dict: MultiAgentDict, *, env: Any, **kwargs: Any
     ) -> MultiAgentDict:
+        """Apply every child's ``reward`` to a deep copy of ``reward_dict`` and merge.
+
+        Each child receives ``kwargs`` (e.g. ``action_after``) merged with its
+        own bindings resolved against ``env``; ``reward_merge`` combines the
+        results in child order.
+        """
         return self.reward_merge(
             reward_dict, self._fan_out("reward", reward_dict, env, kwargs)
         )
 
     @override(Mechanism)
     def observation(
-        self, observation_dict: MultiAgentDict, *, env: Any, **kwargs
+        self, observation_dict: MultiAgentDict, *, env: Any, **kwargs: Any
     ) -> MultiAgentDict:
+        """Apply every child's ``observation`` to a deep copy and merge.
+
+        Each child receives ``kwargs`` merged with its own bindings resolved
+        against ``env``; ``observation_merge`` combines the results in child
+        order.
+        """
         return self.observation_merge(
             observation_dict,
             self._fan_out("observation", observation_dict, env, kwargs),

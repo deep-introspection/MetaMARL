@@ -326,7 +326,7 @@ class World:
                 )
 
     # Mutators
-    def append_context(self, ctx: Context, *, singleton: bool = False):
+    def append_context(self, ctx: Context, *, singleton: bool = False) -> ContextID:
         """Register a context, assigning it a fresh ID.
 
         This is the path used by ``BaseEnv._publish`` for every mechanism and
@@ -515,7 +515,7 @@ class World:
         for ctx_id in to_delete:
             del self._mechanism_registry[ctx_id]
 
-    def flush_ctx(self, ctx_ids: list[ContextID]):
+    def flush_ctx(self, ctx_ids: list[ContextID]) -> None:
         """Remove contexts from the context registry.
 
         Parameters

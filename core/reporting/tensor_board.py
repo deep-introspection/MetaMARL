@@ -33,6 +33,7 @@ class TensorBoardConfig(ReporterConfig):
         self.log_dir = Path(log_dir)
 
     def build(self, *, label: Optional[str] = None) -> TensorBoardReporter:
+        """Create a :class:`TensorBoardReporter` logging under ``log_dir/project/<world>[-<label>]/``."""
         name = f"{self.world}-{label}" if label is not None else str(self.world)
         return TensorBoardReporter(log_dir=self.log_dir / self.project_name / name)
 
@@ -46,6 +47,7 @@ class TensorBoardReporter(Reporter):
 
     @property
     def log_dir(self) -> Path:
+        """Directory of the TensorBoard event files."""
         return self._log_dir
 
     def _get_writer(self) -> SummaryWriter:
@@ -99,6 +101,7 @@ class TensorBoardReporter(Reporter):
         writer.flush()
 
     def close(self) -> None:
+        """Close the summary writer if it was opened; a later ``report`` reopens one."""
         if self._writer is not None:
             self._writer.close()
             self._writer = None

@@ -215,9 +215,11 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
 
     @property
     def published_mechanism_assigned(self) -> bool:
+        """Whether a candidate fetched from the ``World`` (not the template) is in force."""
         return self.m is not None and not self._using_default_mechanism
 
     def set_opt_id(self, opt_id: OptimizerID) -> None:
+        """Set the optimizer identifier stamped on every context this env publishes."""
         self._opt_id = opt_id
 
     # --- helpers -------------------------------------------------------------------
@@ -296,8 +298,27 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
 
     @override(MultiAgentEnv)
     def reset(
-        self, *, seed=None, options=None
+        self,
+        *,
+        seed: Optional[int] = None,
+        options: Optional[dict[str, Any]] = None,
     ) -> tuple[MultiAgentDict, MultiAgentDict]:
+        """Start a new episode under the mechanism currently in force.
+
+        The step counter restarts and the episode identity (``env_id``,
+        ``mechanism_id``, ``seed``, ``policy_seed``) is logged. If no published
+        candidate has been assigned yet, one is fetched from the ``World`` by
+        ``mechanism_id``; otherwise the current mechanism is kept for the whole
+        run. The benchmark ``@reset`` hook then produces the initial state
+        ``S_t``, per-agent infos and previous actions are cleared, and the
+        initial observations go through :meth:`observation`. Both ``seed`` and
+        ``options`` are ignored: the environment seed is fixed at construction.
+
+        Returns
+        -------
+        tuple[MultiAgentDict, MultiAgentDict]
+            Per-agent initial observations and per-agent (empty) infos.
+        """
         # The env seed is fixed at construction; RLlib's per-reset seed is ignored.
         self._t = 0
 
@@ -328,6 +349,28 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
     ) -> tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
+        """Run one regulated step of the benchmark (see the module docstring).
+
+        Raw policy outputs go through :meth:`action`; the benchmark ``@reward``
+        hook computes the intrinsic rewards on the current state and delivered
+        actions, the ``@transition`` hook advances ``S_t``, :meth:`reward`
+        applies the mechanism's reward transform (with ``action_after`` set to
+        the delivered actions) and :meth:`observation` builds the next
+        observations. Rewards are logged per agent and as ``reward_mean``, the
+        intrinsic rewards are recorded in the infos as ``intrinsic_utility``,
+        and an ``EnvStepContext`` is published to the ``World``. Episodes never
+        terminate; ``truncated["__all__"]`` becomes ``True`` at ``horizon``.
+
+        Before any candidate mechanism has been published (RLlib's environment
+        checks), the step is inert: zero rewards, no dynamics, nothing
+        published.
+
+        Returns
+        -------
+        tuple
+            ``(obs, rewards, terminated, truncated, infos)``, each keyed by
+            agent ID; ``terminated`` and ``truncated`` also carry ``"__all__"``.
+        """
         # policy outputs -> normalized, benchmark-adjusted, mechanism-regulated actions
         actions = self.action(action_dict)
 
@@ -399,7 +442,7 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         mechanism = self.mechanism
         return mechanism.action(action_dict, env=self, **mechanism.resolve(self))
 
-    def reward(self, reward_dict: MultiAgentDict, **kwargs) -> MultiAgentDict:
+    def reward(self, reward_dict: MultiAgentDict, **kwargs: Any) -> MultiAgentDict:
         """``r* = M^R(r, s, a*, s')``: mechanism reward transform of the base reward."""
         mechanism = self.mechanism
         return mechanism.reward(
