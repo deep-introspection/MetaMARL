@@ -33,7 +33,7 @@ step) and must be updated before a break or a phase change.
 | `core/mechanism/` | the mechanism abstraction (see the branch-specific README section) |
 | `core/world/` | `World` actor and the context schemas (`MechanismStatus` lifecycle) |
 | `core/reporting/` | reporting backends |
-| `examples/registry.py` | string-to-class registry for the YAML experiment loaders (`examples/*/bilevel.py`) |
+| `examples/registry.py` | string-to-class registry; its only consumer is `examples/fresh_water/bilevel.py`, which imports the broken fresh-water modules and does not run on this branch |
 | `core/callbacks.py` | `tag_episode_with_env_idx`: encodes `env|m|ps|ss` in the episode id so RLlib maps episodes to policies |
 | `examples/bilevel_fishery/` | reference benchmark: `regulated_env*.py`, `regulator_env.py`, `contexts.py` (fitness), `debug.py` (runnable config) |
 | `tests/` | `unit` (no Ray, `FakeWorld` fixture), `integration` (real `World` actor), `notebook` (nbconvert) |
@@ -61,16 +61,21 @@ step) and must be updated before a break or a phase change.
 
 ```bash
 uv sync --group dev
-uv run ruff check . && uv run ruff format --check .
+uv run ruff check core tests examples/bilevel_fishery examples/cartpole examples/dummy tutorials
+uv run ruff format --check .
 uv run python -m pytest -m "not integration and not notebook"      # fast, with coverage
 uv run python -m pytest -m integration --no-cov                      # starts a local Ray
 uv run python -m pytest -m notebook --no-cov                         # executes tutorials/
 WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug   # the reference run
 ```
 
-Coverage is measured on `core/` minus the Ray adaptors and the World
-(`[tool.coverage]` in `pyproject.toml`); those are exercised by the
-integration suite. Target: above 90 % on the pure modules.
+The lint command lists its targets because `examples/fresh_water` still fails
+`ruff` and is excluded until it is ported (see `docs/MERGE_NOTES.md`).
+
+Coverage is measured on all of `core/` with no omit list (`[tool.coverage]` in
+`pyproject.toml`): the Ray actors are unit-tested through their unwrapped
+classes (`X.__ray_metadata__.modified_class`) without a runtime. Target: above
+90 % on every module.
 
 ## Conventions
 
@@ -80,6 +85,10 @@ integration suite. Target: above 90 % on the pure modules.
   docstring saying what it is for.
 - Validation of public parameters raises `ValueError`; `assert` is for
   internal invariants only.
+- Every public symbol (a name not starting with `_`) in `core/` and
+  `examples/bilevel_fishery/` carries a docstring and full type hints; the
+  pass of 2026-09-01 (commit `7fc1294`) brought the tree to that state, keep
+  it there.
 - Tests: TDD when fixing a bug (a failing test first), `pytest` markers
   `unit`/`integration`/`notebook`, no Ray in unit tests (use `FakeWorld` and
   `FakeReporter` from `tests/conftest.py`).
@@ -113,9 +122,9 @@ integration suite. Target: above 90 % on the pure modules.
 
 ## Where to look when something is off
 
-- A run hangs or crawls after a few generations: see the July 2026 notes in
-  `docs/REPRISE.md` (RLlib `Algorithm` rebuilt every generation, W&B table
-  re-rendering).
+- A run hangs or crawls after a few generations: see the notes of the
+  2026-08-27 handoff week in `docs/REPRISE.md` (RLlib `Algorithm` rebuilt
+  every generation, W&B table re-rendering).
 - Fitness is `-inf` for a candidate: no `EnvStepContext` reached the World
   for that candidate; check the mechanism lifecycle (`MechanismStatus`) and
   the episode tagging callback.

@@ -284,10 +284,35 @@ purpose. Nothing was fixed. Points already listed above are not repeated.
     `integration` and `notebook` items last. Any future unit test that patches a
     module-level name used by a Ray actor method has the same exposure.
 
+26. `examples/cartpole/*` and `examples/dummy/*` are written against the pre-mechanism
+    API and fail at import, like fresh-water (measured 2026-09-01 on `7fc1294` with
+    `WANDB_MODE=offline uv run python -m examples.cartpole.main_appo 2>&1 | tail -3`).
+    `CartpoleRegulatedEnv` overrides `aggregate_rewards`, which the base env renamed
+    `reward`, so the `@override` check raises `NameError` first; renaming the hook alone
+    does not fix them, because the same entry point then fails on
+    `from core.mechanism.space import MechanismSpace` in `examples/dummy/mechanism.py`,
+    a module deleted by the mechanism refactor. They pass `ruff` and are therefore in
+    the CI lint targets, but nothing exercises them. Their fate goes with the fresh-water
+    cleanup decision: port them to the hook decorators and a `Mechanism` subclass, or
+    delete them.
+
+27. A stale `src/` directory sits at the repository root: an empty package skeleton
+    (`src/bilevel_fishery/{ecology,envs}/`, no Python files) plus a
+    `src/bilevel_fishery.egg-info/` from an earlier editable install. Git shows nothing
+    because the egg-info matches the `*.egg-info/` rule and empty directories are not
+    tracked, so a fresh clone does not have it and no `.gitignore` rule names `src/`.
+    Recommendation: delete the directory on the working copies that have it (nothing in
+    `core/` or `examples/` imports from `src/`), or add `src/` to `.gitignore` if the
+    editable install is ever recreated.
+
 ## Conflict map between the two features
 
 A trial merge of `feature/logging-testing` into `feature/social-influence-testing`
-(2026-08-27 evening, discarded) produced 30 conflicting files, in four groups:
+(2026-08-27 evening, discarded) produced 30 conflicting files, in four groups.
+This map is kept as the early estimate only: the merge actually executed on
+2026-08-28 on `feature/integration-trial` met 45 conflicting files, and its
+outcome is described in `docs/REPRISE.md` (Bonus C) and in that branch's own
+`docs/MERGE_NOTES.md` ("Integration trial").
 
 1. **Delete vs modify, resolve by deleting** — the logging branch deleted
    `core/reporting/utils/*.py` (5 files) and moved the fishery variants to

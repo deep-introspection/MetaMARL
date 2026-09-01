@@ -62,7 +62,7 @@ core/                     the library
 examples/
   bilevel_fishery/        the fishery benchmark (regulated env, regulator env, config scripts)
   fresh_water/            a water-allocation benchmark (Raven hydrological model)
-  registry.py             name-to-class registry for the YAML experiment loaders
+  registry.py             name-to-class registry; only used by fresh_water/bilevel.py, which does not run here
   cartpole/, dummy/       minimal sanity examples
 tests/                    pytest suite (markers: unit, integration, notebook)
 tutorials/                executable notebooks (feature branches)
@@ -108,14 +108,18 @@ gives the same mechanism template to both levels. `QUICKSTART.md` runs it;
 ## Development
 
 ```bash
-uv run ruff check . && uv run ruff format --check .
+uv run ruff check core tests examples/bilevel_fishery examples/cartpole examples/dummy tutorials
+uv run ruff format --check .
 uv run python -m pytest -m "not integration and not notebook"   # unit tests + coverage
 uv run python -m pytest -m integration --no-cov                   # needs a local Ray runtime
 uv run python -m pytest -m notebook --no-cov                      # executes the tutorials
 ```
 
-Continuous integration (`.github/workflows/ci.yml`) runs the lint, unit and
-integration jobs on every push. `AGENTS.md` documents the conventions and the
+The lint command lists its targets because `examples/fresh_water` still fails
+`ruff` (four undefined names and one unsorted import block) and stays excluded
+until it is ported to the current API. Continuous integration
+(`.github/workflows/ci.yml`) runs the same lint, unit and integration jobs on
+every push. `AGENTS.md` documents the conventions and the
 traps for contributors and coding assistants.
 
 ## Branches

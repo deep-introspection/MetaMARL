@@ -34,7 +34,7 @@ Primary concerned files:
 ```text
 core/envs/hooks.py
 core/envs/marl_regulated.py
-core/envs/regulated.py
+core/envs/regulated.py            # deleted by the mechanism refactor; its logic lives in marl_regulated.py
 core/mechanism/algorithms/penalty.py
 core/mechanism/algorithms/quota.py
 core/mechanism/algorithms/social_influence.py
@@ -42,7 +42,7 @@ core/mechanism/algorithms/subsidy.py
 core/mechanism/base.py
 core/mechanism/composition/chained_mechanism.py
 core/mechanism/composition/parallel_mechanism.py
-core/mechanism/space.py
+core/mechanism/space.py           # deleted by the mechanism refactor; dimension/encode/decode live on Mechanism
 core/types.py
 ```
 
@@ -917,7 +917,7 @@ tests/mechanism/algorithms/test_social_influence.py
 
 tests/mechanism/composition/test_chained_mechanism.py
 tests/mechanism/composition/test_parallel_mechanism.py
-tests/mechanism/test_space.py
+tests/mechanism/test_space.py     # dropped with core/mechanism/space.py; encode/decode are tested per algorithm under tests/mechanism/
 
 tests/examples/test_fishery_regulated_env.py
 tests/integration/test_fishery_mechanisms.py

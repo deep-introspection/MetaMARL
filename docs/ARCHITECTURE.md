@@ -8,7 +8,7 @@ tutorials in `tutorials/` cover the same ground pedagogically.
 
 ```
 BilevelConfig.build_optimizer()
-   |-- RayRuntime.ensure_initialized()                 start Ray (local mode)
+   |-- RayRuntime.ensure_initialized(cfg)              start Ray (local mode) unless already running
    |-- World.options(name).remote()                    the shared blackboard actor
    |-- inner_cfg.build_optimizer(world=...)            RayOptimizer -> PolicyActor -> RLlib Algorithm
    |       env_creator -> MultiAgentRegulatedEnv x (num_envs_per_env_runner)
@@ -100,9 +100,13 @@ outer env so that one `MechanismContext` is published per (candidate, seed).
 - **A new mechanism** must be a pure value object that can be encoded to and
   decoded from a normalized vector; how it is applied depends on the branch
   (see the branch README).
-- **A new reporting backend** implements the reporter interface of
-  `core/reporting/`; on the logging feature branch that means rendering
-  labeled `Series` resolved from `Query` objects.
+- **A new reporting backend** has no interface to implement on this branch:
+  `core/reporting/` holds the legacy `WandbReporter` Ray actor
+  (`core/reporting/wandb.py`), the `ReporterType` enum and the plotting
+  helpers of `core/reporting/utils/*` (step contexts, reduced env metrics, ES
+  populations, RLlib results). The reporter interface with `Series` resolved
+  from `Query` objects lives on the logging branch (`feature/logging-testing`,
+  `core/reporting/base.py`), which is where a new backend should be added.
 
 ## Testing strategy
 

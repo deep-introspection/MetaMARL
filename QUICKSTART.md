@@ -19,7 +19,8 @@ uv sync --group dev
 uv run python -m pytest -m "not integration and not notebook"
 ```
 
-About 150 unit tests run in a few seconds, with a coverage table for `core/`.
+About 450 unit tests run in under half a minute, with a coverage table for
+`core/` (451 passed on 2026-09-01, commit `7fc1294`).
 
 ## 3. Run a short experiment
 
@@ -35,7 +36,7 @@ evaluates them, and runs two ES generations. It takes about a minute. The log
 shows the per-parameter ES gradients and ends with:
 
 ```
-[ES] gen=2 | best=... | mean=...+/-... | sigma=0.1500
+[ES] gen=2 | best=... | mean=...+/-... | var=... | sigma=0.1500
 [Bilevel] Run finished | iters=2 | converged=False | best_fitness=...
 ```
 
@@ -47,7 +48,11 @@ Plots go to an offline W&B run under `wandb/` (`wandb sync` uploads it later).
 
 ```python
 ChainedMechanism(children=(
-    QuotaMechanism(fixed_quota=0.56, bindings={"resource_level": lambda env: env.S_t["fish"] / env.K}),
+    QuotaMechanism(
+        fixed_quota=0.56224,
+        action_component=0,
+        bindings={"resource_level": lambda env: env.S_t["fish"] / max(env.K, EPS)},
+    ),
     SubsidyMechanism(subsidy=0.10, cost=0.05, action_component=1),
     SocialInfluenceMechanism(bindings={"previous_actions": ..., "agent_ids": ...}),
 ))
@@ -55,10 +60,12 @@ ChainedMechanism(children=(
 
 The quota caps the harvest fraction (action component 0) as the stock falls,
 the subsidy rewards restoration effort (action component 1), and the social
-mechanism shows each fisher the other fishers' last actions. `fixed_quota` and
-`subsidy` are the two optimized parameters (`mechanism.param_names()`); the
-other two mechanisms are fixed. `BilevelConfig().mechanism(mechanism=...)`
-hands the composite to both levels.
+mechanism shows each fisher the other fishers' last actions. The composite has
+dimension 2 and `mechanism.param_names()` returns `["fixed_quota",
+"restoration_subsidy"]`: the quota level and the subsidy rate are optimized,
+while `SocialInfluenceMechanism` has dimension 0 and contributes no parameter
+(`EPS` guards the division when the carrying capacity is zero).
+`BilevelConfig().mechanism(mechanism=...)` hands the composite to both levels.
 
 ## 5. Learn the mechanics
 
