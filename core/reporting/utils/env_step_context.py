@@ -1,6 +1,17 @@
+"""Log a single ``EnvStepContext`` to W&B as per-agent scalars and line plots.
+
+This legacy helper backs ``WandbReporter.plot_env_step``. The private
+``_extract_*`` functions flatten rewards, actions, observations and infos of
+one step into ``{series_name: value}`` dictionaries, which
+:func:`plot_env_step_context` logs under ``<prefix>/...`` and accumulates into
+multi-line plots keyed by the run.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Optional
+
+from wandb.sdk.wandb_run import Run
 
 import wandb
 from core.utils import flatten_numeric, sanitize_key, to_float
@@ -221,13 +232,19 @@ _ENV_INFO_TABLES: dict[int, dict[str, wandb.Table]] = {}
 
 
 def plot_env_step_context(
-    wandb_run,
+    wandb_run: Optional[Run],
     *,
     ctx: Context,
     prefix: str = "env",
     obs_keys_skip: Optional[set[str]] = None,
     infos_keys_skip: Optional[set[str]] = None,
 ) -> None:
+    """Log the mechanism index, seed, rewards, actions, observations and infos of one step.
+
+    Returns immediately when ``wandb_run`` is ``None`` or ``ctx`` does not
+    carry an ``EnvStepContext`` payload. ``obs_keys_skip`` and
+    ``infos_keys_skip`` name the observation and info entries to leave out.
+    """
     if wandb_run is None:
         return
     if ctx is None or not isinstance(ctx.payload, EnvStepContext):

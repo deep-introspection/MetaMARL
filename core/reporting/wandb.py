@@ -1,3 +1,13 @@
+"""Weights & Biases reporting actor.
+
+``WandbReporter`` is the only reporting backend of this branch: a Ray actor
+that owns one ``wandb.Run`` and turns serializable payloads (RLlib result
+dicts, ``EnvStepContext`` records, ES populations) into W&B scalars and
+plots through the helpers in ``core.reporting.utils``. The ``World`` and the
+optimizers hold its ``ActorHandle`` and call the ``plot_*`` methods remotely;
+the run object itself never leaves the actor.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -60,6 +70,11 @@ class WandbReporter:
         hidden: bool | None = None,
         summary: str | None = None,
     ) -> None:
+        """Forward a ``wandb.Run.define_metric`` call with the given options.
+
+        Only the options that are not ``None`` are passed on, so the W&B
+        defaults apply to the others.
+        """
         kwargs: dict[str, Any] = {}
         if step_metric is not None:
             kwargs["step_metric"] = step_metric
@@ -71,13 +86,16 @@ class WandbReporter:
         self._run.define_metric(name, **kwargs)
 
     def log(self, payload: dict[str, Any], step: int | None = None) -> None:
+        """Log one dictionary of scalars to the run, optionally at ``step``."""
         self._run.log(payload, step=step)
 
     def log_many(self, records: list[dict[str, Any]]) -> None:
+        """Log several records, each a dict with ``payload`` and an optional ``step``."""
         for record in records:
             self._run.log(record["payload"], step=record.get("step"))
 
     def finish(self) -> None:
+        """Close the W&B run; further calls are no-ops."""
         if self._run is not None:
             self._run.finish()
             self._run = None
@@ -105,6 +123,26 @@ class WandbReporter:
         log_mechanism_shaded_plots: bool = True,
         log_raw_rllib_episode_metrics: bool = False,
     ) -> None:
+        """Plot one RLlib training (or evaluation) iteration under ``prefix``.
+
+        Delegates to ``plot_training_results_new_stack`` after defining the
+        ``<prefix>/train_step`` step metric. A prefix ending in ``/eval``
+        marks evaluation results and disables the learner multi-line plots.
+        The remaining keyword arguments are forwarded as plotting and
+        UI-spam controls; note that ``log_raw_rllib_episode_metrics`` is
+        forced to ``True`` regardless of the value passed.
+
+        Parameters
+        ----------
+        outer_iter : int
+            Outer (ES) generation the iteration belongs to.
+        training_episode : int
+            Inner training iteration index, used as the step metric.
+        results : dict
+            Raw RLlib result dictionary of the iteration.
+        prefix : str
+            Metric namespace, for example ``"appo/train"``.
+        """
         self._ensure_prefix_metrics(prefix)
         is_eval = prefix.endswith("/eval")
         plot_training_results_new_stack(
@@ -135,6 +173,10 @@ class WandbReporter:
         prefix: str = "env",
         obs_keys_skip: Optional[set[str]] = None,
     ) -> None:
+        """Log the scalars of one ``EnvStepContext`` under ``prefix``.
+
+        ``obs_keys_skip`` names observation entries that are not logged.
+        """
         self._ensure_prefix_metrics(prefix)
         plot_env_step_context(
             wandb_run=self._run, ctx=ctx, prefix=prefix, obs_keys_skip=obs_keys_skip
@@ -150,6 +192,13 @@ class WandbReporter:
         reducers: list[ReductionSpec],
         prefix: str = "env_reduced",
     ) -> None:
+        """Reduce a batch of ``EnvStepContext`` records and plot the summaries.
+
+        Each ``ReductionSpec`` in ``reducers`` selects a field and a
+        reduction; the resulting per-episode summaries are logged under
+        ``prefix`` against ``training_episode`` (see
+        ``core.reporting.utils.env_reduced``).
+        """
         self._ensure_prefix_metrics(prefix)
         plot_env_reduced(
             wandb_run=self._run,

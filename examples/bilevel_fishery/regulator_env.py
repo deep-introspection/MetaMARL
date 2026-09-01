@@ -1,3 +1,13 @@
+"""Regulator environment of the fishery example: scores mechanism candidates.
+
+``FisheryRegulatorEnv`` is the environment the ES outer optimizer steps. A
+step publishes the population of candidate mechanisms, runs the inner
+optimizer (handled by the ``RegulatorEnv`` base class) and, in
+:meth:`FisheryRegulatorEnv.aggregate_rewards`, turns the ``EnvStepContext``
+records the inner environments published to the ``World`` into one fitness
+per candidate through a ``FitnessContext``.
+"""
+
 import logging
 from collections import defaultdict
 from typing import Any
@@ -19,14 +29,23 @@ logger = logging.getLogger(__name__)
 
 
 class FisheryRegulatorEnv(RegulatorEnv):
-    """
-    Outer-loop environment for fishery mechanism optimization.
+    """Outer-loop environment that scores fishery mechanism candidates.
 
-    Responsibilities:
-      - Publish candidate mechanisms
-      - Run inner PPO optimizer
-      - Collect performance metrics
-      - Convert to scalar ES reward
+    The fitness of a candidate is computed on the last ``fitness_tail_steps``
+    steps of each inner (mechanism, seed) run (tail averaging), on the
+    ``train`` or ``eval`` split selected by ``aggregation_status``. The
+    per-step trajectories of every run are kept in ``trajectories`` for the
+    ES optimizer to return the best candidate's one.
+
+    Parameters
+    ----------
+    ecology_cfg : dict
+        ``sustainability_weight`` (weight of the mean normalized biomass in
+        the objective, default 5.0), ``sustainability_threshold`` (normalized
+        biomass below which a step counts as collapsed, default 0.1), ``K``
+        (carrying capacity, biomass units, used to denormalize the threshold
+        for plots), ``aggregation_status`` (``"train"`` or ``"eval"``, default
+        ``"eval"``) and ``fitness_tail_steps`` (default 50).
     """
 
     def __init__(
@@ -52,6 +71,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
     @override(RegulatorEnv)
     def observation(self, obs: ObsType) -> ObsType:
+        """Return a constant ``0.0``: the ES outer loop is stateless and ignores observations."""
         return 0.0
 
     @override(RegulatorEnv)

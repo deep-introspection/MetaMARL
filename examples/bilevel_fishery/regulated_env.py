@@ -27,6 +27,7 @@ model. Inter-American Tropical Tuna Commission Bulletin, 13(3), 416-497.
 """
 
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -112,6 +113,13 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
     @reset
     def reset_fishery(self) -> dict[str, float]:
+        """Draw the initial stock and return the initial state.
+
+        The initial biomass is ``fish_init`` (biomass units) when
+        ``initial_stock_log_sigma`` is zero, otherwise a log-normal draw
+        around it, clipped to ``[EPS, K]``. ``last_usage`` (previous total
+        harvest, biomass units) starts at zero.
+        """
         if self.initial_stock_log_sigma == 0.0:
             initial_fish = self.fish_init
         else:
@@ -139,8 +147,45 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
     @transition
     def pella_tomlinson(
-        self, *, A_t: MultiAgentDict, S_t: dict, **kwargs
+        self, *, A_t: MultiAgentDict, S_t: dict, **kwargs: Any
     ) -> dict[str, float]:
+        """Advance the stock by one step of the Pella-Tomlinson surplus-production model.
+
+        With biomass ``B`` (biomass units), the surplus production is
+        ``(r / p) * B * (1 - (B / K) ** p)``; ``p = 1`` recovers the Schaefer
+        logistic model. Multiplicative Gaussian process noise
+        (``sigma * N(0, 1) * B``) and the restoration biomass
+        (``restoration_effectiveness`` times the summed restoration efforts)
+        are added, then the realized total harvest, capped by the available
+        biomass, is removed and the result clipped to ``[0, K]``. Each
+        agent's harvest request is its harvest fraction (``action[0]``, in
+        ``[0, 1]``) times the maximal per-agent request
+        ``m * F_msy * B / N``.
+
+        Parameters
+        ----------
+        A_t : dict[AgentID, array]
+            Actions delivered by the mechanism, ``(harvest_fraction,
+            restoration_effort)`` per agent.
+        S_t : dict
+            Current state with ``fish`` (biomass) and ``last_usage``.
+
+        Returns
+        -------
+        dict[str, float]
+            New state: ``fish`` (biomass after harvest) and ``last_usage``
+            (realized total harvest, biomass units). Per-step infos are
+            updated as a side effect.
+
+        References
+        ----------
+        Schaefer, M. B. (1954). Some aspects of the dynamics of populations
+        important to the management of the commercial marine fisheries.
+        Inter-American Tropical Tuna Commission Bulletin, 1(2), 27-56.
+        Pella, J. J., & Tomlinson, P. K. (1969). A generalized stock
+        production model. Inter-American Tropical Tuna Commission Bulletin,
+        13(3), 416-497.
+        """
         fish = float(S_t["fish"])
         full_required_harvest = self._full_required_harvest(fish)
 
@@ -190,6 +235,13 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
 
     @observation
     def fishery_observation(self, observation_dict: MultiAgentDict) -> MultiAgentDict:
+        """Give every agent the same ``[fish_norm, total_usage_norm]`` observation.
+
+        Both entries are fractions of the carrying capacity ``K``: the current
+        biomass and the previous step's realized total harvest. The array has
+        shape ``(2,)`` and dtype ``float32``; mechanisms append their own
+        observation components afterwards.
+        """
         fish_norm = float(self.S_t["fish"]) / self.K
         total_usage_norm = float(self.S_t.get("last_usage", 0.0)) / self.K
         observation = np.array([fish_norm, total_usage_norm], dtype=np.float32)

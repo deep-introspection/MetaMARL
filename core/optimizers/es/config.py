@@ -1,6 +1,6 @@
 """Hyperparameters of the Evolution Strategies outer optimizer."""
 
-from typing import Optional, Self
+from typing import Any, Optional, Self
 
 from core.annotations import override
 from core.optimizers.config import OptimizerConfig
@@ -48,7 +48,7 @@ class ESConfig(OptimizerConfig):
         convergence_eps: Optional[float] = None,
         convergence_patience: Optional[int] = None,
         initial_mean: Optional[list[float]] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Self:
         """Set the ES search hyperparameters. Unset arguments keep their current value.
 

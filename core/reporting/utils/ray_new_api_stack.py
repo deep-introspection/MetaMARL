@@ -1,3 +1,12 @@
+"""Turn RLlib new-API-stack result dictionaries into W&B scalars and plots.
+
+This legacy helper backs ``WandbReporter.plot_ray_result``. The ``extract_*``
+functions read episode returns, per-series (mechanism and seed) returns,
+performance counters and learner metrics out of a raw result dict, and
+:func:`plot_training_results_new_stack` logs them under a prefix with
+optional shaded per-mechanism plots.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -581,6 +590,12 @@ def extract_series_returns_newstack(results: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def extract_perf_newstack(results: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    """Read step counters, throughput and timers from a result dict.
+
+    Per-agent step counts are summed; throughput comes from the
+    ``since_last_reduce`` window with ``since_last_restore`` as fallback.
+    Missing or non-finite values are reported as ``None``.
+    """
     env = results.get("env_runners", {}) or {}
     timers = results.get("timers", {}) or {}
 

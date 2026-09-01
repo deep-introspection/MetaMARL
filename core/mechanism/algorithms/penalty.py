@@ -58,23 +58,32 @@ class ThresholdPenaltyMechanism(Mechanism):
 
     @property
     def dimension(self) -> int:
+        """Always ``0``: the penalty is a fixed rule with no optimized parameter."""
         # Fixed regulatory rule: nothing is optimized.
         return 0
 
     def encode(self) -> np.ndarray:
+        """Return an empty ``float32`` vector (nothing is optimized)."""
         return np.empty(0, dtype=np.float32)
 
     def decode(self, x: np.ndarray) -> Self:
+        """Validate that ``x`` is empty and return this instance unchanged."""
         self._validate(x)
         return self
 
     def clip(self) -> Self:
+        """Return this instance: the parameters are validated at construction."""
         return self
 
     def param_names(self) -> list[str]:
+        """Return an empty list (nothing is optimized)."""
         return []
 
     def to_vector(self) -> np.ndarray:
+        """Expose ``[threshold, penalty_amount]`` to agents as a ``float32`` vector.
+
+        Both are fixed parameters; ``transition_width`` is not exposed.
+        """
         return np.array([self.threshold, self.penalty_amount], dtype=np.float32)
 
     # --- channels -------------------------------------------------------------
@@ -89,7 +98,12 @@ class ThresholdPenaltyMechanism(Mechanism):
         return float(self.penalty_amount / (1.0 + np.exp(z)))
 
     @override(Mechanism)
-    def reward(self, reward_dict: MultiAgentDict, **kwargs) -> MultiAgentDict:
+    def reward(self, reward_dict: MultiAgentDict, **kwargs: Any) -> MultiAgentDict:
+        """Subtract the same logistic penalty from every agent's reward.
+
+        Consumes the ``resource_level`` binding (normalized level in
+        ``[0, 1]``) from ``kwargs`` and returns rewards as Python floats.
+        """
         penalty = self.penalty(kwargs["resource_level"])
         return {
             agent_id: float(reward - penalty)

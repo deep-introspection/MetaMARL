@@ -1,3 +1,13 @@
+"""Reduce batches of ``EnvStepContext`` records into W&B tables and plots.
+
+This legacy helper backs ``WandbReporter.plot_env_reduced``. It flattens the
+step contexts published by the inner environments into long-form rows
+(``_ctx_to_metric_rows``), logs raw and wide tables for post-hoc analysis,
+builds per-iteration train/eval curves shaded by mechanism, and adds the
+hydrology-specific observed-versus-simulated panels used by the fresh-water
+example. Nothing here is consumed by the optimizers themselves.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,6 +15,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 import plotly.graph_objects as go
+from wandb.sdk.wandb_run import Run
 
 import wandb
 from core.reporting.utils.env_step_context import _extract_info_series
@@ -18,11 +29,20 @@ EPS = 1e-8
 
 @dataclass(frozen=True)
 class ReductionSpec:
+    """Named reduction applied to a batch of contexts.
+
+    ``name`` labels the reduction in the logged keys; ``fn`` maps the list of
+    contexts to one float. The default spec ``"auto_env_metrics"`` carries no
+    function and stands for the automatic per-field reduction performed by
+    :func:`plot_env_reduced`.
+    """
+
     name: str
     fn: Optional[Callable[[list[Context]], float]] = None
 
 
 def build_default_fishery_reduction_specs() -> list[ReductionSpec]:
+    """Return the single automatic reduction used when no reducers are configured."""
     return [ReductionSpec(name="auto_env_metrics")]
 
 
@@ -784,13 +804,34 @@ def _log_West_Montrose_observed_vs_simulated(
 
 def plot_env_reduced(
     *,
-    wandb_run,
+    wandb_run: Optional[Run],
     ctxs: list[Context],
     outer_iter: int,
     training_episode: int,
     reducers: list[ReductionSpec] | None = None,
     prefix: str = "env_reduced",
 ) -> None:
+    """Log tables and shaded plots summarising ``ctxs`` under ``prefix``.
+
+    The contexts are flattened into metric rows, logged as a long-form and a
+    wide table, then reduced per training iteration and phase (train/eval)
+    into mean and spread curves per mechanism. The global step is
+    ``outer_iter * 1_000_000 + training_episode``. Returns immediately when
+    ``wandb_run`` is ``None`` or ``ctxs`` is empty.
+
+    Parameters
+    ----------
+    wandb_run : wandb.Run
+        Active run owned by the reporter actor.
+    ctxs : list[Context]
+        ``EnvStepContext`` records fetched from the ``World``.
+    outer_iter, training_episode : int
+        Outer generation and inner iteration the batch belongs to.
+    reducers : list[ReductionSpec], optional
+        Reductions to apply; ``None`` selects the automatic per-field one.
+    prefix : str
+        Metric namespace.
+    """
     if wandb_run is None or not ctxs:
         return
 

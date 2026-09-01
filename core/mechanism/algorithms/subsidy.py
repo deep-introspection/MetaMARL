@@ -11,7 +11,7 @@ to the benchmark transition, not to this mechanism.
 """
 
 from dataclasses import dataclass, replace
-from typing import Self
+from typing import Any, Self
 
 import numpy as np
 
@@ -56,28 +56,44 @@ class SubsidyMechanism(Mechanism):
 
     @property
     def dimension(self) -> int:
+        """Always ``1``: only the subsidy rate is optimized."""
         return 1
 
     def encode(self) -> np.ndarray:
+        """Return ``[subsidy / MAX_SUBSIDY]`` as a ``float32`` vector in ``[0, 1]``."""
         return np.array([self.subsidy / MAX_SUBSIDY], dtype=np.float32)
 
     def decode(self, x: np.ndarray) -> Self:
+        """Return a copy with ``subsidy = x[0] * MAX_SUBSIDY`` (``cost`` is kept)."""
         x = self._validate(x)
         return replace(self, subsidy=float(x[0]) * MAX_SUBSIDY)
 
     def clip(self) -> Self:
+        """Return a copy with ``subsidy`` clipped to ``[0, MAX_SUBSIDY]``."""
         return replace(self, subsidy=float(np.clip(self.subsidy, 0.0, MAX_SUBSIDY)))
 
     def param_names(self) -> list[str]:
+        """Return ``["restoration_subsidy"]``."""
         return ["restoration_subsidy"]
 
     def to_vector(self) -> np.ndarray:
+        """Expose the encoded (normalized) subsidy rate to agents.
+
+        This is :meth:`encode`, i.e. ``subsidy / MAX_SUBSIDY``, not the raw
+        rate; ``cost`` is not exposed.
+        """
         return self.encode()
 
     # --- channels -------------------------------------------------------------
 
     @override(Mechanism)
-    def reward(self, reward_dict: MultiAgentDict, **kwargs) -> MultiAgentDict:
+    def reward(self, reward_dict: MultiAgentDict, **kwargs: Any) -> MultiAgentDict:
+        """Add ``subsidy * e_i - cost * e_i**2`` to each agent's reward.
+
+        Consumes ``action_after`` from ``kwargs``: the delivered actions
+        supplied by the environment (not a binding), from which the effort
+        ``e_i`` is read at ``action_component``. Returns Python floats.
+        """
         actions = kwargs["action_after"]
         shaped: MultiAgentDict = {}
         for agent_id, reward in reward_dict.items():

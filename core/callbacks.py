@@ -9,6 +9,7 @@ replaces RLlib's fixed-duration evaluation loop with a strict single round.
 """
 
 import logging
+from typing import Any
 
 from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
@@ -31,8 +32,8 @@ def tag_episode_with_env_idx(
     env_runner: MultiAgentEnvRunner,
     env: VectorMultiAgentEnv,
     env_index: int,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> None:
     """Rewrite the episode ID to carry the sub-environment identity.
 
     Registered as ``callbacks(on_episode_created=...)`` on the new API stack.

@@ -156,7 +156,9 @@ class RayOptimizerConfig(OptimizerConfig):
         # self._result_mapper: ResultMapper = None
 
     # TODO let mutator accept an explicit ID
-    def rllib_config_mutator(fn):
+    def rllib_config_mutator(
+        fn: Callable[..., AlgorithmConfig],
+    ) -> Callable[..., Self]:
         """Turn a builder into a recorder of a deferred ``RLlibConfigOp``.
 
         The decorated function has the signature ``fn(cfg, *args, **kwargs)``
@@ -167,7 +169,7 @@ class RayOptimizerConfig(OptimizerConfig):
         but is also exposed as an (unusable) instance method.
         """
 
-        def wrapper(self, *args, **kwargs):
+        def wrapper(self: Self, *args: Any, **kwargs: Any) -> Self:
             """Record the call and return ``self`` for chaining."""
             self._cfg_ops[fn.__name__] = RLlibConfigOp(fn=fn, args=args, kwargs=kwargs)
             return self
@@ -175,17 +177,17 @@ class RayOptimizerConfig(OptimizerConfig):
         return wrapper
 
     @rllib_config_mutator
-    def validate(cfg, **kwargs) -> None:
+    def validate(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Deferred ``AlgorithmConfig.validate``."""
         return cfg.validate(**kwargs)
 
     @rllib_config_mutator
-    def get_config_for_module(cfg, **kwargs) -> None:
+    def get_config_for_module(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Deferred ``AlgorithmConfig.get_config_for_module``."""
         return cfg.get_config_for_module(**kwargs)
 
     @rllib_config_mutator
-    def python_environment(cfg, **kwargs) -> None:
+    def python_environment(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Sets the config's python environment settings.
 
         Args:
@@ -197,22 +199,22 @@ class RayOptimizerConfig(OptimizerConfig):
         return cfg.python_environment(**kwargs)
 
     @rllib_config_mutator
-    def resources(cfg, **kwargs) -> None:
+    def resources(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Specifies resources allocated for an Algorithm and its ray actors/workers."""
         return cfg.resources(**kwargs)
 
     @rllib_config_mutator
-    def framework(cfg, **kwargs) -> None:
+    def framework(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Sets the config's DL framework settings."""
         return cfg.framework(**kwargs)
 
     @rllib_config_mutator
-    def api_stack(cfg, **kwargs) -> None:
+    def api_stack(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Sets the config's API stack settings."""
         return cfg.api_stack(**kwargs)
 
-    def model(self, **kwargs) -> Self:
-        """Sets the model configuration."""
+    def model(self, **kwargs: Any) -> Self:
+        """Record model keyword arguments to merge into ``cfg.model`` at build time."""
 
         def _set_model(cfg):
             """Merge the recorded kwargs into ``cfg.model``."""
@@ -223,11 +225,11 @@ class RayOptimizerConfig(OptimizerConfig):
         return self
 
     @rllib_config_mutator
-    def _env_runners(cfg, **kwargs) -> None:
+    def _env_runners(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Sets the rollout worker configuration."""
         return cfg.env_runners(**kwargs)
 
-    def env_runners(self, **kwargs) -> Self:
+    def env_runners(self, **kwargs: Any) -> Self:
         """Deferred ``AlgorithmConfig.env_runners`` that records the env count.
 
         ``num_envs_per_env_runner`` is read as the number of mechanism
@@ -240,16 +242,13 @@ class RayOptimizerConfig(OptimizerConfig):
         return self._env_runners(**kwargs)
 
     @rllib_config_mutator
-    def learners(cfg, **kwargs) -> None:
+    def learners(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Sets LearnerGroup and Learner worker related configurations."""
         return cfg.learners(**kwargs)
 
     @rllib_config_mutator
-    def callbacks(cfg, **kwargs) -> None:
-        """Sets the callbacks configuration.
-        Returns:
-            This updated AlgorithmConfig object.
-        """
+    def callbacks(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
+        """Deferred ``AlgorithmConfig.callbacks`` (episode and training hooks)."""
         return cfg.callbacks(**kwargs)
 
     # def evaluation(self, *, episodes: int = None, rollout_fragment_length: int, base_seed: Optional[int]=None, **kwargs) -> Self:
@@ -263,7 +262,7 @@ class RayOptimizerConfig(OptimizerConfig):
     #     return self
 
     @rllib_config_mutator
-    def _evaluation_rllib(cfg, **kwargs) -> None:
+    def _evaluation_rllib(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Deferred ``AlgorithmConfig.evaluation`` (raw pass-through)."""
         return cfg.evaluation(**kwargs)
 
@@ -272,8 +271,8 @@ class RayOptimizerConfig(OptimizerConfig):
         base_seed: Optional[int] = None,
         num_seeds: Optional[int] = None,
         seeds: Optional[list[int]] = None,
-        **kwargs,
-    ) -> None:
+        **kwargs: Any,
+    ) -> Self:
         """Configure evaluation seeds and record the RLlib evaluation call.
 
         Parameters
@@ -298,7 +297,7 @@ class RayOptimizerConfig(OptimizerConfig):
         Returns
         -------
         RayOptimizerConfig
-            ``self`` (the ``None`` annotation is inaccurate).
+            ``self`` for chaining.
 
         Raises
         ------
@@ -340,50 +339,38 @@ class RayOptimizerConfig(OptimizerConfig):
         return self._evaluation_rllib(**kwargs)
 
     @rllib_config_mutator
-    def offline_data(cfg, **kwargs) -> None:
+    def offline_data(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Deferred ``AlgorithmConfig.offline_data``."""
         return cfg.offline_data(**kwargs)
 
     @rllib_config_mutator
-    def multi_agent(cfg, **kwargs) -> None:
+    def multi_agent(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Sets the config's multi-agent settings."""
         return cfg.multi_agent(**kwargs)
 
     @rllib_config_mutator
-    def reporting(cfg, **kwargs) -> None:
-        """Sets the config's reporting settings.
-        Returns:
-            This updated AlgorithmConfig object.
-        """
+    def reporting(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
+        """Deferred ``AlgorithmConfig.reporting`` (RLlib's own reporting knobs)."""
         return cfg.reporting(**kwargs)
 
     @rllib_config_mutator
-    def checkpointing(cfg, **kwargs) -> None:
+    def checkpointing(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Deferred ``AlgorithmConfig.checkpointing``."""
         return cfg.checkpointing(**kwargs)
 
     @rllib_config_mutator
-    def fault_tolerance(cfg, **kwargs) -> None:
-        """Sets the config's fault tolerance settings.
-        Returns:
-            This updated AlgorithmConfig object.
-        """
+    def fault_tolerance(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
+        """Deferred ``AlgorithmConfig.fault_tolerance`` (worker restart policy)."""
         return cfg.fault_tolerance(**kwargs)
 
     @rllib_config_mutator
-    def rl_module(cfg, **kwargs) -> None:
-        """Sets the config's RLModule settings.
-        Returns:
-            This updated AlgorithmConfig object.
-        """
+    def rl_module(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
+        """Deferred ``AlgorithmConfig.rl_module`` (RLModule spec and model settings)."""
         return cfg.rl_module(**kwargs)
 
     @rllib_config_mutator
-    def experimental(cfg, **kwargs) -> None:
-        """Sets the config's experimental settings.
-        Returns:
-            This updated AlgorithmConfig object.
-        """
+    def experimental(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
+        """Deferred ``AlgorithmConfig.experimental`` (RLlib experimental flags)."""
         return cfg.experimental(**kwargs)
 
     def _parse_episode_identity(self, episode_id: str) -> dict[str, str]:
@@ -640,7 +627,7 @@ class RayOptimizerConfig(OptimizerConfig):
         world: ActorHandle[World],
         world_name: Optional[str] = None,
         reporting: ActorHandle[WandbReporter],
-    ):
+    ) -> RayOptimizer:
         """Resolve the RLlib config, register the env and build a ``RayOptimizer``.
 
         Steps, in order:
@@ -811,7 +798,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @rllib_config_mutator
     @override(OptimizerConfig)
-    def freeze(cfg, **kwargs) -> None:
+    def freeze(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Deferred ``AlgorithmConfig.freeze``.
 
         Records a freeze of the *RLlib* config for replay; it does not freeze
@@ -822,7 +809,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @rllib_config_mutator
     @override(OptimizerConfig)
-    def training(cfg, **kwargs) -> None:
+    def training(cfg: AlgorithmConfig, **kwargs: Any) -> Self:
         """Deferred ``AlgorithmConfig.training`` (algorithm hyperparameters)."""
         return cfg.training(**kwargs)
 
@@ -837,7 +824,7 @@ class RayOptimizerConfig(OptimizerConfig):
         *,
         seed: Optional[int] = None,  # base seed
         num_seeds: int = 3,
-        **kwargs,
+        **kwargs: Any,
     ) -> Self:
         """Set the training seeds and scale the env count accordingly.
 

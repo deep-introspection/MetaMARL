@@ -71,6 +71,16 @@ def observation_dim(mechanism: ChainedMechanism, num_agents: int) -> int:
 
 
 def build_config(args: argparse.Namespace) -> BilevelConfig:
+    """Assemble the full bilevel configuration from the parsed CLI arguments.
+
+    The outer level is an ``ESConfig`` on ``FisheryRegulatorEnv`` with a
+    fixed ``sigma`` (no adaptation); the inner level is an
+    ``APPOptimizerConfig`` on ``FisheryRegulatedEnv`` with one environment per
+    candidate (``--num-candidates``), ``--num-agents`` fishers sharing one
+    policy, and evaluation seeds derived from base seed 42. Reporting goes to
+    the Weights & Biases project ``--project``; Ray runs on CPU with
+    ``--num-cpus`` cores.
+    """
     mechanism = build_mechanism(social=not args.no_social)
     obs_dim = observation_dim(mechanism, args.num_agents)
 
@@ -229,7 +239,8 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
     )
 
 
-def parse_args(argv=None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse the command line (``None`` reads ``sys.argv``); see ``--help`` for the options."""
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -254,7 +265,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv=None) -> None:
+def main(argv: list[str] | None = None) -> None:
+    """Configure logging, build the bilevel optimizer, run it and shut Ray down."""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )

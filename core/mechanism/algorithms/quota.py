@@ -83,25 +83,32 @@ class QuotaMechanism(Mechanism):
 
     @property
     def dimension(self) -> int:
+        """Always ``1``: only ``fixed_quota`` is optimized."""
         return 1
 
     def encode(self) -> np.ndarray:
+        """Return ``[fixed_quota]`` as a ``float32`` vector (already in ``[0, 1]``)."""
         return np.array([self.fixed_quota], dtype=np.float32)
 
     def decode(self, x: np.ndarray) -> Self:
+        """Return a copy with ``fixed_quota`` set to ``x[0]`` (bindings are kept)."""
         x = self._validate(x)
         return replace(self, fixed_quota=float(x[0]))
 
     def clip(self) -> Self:
+        """Return a copy with ``fixed_quota`` clipped to ``[0, 1]``."""
         return replace(self, fixed_quota=float(np.clip(self.fixed_quota, 0.0, 1.0)))
 
     def param_names(self) -> list[str]:
+        """Return ``["fixed_quota"]``."""
         return ["fixed_quota"]
 
     def to_vector(self) -> np.ndarray:
+        """Expose ``[fixed_quota]`` to agents; identical to :meth:`encode`."""
         return np.array([self.fixed_quota], dtype=np.float32)
 
     def observation_names(self) -> list[str]:
+        """Name of the feature :meth:`observation` appends: ``["effective_quota"]``."""
         return ["effective_quota"]
 
     # --- channels -------------------------------------------------------------
@@ -115,7 +122,16 @@ class QuotaMechanism(Mechanism):
         return float((current - lower) / max(upper - lower, EPS))
 
     @override(Mechanism)
-    def action(self, action_dict: MultiAgentDict, **kwargs) -> MultiAgentDict:
+    def action(self, action_dict: MultiAgentDict, **kwargs: Any) -> MultiAgentDict:
+        """Softly cap every agent's requested fraction at the current allowance.
+
+        Consumes the ``resource_level`` binding from ``kwargs`` to compute
+        ``allowed_frac``, then rewrites ``action_component`` of each action as
+        ``u - smooth_plus(u - allowed_frac)``; the other components are copied
+        unchanged. The allowance and the requested/delivered action
+        dictionaries are cached in ``_context`` for :meth:`observation` and for
+        diagnostics.
+        """
         allowed_frac = self.allowed_fraction(kwargs["resource_level"])
         self._context["allowed_frac"] = allowed_frac
 
@@ -140,7 +156,9 @@ class QuotaMechanism(Mechanism):
         return regulated
 
     @override(Mechanism)
-    def observation(self, observation_dict: MultiAgentDict, **kwargs) -> MultiAgentDict:
+    def observation(
+        self, observation_dict: MultiAgentDict, **kwargs: Any
+    ) -> MultiAgentDict:
         """Append the current ``allowed_frac`` to every agent observation.
 
         Uses the value cached by :meth:`action` in this step; before the first

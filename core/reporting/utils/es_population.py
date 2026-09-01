@@ -1,3 +1,11 @@
+"""Plot one Evolution Strategies generation to W&B.
+
+This legacy helper backs ``WandbReporter.plot_es_population``. It validates
+the population arrays, appends the generation to a per-run history table and
+logs fitness-over-generations, parameter-versus-fitness and parallel
+coordinates figures built with Plotly.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Optional, Sequence
