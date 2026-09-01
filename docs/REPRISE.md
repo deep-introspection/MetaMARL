@@ -14,7 +14,7 @@ machine). Notes for Nadine: `docs/MERGE_NOTES.md`. Contributor guide: `AGENTS.md
 | `chore/cleanup-base` | `../bilevel-fishery-base` | shared cleanup + branch-neutral docs; merged into both testing branches |
 | `feature/social-influence-testing` | `../bilevel-fishery` (main dir) | Nadine's mechanism branch + base |
 | `feature/logging-testing` | `../bilevel-fishery-logging` | Nadine's metrics/reporting branch + base |
-| `feature/integration-trial` | `../bilevel-fishery-integration` | bonus C: logging merged into mechanism (local only, not pushed) |
+| `feature/integration-trial` | `../bilevel-fishery-integration` | bonus C: logging merged into mechanism; pushed to `origin/feature/integration-trial` (the docstring commit `38effc1` of 2026-09-01 is still local) |
 
 `dev` is never modified. All three branches are pushed to `origin` under their own names
 (2026-08-28). The remote refused `feature/x/testing` because `feature/x` exists, hence the
@@ -31,7 +31,7 @@ command merged the base into itself twice on day 1.
 | 2. Logging branch runnable, tested, wildcards + grouped mean/std, CSV/TensorBoard | **done** | full `pytest`: 533 passed, 3 skipped (unit + integration + notebook, 08-28 pm); coverage 99 % on all of `core/` |
 | 3. Documentation (README, AGENTS, ARCHITECTURE, QUICKSTART per branch, MERGE_NOTES, TODO status) | **done** | files present on both branches; notebooks execute under `tests/notebooks` |
 | 4. Closing: push branches, hand `docs/MERGE_NOTES.md` to Nadine | **pushed 08-28**; handoff to Nadine pending | `origin/chore/cleanup-base`, `origin/feature/*-testing` |
-| Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | **done on both branches** (08-28) | mechanism: 451 unit tests, 98 %; logging: 497 unit tests, 99 % (only unreachable line: `regulated.py:68`, notes §26) |
+| Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | **done on both branches** (08-28) | mechanism: 451 unit tests, 98 %; logging: 497 unit tests, 99 % (only unreachable line: `core/envs/regulated.py:68` on the logging branch, a file the integration branch no longer has; notes §26) |
 | Bonus B. Logging: ES scatter colored by generation, parallel coordinates | **done** (08-28 pm) | `Query.color` + `ParallelCoordinatesQuery`; 33 new tests; demo runs with the CSV and offline W&B reporters checked by hand; notes §41 |
 | Bonus B'. Episode-level wildcard alignment (`by_episode/*` vs `iter`) | waiting on Nadine | needs an episode-to-iteration key, her call in `TODO.md` §3–4 |
 | Bonus C. Integration trial of the two features | **done** (08-28, commit `c6815e6` on `feature/integration-trial`) | 45 conflicts resolved; unit 625 green, `core/` 99 %; full suite 634 green, 3 skipped; demo runs with both reporters; outcome and six design decisions in `docs/MERGE_NOTES.md` "Integration trial" |
@@ -59,7 +59,8 @@ command merged the base into itself twice on day 1.
 
 ## Waiting on
 
-- **Rémy**: push `feature/integration-trial` or not; confirm (or hand to Nadine) the six design decisions of the integration trial (`docs/MERGE_NOTES.md`, last section).
+- **Rémy**: confirm (or hand to Nadine) the design decisions of the integration trial
+  (`docs/MERGE_NOTES.md`, "Integration trial" section); the branch itself is pushed.
 - **Rémy**: keep or delete `core/adaptors/ray/mps_model.py` (only importer: the cartpole
   scripts and `examples/fresh_water/bilevel.py`, see `docs/MERGE_NOTES.md` §24).
 - **Nadine** (in `docs/MERGE_NOTES.md`): `mean_fines = tail_fish.mean()` intent; undefined
@@ -116,4 +117,5 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters
   agents (envs; optimizers and callbacks; Ray adaptors, W&B and demo; documents), then an
   integration pass: `core/reporting/base.py` restored (git had dropped it silently), seven
   orphan test files removed, one enum test trimmed. Unit 625 green at 99 %, full suite 634
-  green, demo runs with `--reporter csv` and `--reporter wandb`. Branch committed, not pushed.
+  green, demo runs with `--reporter csv` and `--reporter wandb`. Branch committed; pushed to
+  `origin/feature/integration-trial` afterwards.

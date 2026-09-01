@@ -21,8 +21,8 @@ uv sync --group dev
 uv run python -m pytest -m "not integration and not notebook"
 ```
 
-The unit suites of both features run in a few seconds, with a coverage table
-for `core/`.
+The unit suite (625 tests on 2026-09-01) runs in about ten seconds and prints
+a coverage table for `core/` (99 % line coverage).
 
 ## 3. Run a short experiment
 
@@ -85,14 +85,26 @@ With `--reporter csv`, every query becomes one long-form CSV under
 `query, x, series, value, error, color`:
 
 - `...-ESOptimizer/` — one value per generation: `Fitness_over_generations.csv`,
-  `ES_search_mean.csv`, `Fitness_vs_fixed_quota.csv` (one series per candidate,
-  parameter value on x, coloured by generation), `Mean_candidate_fitness_1_std.csv`,
-  and the wide parallel-coordinates table;
+  `ES_search_mean.csv`, `Fitness_vs_0_QuotaMechanism_fixed_quota.csv` and
+  `Fitness_vs_1_SubsidyMechanism_restoration_subsidy.csv` (one series per
+  candidate, parameter value on x, generation in the `color` column; the file
+  names carry the parameter names of `mechanism.param_names()`, here
+  `0:QuotaMechanism.fixed_quota` and `1:SubsidyMechanism.restoration_subsidy`),
+  `Generation-best_mechanism_parameters.csv`,
+  `Global-best_mechanism_parameters.csv`, `Mean_candidate_fitness_1_std.csv`,
+  and the wide table `Parallel_coordinates_of_evaluated_mechanisms.csv` (one
+  column per parameter, then `fitness` and `color:fitness`);
 - `...-RayOptimizer/` — one value per training iteration: `Train_reward.csv`,
-  `Training_timing.csv`, ...;
-- `...-regulated_env_...|mode=train|ps=...|ss=.../` — one value per environment
-  step of the last episode: `Fish_biomass.csv`, `Realized_harvest.csv`,
+  `Train_episode_length.csv`, `Training_timing.csv`, ...;
+- `...-regulated_env_...|mode=train|m=...|ps=...|ss=.../` (one directory per
+  training and evaluation environment) — one value per environment step of the
+  last episode: `Fish_biomass.csv`, `Realized_harvest.csv`,
   `Reward_all_agents.csv`, `Mean_reward_across_agents_1_std.csv`, ...
+
+Two directories stay empty: `...-bilvel/` (the main reporter, whose label is
+misspelled in `core/optimizers/bilevel.py`) and `...-None|mode=train|ps=None|ss=None/`
+(the environment instance RLlib builds for its checks, which never receives a
+mechanism). The smoke run above writes 77 CSV files.
 
 ```python
 import pandas as pd

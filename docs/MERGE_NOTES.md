@@ -115,8 +115,11 @@ crashed on every `reduce="mean"` query (wrong keyword), the CSV and
 TensorBoard reporters implemented an older `_report` signature,
 `RayOptimizer.stop()` had a typo, `core/adaptors/ray/protocols.py` imported a
 removed package, and `FisheryMetricSchema` could not be instantiated (its
-`Optional` fields had no default, so pydantic made them required). Fixed, and
-the fishery run works end-to-end with W&B offline or the CSV reporter:
+`Optional` fields had no default, so pydantic made them required). Everything
+was fixed except `protocols.py`, whose only reference was a commented-out import
+in `optimizer_config.py`; it was deleted instead (commit `816ee3c`; your own
+`feature/logging` branch later removed the same file in `c27df49`).
+The fishery run works end-to-end with W&B offline or the CSV reporter:
 
 ```bash
 WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug \
@@ -498,7 +501,9 @@ Design decisions taken during the resolution, all to be confirmed by Nadine:
    which still had them, and the merge kept their deletion, decided on 2026-08-28 (§24).
    Worth knowing only if a local script still calls them.
 
-Measurements on the merged branch: `ruff` clean; unit suite 625 passed with `core/` at
+Measurements on the merged branch: `ruff` clean on the CI scope (`core tests
+examples/bilevel_fishery examples/cartpole examples/dummy tutorials`; `examples/fresh_water`
+still fails with its four undefined names and one unsorted import); unit suite 625 passed with `core/` at
 99 % coverage; full suite 634 passed, 3 skipped (the same three as before), in 78 s;
 `examples.bilevel_fishery.debug` runs end to end with `--reporter csv` (257 CSV files,
 including the fitness scatter with the `color` column and the parallel-coordinates table
@@ -508,3 +513,35 @@ same `best_fitness` on the tiny smoke configuration.
 Not done: the fresh-water and cartpole examples still reference the old `MechanismSpace`
 API (as on the mechanism branch); the episode-level wildcard alignment still waits on
 Nadine (§3–4 of `TODO.md`, Part B).
+
+## Findings on the integration branch (2026-09-01)
+
+Numbered after §41 so that they can be merged with the earlier lists without renumbering.
+
+42. `examples/cartpole/*` and `examples/dummy/*` are on the pre-mechanism API, like the
+    fresh-water example: `examples/dummy/mechanism.py` imports `core.mechanism.space`, which
+    no longer exists, and `examples/cartpole/regulated_env.py` and
+    `examples/dummy/regulator_env.py` decorate an `aggregate_rewards` override with
+    `@override`, while the base classes now expose `reward` (`core/envs/base.py:242`,
+    `core/envs/marl_regulated.py:445`) and `RegulatorEnv.aggregate_rewards` takes a
+    `MetricSchema` (`core/envs/regulator.py:156`). Both packages fail at import, so
+    `ruff` is the only check that runs on them. Renaming the hook alone does not fix them:
+    measured on 2026-09-01, importing `examples.cartpole.regulated_env` raises the
+    `@override` `NameError` on `aggregate_rewards`, and importing `examples.dummy.mechanism`
+    then fails on `core.mechanism.space`. The cartpole scripts also import
+    `examples.dummy.mechanism.DummyMechanismSpace`, so the two examples must be ported
+    together.
+43. Reporter side effects on the smoke configuration (`--outer-iters 2 --train-iters 2
+    --num-agents 2 --horizon 20 --num-candidates 2 --num-eval-seeds 1`, measured on
+    2026-09-01). With `--reporter wandb` the run creates ten W&B offline runs instead of
+    one, because every reporter owner opens its own run, which makes the offline
+    directory hard to read. With `--reporter csv` the reporter
+    writes nine owner directories: two of them stay empty, `<world>-bilvel/` (the main
+    reporter, whose label is misspelled in `core/optimizers/bilevel.py:186`, see §28) and
+    `<world>-None|mode=train|ps=None|ss=None/` (the environment instance RLlib builds for
+    its checks, which never receives an `opt_id` or a mechanism). The owner directory names
+    contain `|` and `=`, which need quoting in a shell and are invalid on Windows file
+    systems.
+44. `TensorBoardReporter` (`core/reporting/tensor_board.py`) exists and is unit-tested, but
+    `examples/bilevel_fishery/debug.py --reporter` only offers `wandb` and `csv`
+    (`debug.py:298`); the TensorBoard backend cannot be exercised from the reference run.

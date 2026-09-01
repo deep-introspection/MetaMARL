@@ -57,7 +57,7 @@ core/                     the library
   mechanism/              mechanism abstraction (what the regulator optimizes)
   world/                  the World Ray actor: shared blackboard of contexts between levels
   adaptors/ray/           RLlib glue: RayOptimizer, RayOptimizerConfig, PolicyActor, runtime
-  reporting/              reporting backends (Weights & Biases, ...)
+  reporting/              Query/Series resolution and the W&B, CSV and TensorBoard reporters
   callbacks.py            RLlib callbacks tagging episodes with mechanism and seed identity
 examples/
   bilevel_fishery/        the fishery benchmark (regulated env, regulator env, config scripts)
@@ -65,7 +65,7 @@ examples/
   registry.py             name-to-class registry for the YAML experiment loaders
   cartpole/, dummy/       minimal sanity examples
 tests/                    pytest suite (markers: unit, integration, notebook)
-tutorials/                executable notebooks (feature branches)
+tutorials/                three executable notebooks (benchmark creation, mechanism algorithms, visualization)
 docs/                     ARCHITECTURE.md, REPRISE.md (resume file), MERGE_NOTES.md
 ```
 
@@ -127,15 +127,18 @@ the second half of `TODO.md` tracks what remains (episode-level grouping).
 ## Development
 
 ```bash
-uv run ruff check . && uv run ruff format --check .
+uv run ruff check core tests examples/bilevel_fishery examples/cartpole examples/dummy tutorials
+uv run ruff format --check .
 uv run python -m pytest -m "not integration and not notebook"   # unit tests + coverage
 uv run python -m pytest -m integration --no-cov                   # needs a local Ray runtime
 uv run python -m pytest -m notebook --no-cov                      # executes the tutorials
 ```
 
-Continuous integration (`.github/workflows/ci.yml`) runs the lint, unit and
-integration jobs on every push. `AGENTS.md` documents the conventions and the
-traps for contributors and coding assistants.
+The lint scope is the one of `.github/workflows/ci.yml`: `examples/fresh_water`
+is excluded until it is ported to the mechanism API, because its live module
+still references undefined names and `ruff check .` fails on it. Continuous
+integration runs the lint, unit and integration jobs on every push. `AGENTS.md`
+documents the conventions and the traps for contributors and coding assistants.
 
 ## Branches
 

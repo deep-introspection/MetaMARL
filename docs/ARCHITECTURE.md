@@ -8,7 +8,7 @@ tutorials in `tutorials/` cover the same ground pedagogically.
 
 ```
 BilevelConfig.build_optimizer()
-   |-- RayRuntime.ensure_initialized()                 start Ray (local mode)
+   |-- RayRuntime.ensure_initialized(ray_cfg)          start Ray (local mode)
    |-- World.options(name).remote()                    the shared blackboard actor
    |-- inner_cfg.build_optimizer(world=...)            RayOptimizer -> PolicyActor -> RLlib Algorithm
    |       env_creator -> MultiAgentRegulatedEnv x (num_envs_per_env_runner)
@@ -49,9 +49,14 @@ matter:
 candidate is published it steps inertly (zero rewards, no dynamics) so that
 RLlib's environment checks can run. Each `step` normalizes the raw policy
 actions (sigmoid squashing), applies the benchmark dynamics and the mechanism,
-and publishes an `EnvStepContext`. The exact step pipeline and the way the
-mechanism plugs in differ between `dev` and the mechanism feature branch; see
-the README section of the branch you are on.
+and publishes an `EnvStepContext`. The benchmark declares its dynamics with the
+hook decorators of `core/envs/hooks.py` (`@reset`, `@action`, `@reward`,
+`@transition`, `@observation`), and the mechanism fetched from the World is
+applied through its three channels around those hooks: the action channel
+before the transition, the reward channel after it, and the observation channel
+on the observation returned to the policies. The rewards are logged once, after
+the reward channel, into the environment's `MetricLogger`; the benchmark hooks
+log their own per-step values (see "Metrics and reporting" in the README).
 
 Identity flows through the episode id: `core/callbacks.py::tag_episode_with_env_idx`
 rewrites it to `env={i}|m={mechanism_id}|ps={policy_seed}|ss={seed}|raw=...`,
@@ -97,12 +102,14 @@ outer env so that one `MechanismContext` is published per (candidate, seed).
   system) plus a `RegulatorEnv` subclass (how outcomes become a fitness) and,
   usually, a `FitnessContext`-like schema. Declare the observation space so
   that it matches the benchmark features plus whatever the mechanism appends.
-- **A new mechanism** must be a pure value object that can be encoded to and
-  decoded from a normalized vector; how it is applied depends on the branch
-  (see the branch README).
-- **A new reporting backend** implements the reporter interface of
-  `core/reporting/`; on the logging feature branch that means rendering
-  labeled `Series` resolved from `Query` objects.
+- **A new mechanism** subclasses `Mechanism` (`core/mechanism/base.py`): a pure
+  value object that is encoded to and decoded from a normalized vector and that
+  overrides any of the three channel transforms (`action`, `reward`,
+  `observation`), which default to identity. The same instance serves as the
+  template on both levels through `BilevelConfig().mechanism(mechanism=...)`.
+- **A new reporting backend** subclasses `Reporter` (`core/reporting/base.py`)
+  and renders the labeled `Series` that the base class resolves from `Query`
+  objects; the W&B, CSV and TensorBoard reporters are the three examples.
 
 ## Testing strategy
 

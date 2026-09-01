@@ -46,7 +46,7 @@ Primary concerned files:
 ```text
 core/envs/hooks.py
 core/envs/marl_regulated.py
-core/envs/regulated.py
+core/envs/regulated.py          (removed in the mechanism refactor; its logic lives in marl_regulated.py)
 core/mechanism/algorithms/penalty.py
 core/mechanism/algorithms/quota.py
 core/mechanism/algorithms/social_influence.py
@@ -54,7 +54,7 @@ core/mechanism/algorithms/subsidy.py
 core/mechanism/base.py
 core/mechanism/composition/chained_mechanism.py
 core/mechanism/composition/parallel_mechanism.py
-core/mechanism/space.py
+core/mechanism/space.py         (removed in the mechanism refactor; the mechanism instance is the template)
 core/types.py
 ```
 
@@ -107,7 +107,8 @@ Decisions taken (see `docs/MERGE_NOTES.md` for the reasoning):
 - [x] Integration tests cover the benchmark + mechanism lifecycle.
 - [ ] Reproducibility against `dev` is checked where practical.
 - [ ] Quota behavior is numerically compared against the dev fishery benchmark if time permits.
-- [ ] The tutorial notebooks run after the P0 integration fixes are merged.
+- [x] The tutorial notebooks run after the P0 integration fixes are merged
+      (2026-09-01: `pytest -m notebook` passes, 3 notebooks, on `feature/integration-trial`).
 
 ---
 
@@ -2950,23 +2951,27 @@ Already supported / expected to work now:
 - [x] Nested ES `inner: MetricSchema` runtime specialization to `RaySchema`.
 - [x] Deep runtime specialization to fishery episode and agent schemas.
 
+Done on the testing branches and present on `feature/integration-trial`
+(status updated 2026-09-01):
+
+- [x] Dynamic ES parameter keys (`ESOptimizer` names them from `mechanism.param_names()`).
+- [x] Mechanism mean ±std across seeds through the Query API (`reduce="mean", error="std"`).
+- [x] ES all-candidate parameter scatter in one plot (`es_parameter_fitness_queries`).
+- [x] ES generation color metadata (`Query.color`, the `color` column of the CSV reporter).
+- [x] ES parallel coordinates (`ParallelCoordinatesQuery`).
+- [x] Generation-best ES parameter schema/queries (`Generation-best mechanism parameters`).
+- [x] Full unit tests (625 unit tests, `core/` at 99 % line coverage).
+- [x] CSV reporter (`core/reporting/csv.py`).
+- [x] TensorBoard reporter (`core/reporting/tensor_board.py`, not yet selectable from `debug.py --reporter`).
+
 Still required:
 
 - [ ] Dynamic mechanism IDs.
 - [ ] Dynamic seed IDs.
-- [ ] Dynamic episode IDs.
+- [ ] Dynamic episode IDs (episode-level wildcard alignment, waiting on Nadine; §3–4).
 - [ ] Dynamic policy IDs.
 - [ ] Dynamic agent IDs.
-- [ ] Dynamic ES parameter keys.
-- [ ] Mechanism mean ±std across seeds through Query API.
 - [ ] Train-vs-eval shaded mechanism plots through Query API.
 - [ ] ES exact candidate/mean/best mixed trace styling.
-- [ ] ES all-candidate parameter scatter in one plot.
-- [ ] ES generation color metadata.
-- [ ] ES parallel coordinates.
-- [ ] Generation-best ES parameter schema/queries.
-- [ ] Full unit tests.
 - [ ] Full integration parity tests.
-- [ ] CSV reporter.
-- [ ] TensorBoard reporter.
 - [ ] Legacy visualization cleanup after parity.

@@ -61,23 +61,32 @@ step) and must be updated before a break or a phase change.
 
 ```bash
 uv sync --group dev
-uv run ruff check . && uv run ruff format --check .
+uv run ruff check core tests examples/bilevel_fishery examples/cartpole examples/dummy tutorials
+uv run ruff format --check .
 uv run python -m pytest -m "not integration and not notebook"      # fast, with coverage
 uv run python -m pytest -m integration --no-cov                      # starts a local Ray
 uv run python -m pytest -m notebook --no-cov                         # executes tutorials/
 WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug   # the reference run
 ```
 
-Coverage is measured on `core/` minus the Ray adaptors and the World
-(`[tool.coverage]` in `pyproject.toml`); those are exercised by the
-integration suite. Target: above 90 % on the pure modules.
+The lint scope is the one of `.github/workflows/ci.yml`; `examples/fresh_water`
+is excluded until it is ported to the mechanism API, because `ruff check .`
+fails on its undefined names and unsorted imports. Coverage is measured on all
+of `core/` (`[tool.coverage.run]` in `pyproject.toml` has no `omit` list): the
+Ray actors are unit-tested through their unwrapped classes
+(`X.__ray_metadata__.modified_class`) and the World through an in-memory fake,
+so no Ray runtime is needed. The unit suite currently reaches 99 % on `core/`;
+the target is to stay above 90 %.
 
 ## Conventions
 
 - Python 3.12, `uv`, `ruff` (lint + format, line length 88). Code, comments,
   docstrings, commit messages and documentation are in English.
 - NumPy-style docstrings with array shapes and units; every module has a
-  docstring saying what it is for.
+  docstring saying what it is for. Every public symbol (a name not starting
+  with `_`) in `core/` and `examples/bilevel_fishery` carries a docstring and
+  full type hints (pass of 2026-09-01, commit `38effc1`); keep it that way when
+  adding one.
 - Validation of public parameters raises `ValueError`; `assert` is for
   internal invariants only.
 - Tests: TDD when fixing a bug (a failing test first), `pytest` markers
@@ -113,9 +122,10 @@ integration suite. Target: above 90 % on the pure modules.
 
 ## Where to look when something is off
 
-- A run hangs or crawls after a few generations: see the July 2026 notes in
-  `docs/REPRISE.md` (RLlib `Algorithm` rebuilt every generation, W&B table
-  re-rendering).
+- A run hangs or crawls after a few generations: see finding 9 of
+  `docs/MERGE_NOTES.md` (the RLlib `Algorithm` is rebuilt every generation
+  without stopping the previous one; the July 2026 fix lives on
+  `exp/weekend-variants` and is not on `dev`).
 - Fitness is `-inf` for a candidate: no `EnvStepContext` reached the World
   for that candidate; check the mechanism lifecycle (`MechanismStatus`) and
   the episode tagging callback.
