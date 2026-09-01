@@ -14,10 +14,10 @@ machine). Notes for Nadine: `docs/MERGE_NOTES.md`. Contributor guide: `AGENTS.md
 | `chore/cleanup-base` | `../bilevel-fishery-base` | shared cleanup + branch-neutral docs; merged into both testing branches |
 | `feature/social-influence-testing` | `../bilevel-fishery` (main dir) | Nadine's mechanism branch + base |
 | `feature/logging-testing` | `../bilevel-fishery-logging` | Nadine's metrics/reporting branch + base |
-| `feature/integration-trial` | `../bilevel-fishery-integration` | bonus C: logging merged into mechanism (local only, not pushed) |
+| `feature/integration-trial` | `../bilevel-fishery-integration` | bonus C: logging merged into mechanism (pushed 09-01) |
 
-`dev` is never modified. All three branches are pushed to `origin` under their own names
-(2026-08-28). The remote refused `feature/x/testing` because `feature/x` exists, hence the
+`dev` is never modified. All four branches are pushed to `origin` under their own names
+(2026-08-28; integration trial on 2026-09-01). The remote refused `feature/x/testing` because `feature/x` exists, hence the
 hyphenated names.
 Run `git merge` **inside the target worktree** — a `cd` chain in one shell
 command merged the base into itself twice on day 1.
@@ -30,7 +30,7 @@ command merged the base into itself twice on day 1.
 | 1. Mechanism branch runnable, tested, documented | **done** | full `pytest`: 458 passed, 3 skipped (unit + integration + 2 notebooks, 08-28); coverage 92–100 % on `core/mechanism`, `core/envs`; 93–97 % on `core/optimizers/{es,config,base}` |
 | 2. Logging branch runnable, tested, wildcards + grouped mean/std, CSV/TensorBoard | **done** | full `pytest`: 533 passed, 3 skipped (unit + integration + notebook, 08-28 pm); coverage 99 % on all of `core/` |
 | 3. Documentation (README, AGENTS, ARCHITECTURE, QUICKSTART per branch, MERGE_NOTES, TODO status) | **done** | files present on both branches; notebooks execute under `tests/notebooks` |
-| 4. Closing: push branches, hand `docs/MERGE_NOTES.md` to Nadine | **pushed 08-28**; handoff to Nadine pending | `origin/chore/cleanup-base`, `origin/feature/*-testing` |
+| 4. Closing: push branches, hand `docs/MERGE_NOTES.md` to Nadine | **all branches pushed** (09-01); handoff to Nadine pending | `origin/chore/cleanup-base`, `origin/feature/*-testing` |
 | Bonus A. 90 % coverage on all of `core/` (World, Ray adaptors need mocks) | **done on both branches** (08-28) | mechanism: 451 unit tests, 98 %; logging: 497 unit tests, 99 % (only unreachable line: `regulated.py:68`, notes §26) |
 | Bonus B. Logging: ES scatter colored by generation, parallel coordinates | **done** (08-28 pm) | `Query.color` + `ParallelCoordinatesQuery`; 33 new tests; demo runs with the CSV and offline W&B reporters checked by hand; notes §41 |
 | Bonus B'. Episode-level wildcard alignment (`by_episode/*` vs `iter`) | waiting on Nadine | needs an episode-to-iteration key, her call in `TODO.md` §3–4 |
@@ -55,13 +55,12 @@ command merged the base into itself twice on day 1.
 | 08-28 | Push all three branches; testing branches renamed `feature/*-testing` | Rémy |
 | 08-28 | Bonus B design: `color` is an optional path on `Query`, resolved like x; parallel coordinates are a separate query type that the base reporter resolves to a table; the first wildcard is the row entity; TensorBoard skips tables with a warning | Claude, per TODO options |
 | 08-28 | Bonus C resolution rules: mechanism control flow kept, logging additions re-inserted; reporting optional everywhere; `aggregate_rewards` receives the inner metric schema; same-name tests kept as `_logging` copies; orphan tests deleted | Claude, per conflict map |
+| 09-01 | Push `feature/integration-trial`; keep `core/adaptors/ray/mps_model.py` (may serve future model changes; drop it only if it proves useless) | Rémy |
 | 08-28 | Delete the dead code of §24 (old-API-stack module and branch, `reporting/base.py`, two unused `RayOptimizer` methods); `mps_model.py` kept pending the fresh-water cleanup | Rémy |
 
 ## Waiting on
 
-- **Rémy**: push `feature/integration-trial` or not; confirm (or hand to Nadine) the six design decisions of the integration trial (`docs/MERGE_NOTES.md`, last section).
-- **Rémy**: keep or delete `core/adaptors/ray/mps_model.py` (only importer: the cartpole
-  scripts and `examples/fresh_water/bilevel.py`, see `docs/MERGE_NOTES.md` §24).
+- **Rémy**: confirm (or hand to Nadine) the six design decisions of the integration trial (`docs/MERGE_NOTES.md`, last section); the handoff itself is deferred.
 - **Nadine** (in `docs/MERGE_NOTES.md`): `mean_fines = tail_fish.mean()` intent; undefined
   names in the live `examples/fresh_water/regulated_env_ed_hs.py`; the 16 code-review
   findings; episode-level wildcard alignment; the fresh-water example is not ported to the
@@ -117,3 +116,5 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters
   integration pass: `core/reporting/base.py` restored (git had dropped it silently), seven
   orphan test files removed, one enum test trimmed. Unit 625 green at 99 %, full suite 634
   green, demo runs with `--reporter csv` and `--reporter wandb`. Branch committed, not pushed.
+- **2026-09-01** — Status review. `feature/integration-trial` pushed; `mps_model.py` kept
+  (Rémy's call). Remaining: confirm the six integration decisions, then hand the notes to Nadine.
