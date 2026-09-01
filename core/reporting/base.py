@@ -1,9 +1,16 @@
 from abc import ABC, abstractmethod
+from typing import TypeAlias
+from core.metrics.enums import ReduceProtocol
+from core.metrics.logger import MetricLogger
+from enum import Enum
 
-from core.metrics.logger import Path
 from core.metrics.metric.base import PrimitiveType
 from core.metrics.schemas import MetricSchema
 from core.reporting.query import Query
+
+Path: TypeAlias = tuple[str | Enum, ...]
+Group: TypeAlias = tuple[tuple[str, str], ...]
+Resolved: TypeAlias = dict[Group, list[PrimitiveType]]
 
 
 class Reporter(ABC):
@@ -49,43 +56,116 @@ class Reporter(ABC):
     def _resolve_path(
         self,
         path: Path,
-        metrics: MetricSchema | dict[str, MetricSchema],
+        metrics: MetricSchema | dict | list[PrimitiveType],
         *,
         index: int = 0,
-    ) -> list[PrimitiveType]:
+        group: Group = (),
+        junction: str | None = None,
+    ) -> Resolved:
         """
         Returns the Metric object following the Path in a metric schema
         """
         if index >= len(path):
-            raise KeyError(f"Path does not point to a metric: {path}")
-        key = path[index]
+            if not isinstance(metrics, list):
+                raise KeyError(f"Path does not point to a metric series: {path}")
+            return {group: metrics}
+        token = path[index]
 
         if isinstance(metrics, dict):
+            if token == ReduceProtocol.SERIES:
+                resolved: Resolved = {}
+                for dynamic_id, child in sorted(
+                    metrics.items(), key=lambda item: str(item[0])
+                ):
+                    child_group = group + (
+                        (
+                            junction or "dict",
+                            str(dynamic_id),
+                        ),
+                    )
+                    child_resolved = self._resolve_path(
+                        path=path,
+                        metrics=child,
+                        index=index + 1,
+                        group=child_group,
+                    )
+                    resolved.update(child_resolved)
+                return resolved
+
+            if token == ReduceProtocol.MEAN:
+                branches = [
+                    self._resolve_path(
+                        path=path,
+                        metrics=child,
+                        index=index + 1,
+                        group=group,
+                    )
+                    for child in metrics.values()
+                ]
+                if not branches:
+                    return {}
+
+                groups = set(branches[0])
+
+                if any(set(branch) != groups for branch in branches[1:]):
+                    raise ValueError(
+                        "Cannot compute mean across branches with different SERIES groups."
+                    )
+                reduced: Resolved = {}
+                for branch_group in groups:
+                    series = [branch[branch_group] for branch in branches]
+                    lengths = {len(values) for values in series}
+                    if len(lengths) != 1:
+                        raise ValueError(
+                            "Cannot compute pointwise mean over series with different lengths: "
+                            f"{sorted(lengths)}."
+                        )
+                    reduced[branch_group] = [
+                        sum(float(value) for value in values) / len(values)
+                        for values in zip(*series)
+                    ]
+                return reduced
+
+            if isinstance(token, ReduceProtocol):
+                raise NotImplementedError(
+                    f"Dictionary query reduction {token} is not supported."
+                )
+
+            key = token.value if isinstance(token, Enum) else token
             try:
                 child = metrics[key]
             except KeyError:
                 raise KeyError(f"Unknown metric path: {path}") from None
+            return self._resolve_path(
+                path=path,
+                metrics=child,
+                index=index + 1,
+                group=group,
+            )
 
-        else:
-            try:
-                child = getattr(metrics, key)
-            except AttributeError:
-                raise KeyError(f"Unknown metric path: {path}") from None
+        if isinstance(token, ReduceProtocol):
+            raise TypeError(
+                f"{token} can only follow a dictionary field in path {path}."
+            )
 
-        if index == len(path) - 1:
-            if not isinstance(child, list):
-                raise TypeError(f"Path does not point to a metric series: {path}")
-            return child
-
-        if not isinstance(child, (MetricSchema, dict)):
-            raise KeyError(f"Path continues beyond metric leaf: {path}")
-        return self._resolve_path(path=path, metrics=child, index=index + 1)
+        key = token.value if isinstance(token, Enum) else token
+        try:
+            child = getattr(metrics, key)
+        except AttributeError:
+            raise KeyError(f"Unknown metric path: {path}") from None
+        return self._resolve_path(
+            path=path,
+            metrics=child,
+            index=index + 1,
+            group=group,
+            junction=key if isinstance(child, dict) else None,
+        )
 
     def _resolve_query(
         self,
         metrics: MetricSchema,
         query: Query,
-    ) -> tuple[list[PrimitiveType], list[list[PrimitiveType]]]:
+    ) -> tuple[Resolved, list[Resolved]]:
         """Resolve a query against a populated metric schema.
 
         Args:
@@ -100,24 +180,43 @@ class Reporter(ABC):
             KeyError: If a requested metric path does not exist in the schema.
         """
         # Must return x and y series of same length
-        x = self._resolve_path(path=query.x, metrics=metrics)
-        ys = [self._resolve_path(path=path, metrics=metrics) for path in query.y_paths]
+        xs = self._resolve_path(path=query.x, metrics=metrics)
+        yss = [self._resolve_path(path=path, metrics=metrics) for path in query.y_paths]
 
-        for path, y in zip(query.y_paths, ys):
-            if len(x) != len(y):
+        for path, ys in zip(query.y_paths, yss):
+            if set(xs) == {()}:
+                x = xs[()]
+
+                for group, y in ys.items():
+                    if len(x) != len(y):
+                        raise ValueError(
+                            "Query series must have equal length: "
+                            f"x={query.x} ({len(x)}), y={path}, group={group} ({len(y)})."
+                        )
+                continue
+
+            if set(xs) != set(ys):
                 raise ValueError(
-                    f"Query series must have equal length: "
-                    f"x={query.x} ({len(x)}), "
-                    f"y={path} ({len(y)})."
+                    f"Dynamic x and y groups do not match: x={set(xs)}, y={set(ys)}."
                 )
-        return x, ys
+
+            for group in xs:
+                x = xs[group]
+                y = ys[group]
+
+                if len(x) != len(y):
+                    raise ValueError(
+                        "Query series must have equal "
+                        f"length for group {group}: x={len(x)}, y={len(y)}."
+                    )
+        return xs, yss
 
     @abstractmethod
     def _report(
         self,
         query: Query,
-        x: list[PrimitiveType],
-        ys: list[list[PrimitiveType]],
+        x: Resolved,
+        ys: list[Resolved],
     ) -> None:
         """Report one resolved query using the concrete reporting backend.
 
