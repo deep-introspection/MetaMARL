@@ -8,8 +8,17 @@ from core.metrics.metric.series import SeriesMetric
 
 
 class MinMetric(SeriesMetric):
+    """Metric reducing to the minimum of the pushed numbers.
+
+    Only ``int`` and ``float`` are accepted (``bool`` is rejected); ``peek``
+    returns ``None`` while empty.
+
+    When to use: for floor values over an iteration, such as the lowest stock observed.
+    """
+
     @override(SeriesMetric)
     def push(self, value: PrimitiveType) -> PrimitiveType:
+        """Append a number, rejecting booleans and non-numeric values with ``TypeError``."""
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise TypeError(
                 f"MinMetric only accepts int or float, got {type(value).__name__}."
@@ -20,6 +29,7 @@ class MinMetric(SeriesMetric):
         self,
         compile: bool = True,
     ) -> PrimitiveType | list[PrimitiveType] | None:
+        """Return the minimum (``None`` when empty), or the history when ``compile`` is false."""
         if not compile:
             return list(self.values)
         if not self.values:
@@ -31,6 +41,11 @@ class MinMetric(SeriesMetric):
         self,
         compile: bool = True,
     ) -> PrimitiveType | MinMetric | None:
+        """Return the minimum and clear the history.
+
+        With ``compile`` false a new ``MinMetric`` holding only that value is
+        returned instead; an empty metric reduces to ``None``.
+        """
         if not self.values:
             return None if compile else MinMetric()
         min = self.peek(compile=True)

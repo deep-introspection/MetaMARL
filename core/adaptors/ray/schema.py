@@ -22,6 +22,24 @@ SeedID: TypeAlias = str
 
 
 class PolicyLearnerSchema(MetricSchema):
+    """Learner statistics of one RLModule (policy) for one training iteration.
+
+    Every field is optional and dimensionless unless stated otherwise;
+    ``json_schema_extra["reduce"]`` gives the reduction applied across the
+    iteration's mini-batches. ``batch_size`` is the number of samples per
+    update; ``total_loss``, ``policy_loss`` and ``value_loss`` are the
+    optimized losses; ``residual_variance`` is the unexplained fraction of
+    the value target; ``sample_staleness`` is the age of the samples in
+    learner updates; ``policy_entropy`` and ``policy_entropy_coeff`` are the
+    action-distribution entropy (nats) and its coefficient;
+    ``policy_relative_entropy`` and ``entropy_pressure`` track entropy
+    against its initial level; ``policy_kl`` and ``policy_kl_coeff`` are the
+    KL divergence to the behaviour policy (nats) and its coefficient;
+    ``value_mean`` and ``value_target`` are the mean predicted and target
+    returns (reward units); ``gradient_norm`` and ``gradient_noise`` describe
+    the update direction.
+    """
+
     batch_size: Optional[int] = Field(
         default=None,
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
@@ -102,6 +120,18 @@ class PolicyLearnerSchema(MetricSchema):
 
 
 class PerformanceSchema(MetricSchema):
+    """Throughput and timing counters of one RLlib iteration.
+
+    ``env_steps_this_iter`` and ``agent_steps_this_iter_sum`` count the
+    environment and agent steps sampled in the iteration; the ``_lifetime``
+    variants are cumulative since the algorithm was built.
+    ``env_steps_throughput`` is in environment steps per second. The
+    ``*_s`` fields are wall-clock durations in seconds of the whole
+    iteration, of one training step, of sampling and of the learner update.
+    ``weights_seq_no`` is RLlib's counter of weight broadcasts to the env
+    runners.
+    """
+
     env_steps_this_iter: Optional[float] = Field(
         default=None,
         json_schema_extra={"reduce": ReduceProtocol.LAST},
@@ -148,14 +178,26 @@ class PerformanceSchema(MetricSchema):
 
 
 class SeedRolloutSchema(MetricSchema):
+    """Episodes collected under one training seed, keyed by episode ID."""
+
     by_episode: dict[EpisodeID, EpisodeRolloutSchema] = Field(default_factory=dict)
 
 
 class MechanismRolloutSchema(MetricSchema):
+    """Rollouts of one mechanism candidate, keyed by training seed."""
+
     by_seed: dict[SeedID, SeedRolloutSchema] = Field(default_factory=dict)
 
 
 class RolloutSchema(MetricSchema):
+    """Rollout statistics of one iteration.
+
+    ``aggregate`` is the episode schema reduced over every episode of the
+    iteration; ``by_mechanism`` keeps the per-mechanism, per-seed,
+    per-episode breakdown that the regulator uses to compute one fitness
+    per candidate.
+    """
+
     aggregate: EpisodeRolloutSchema
     by_mechanism: dict[MechanismID, MechanismRolloutSchema] = Field(
         default_factory=dict
@@ -163,21 +205,34 @@ class RolloutSchema(MetricSchema):
 
 
 class LearnerSchema(MetricSchema):
+    """Learner statistics keyed by RLModule ID (``<policy>_m<idx>_s<seed>``)."""
+
     by_policy: dict[PolicyID, PolicyLearnerSchema] = Field(default_factory=dict)
 
 
 class TrainSchema(MetricSchema):
+    """Training branch of a result: rollouts, learner statistics and timers."""
+
     rollout: RolloutSchema
     learner: LearnerSchema
     performance: PerformanceSchema
 
 
 class EvalSchema(MetricSchema):
+    """Evaluation branch of a result: rollouts and timers, no learner statistics."""
+
     rollout: RolloutSchema
     performance: PerformanceSchema
 
 
 class RaySchema(MetricSchema):
+    """Typed root of an RLlib ``ResultDict`` with optional ``train`` and ``eval`` branches.
+
+    When to use: pass it as the ``schema`` of ``RayOptimizerConfig.reporting``
+    so the inner optimizer logs typed metrics that the regulator environment
+    can aggregate into a fitness per mechanism.
+    """
+
     train: Optional[TrainSchema] = None
     eval: Optional[EvalSchema] = None
 

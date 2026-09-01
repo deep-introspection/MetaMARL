@@ -9,7 +9,7 @@ functions turn a full result dict into the ``RolloutSchema``,
 """
 
 import hashlib
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import torch
@@ -115,7 +115,7 @@ def get_policy_loss_if_present(result: dict) -> float:
     return float(np.mean(losses)) if losses else float("nan")
 
 
-def hash_weights(weights) -> str:
+def hash_weights(weights: Any) -> str:
     """Compute a SHA-256 fingerprint of a (nested) weights structure.
 
     Used to check that ``PolicyActor.reset`` restores identical parameters

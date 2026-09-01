@@ -22,6 +22,16 @@ from core.utils import sanitize_key
 
 
 class WandbConfig(ReporterConfig):
+    """Configuration of :class:`WandbReporter`.
+
+    The keyword arguments become the ``wandb.Settings`` of every run built
+    from this config; the defaults disable system stats, metadata collection
+    and end-of-run summaries so that a large ES sweep does not flood the
+    backend. ``project`` is the W&B project, the run group is the world name
+    and the run name is ``<world>[-<label>]``. Extra ``kwargs`` are accepted
+    for interface compatibility and ignored.
+    """
+
     def __init__(
         self,
         *,
@@ -31,8 +41,8 @@ class WandbConfig(ReporterConfig):
         quiet: Optional[bool] = True,
         max_end_of_run_summary_metrics: Optional[int] = 0,
         max_end_of_run_history_metrics: Optional[int] = 0,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         super().__init__(project=project)
         self.settings = {
             "x_disable_stats": x_disable_stats,
@@ -43,6 +53,7 @@ class WandbConfig(ReporterConfig):
         }
 
     def build(self, *, label: Optional[str] = None) -> WandbReporter:
+        """Create a :class:`WandbReporter` with a fresh random run id, grouped by world."""
 
         name = f"{self.world}-{label}" if label is not None else self.world
 
@@ -221,6 +232,7 @@ class WandbReporter(Reporter):
         self._run.log({f"plots/{sanitize_key(query.title)}": fig})
 
     def close(self) -> None:
+        """Finish the W&B run if one was started; a later ``report`` calls ``wandb.init`` again."""
         if self._run is not None:
             self._run.finish()
             self._run = None

@@ -1,3 +1,22 @@
+"""Evolution Strategies over mechanism parameters in ``[0, 1]^d``.
+
+The optimizer keeps a search distribution over the normalized mechanism
+vector: a mean in ``(0, 1)^d`` handled in logit space (so candidates never
+leave the unit cube) and a scalar standard deviation ``sigma``. Each
+generation samples an antithetic population, asks the ``RegulatorEnv`` for one
+fitness per candidate and moves the mean along the fitness-weighted noise
+directions (natural evolution strategies estimator of Salimans et al., 2017,
+https://arxiv.org/abs/1703.03864). ``sigma`` expands after a worse generation
+and contracts after a better one.
+
+Three regimes share the same ``run()``:
+
+- population mode (``batch_capacity >= 2``): antithetic ES update;
+- single-candidate mode (``batch_capacity == 1``): sequential (1+1)-ES;
+- fixed mode (``dimension == 0``): no parameters, the fixed mechanism is
+  simply evaluated and reported.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -26,6 +45,46 @@ SIGMA_PERFORMANCE_REL_TOL = 1e-3
 
 
 class ESOptimizer(Optimizer):
+    """Outer optimizer searching the normalized mechanism vector by Evolution Strategies.
+
+    The state is a mean in ``(0, 1)^dimension`` (moved in logit space) and a
+    scalar ``sigma``. Each :meth:`run` call is one generation: sample the
+    population, step the regulator environment with it (which trains the
+    inner learner against every candidate and returns one fitness each),
+    update the mean and ``sigma``, log an ``ESSchema`` payload. Population
+    size comes from :attr:`batch_capacity`, which ``BilevelConfig`` sets to
+    the inner optimizer's capacity.
+
+    When to use: the mechanism has a handful of continuous parameters and the
+    fitness is a noisy black box (an inner RL run), which is exactly where
+    gradient-free ES is at home. See the module docstring for the three
+    regimes (population, single-candidate, fixed).
+
+    Parameters
+    ----------
+    config : ESConfig
+        Hyperparameters (``sigma``, ``mean_lr``, sigma adaptation, bounds,
+        convergence criterion, ``initial_mean``) and ``dimension``;
+        ``config.base_seed`` seeds the generator.
+
+    Raises
+    ------
+    ValueError
+        On a negative dimension, a non-positive ``mean_lr``, a negative
+        ``sigma_lr``, a ``sigma_decay`` outside ``(0, 1]``, inconsistent
+        sigma bounds, or an ``initial_mean`` of the wrong shape or outside
+        ``[0, 1]``.
+
+    Examples
+    --------
+    >>> cfg = ESConfig().training(sigma=0.15, mean_lr=0.1)
+    >>> cfg.dimension = 2
+    >>> opt = ESOptimizer(cfg)
+    >>> opt.batch_capacity = 4
+    >>> opt.mean.tolist()
+    [0.5, 0.5]
+    """
+
     def __init__(
         self,
         config: ESConfig,
@@ -115,6 +174,7 @@ class ESOptimizer(Optimizer):
 
         self.parameter_names = [f"parameter_{i}" for i in range(self.dimension)]
 
+        # Typed metric logger for one generation at a time (see ESSchema).
         self.logger = MetricLogger.from_schema(ESSchema)
 
     def _on_env_init(self, env: BaseEnv) -> None:
@@ -130,10 +190,18 @@ class ESOptimizer(Optimizer):
 
     @property
     def batch_capacity(self) -> int:
+        """Population size: number of candidates evaluated per generation."""
         return self._batch_capacity
 
     @batch_capacity.setter
     def batch_capacity(self, value: int) -> None:
+        """Set the population size and select the matching regime.
+
+        ``dimension == 0`` accepts any positive value (fixed mode); ``1``
+        switches to sequential (1+1)-ES; otherwise the value must be even
+        unless ``break_symmetry`` is set, because the population is built
+        from mirrored noise pairs.
+        """
         if value <= 0:
             raise ValueError("population_size must be positive")
 
@@ -661,6 +729,26 @@ class ESOptimizer(Optimizer):
         )
 
     def run(self) -> dict[str, Any]:
+        """Run one generation and return its summary.
+
+        Samples the population, calls ``self.env.step(population)`` and reads
+        the fitness array (shape ``(batch_capacity,)``), appends the pair to
+        ``population_history``, applies the mean and sigma update, pushes the
+        generation's ``ESSchema`` payload to the logger and reports it.
+
+        Returns
+        -------
+        dict
+            ``best_fitness`` (best value seen so far) and
+            ``population_history``. An empty fitness array skips the update
+            and adds ``converged=False``.
+
+        Raises
+        ------
+        RuntimeError
+            If no environment is attached, a fitness is non-finite, or the
+            number of fitness values does not match the population size.
+        """
         logger.info(
             "[ES] Generation started | gen=%d | sigma=%.5f | mean_norm=%.4f",
             self.generation,

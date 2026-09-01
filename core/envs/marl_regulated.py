@@ -1,6 +1,31 @@
+"""Multi-agent environment regulated by a published mechanism.
+
+``MultiAgentRegulatedEnv`` is the RLlib-facing environment of the inner
+optimization level. It combines :class:`core.envs.regulated.RegulatedEnv`
+(mechanism lifecycle and regulated reward) with RLlib's ``MultiAgentEnv``. A
+concrete benchmark implements the abstract pieces of the step:
+``transition_kernel`` (``S_{t+1} = T(S_t, A_t)``), ``intrinsic_utility``
+(``u_i = U(a_i, S_t)``), ``violation_signal`` and ``penalty`` (the regulated
+reward ``u_i - lambda(M) * v_i``), ``_observation`` (``o_i = O_i(S_t)``) and
+``_is_truncated``. The base class owns the step lifecycle: it computes the
+intrinsic utilities, shapes and aggregates the rewards, advances the state,
+appends the mechanism vector ``theta`` to every observation and publishes an
+``EnvStepContext`` to the ``World``.
+
+The mechanism in force is fetched from the ``World`` at ``reset`` by
+``mechanism_id``. Until one is published the environment returns zero rewards
+and does not advance its dynamics, so RLlib's environment checks can run
+before training starts.
+
+Metrics are optional: with a ``schema`` the env owns a ``MetricLogger`` fed by
+``_log`` (episode identity at ``reset``, rewards and ``iter`` at every step),
+and with a ``reporter_cfg`` a ``Reporter`` renders the configured ``queries``
+against it (see ``core.callbacks``).
+"""
+
 import logging
 from abc import abstractmethod
-from typing import Any, SupportsFloat
+from typing import Any, Optional, SupportsFloat
 
 import numpy as np
 from gymnasium import spaces
@@ -31,6 +56,22 @@ logger = logging.getLogger(__name__)
 
 
 class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
+    """Base class for mechanism-regulated multi-agent benchmarks.
+
+    Parameters
+    ----------
+    agents : list[AgentID]
+        Agent identifiers; ``possible_agents`` is a copy of this list.
+    action_spaces, observation_spaces : dict, optional
+        Per-agent gymnasium spaces read from ``kwargs`` (forwarded by the
+        RLlib env creator); they also build the ``Dict`` spaces of the env.
+    **kwargs
+        Forwarded to :class:`RegulatedEnv` and :class:`BaseEnv`
+        (``mechanism_id``, ``world``, ``mechanism_space``, ``horizon``,
+        ``seed``, ``policy_seed``, ``mode``, ``reporter_cfg``, ``queries``,
+        ``schema``, ...).
+    """
+
     def __init__(
         self,
         *,
@@ -65,8 +106,24 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
     # TODO options doesnt get consumed
     @override(MultiAgentEnv)
     def reset(
-        self, *, seed=None, options=None
+        self, *, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None
     ) -> tuple[MultiAgentDict, MultiAgentDict]:
+        """Start a new episode under the mechanism currently in force.
+
+        The step counter restarts (the ``iter`` metric is flushed) and the
+        episode identity (``env_id``, ``mechanism_id``, ``seed``,
+        ``policy_seed``) is logged. If no published candidate has been assigned
+        yet, one is fetched from the ``World`` by ``mechanism_id``; otherwise
+        the current mechanism is kept for the whole run. The abstract
+        ``_reset`` then produces the initial per-agent observations and the
+        per-agent infos are cleared. The seed fixed at construction takes
+        precedence over the per-call ``seed``; ``options`` is ignored.
+
+        Returns
+        -------
+        tuple[MultiAgentDict, MultiAgentDict]
+            Per-agent initial observations and per-agent (empty) infos.
+        """
         if seed is not None and self.seed is not None and seed != self.seed:
             pass  # do not mutate seed after construction
 
@@ -94,6 +151,28 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
     ) -> tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
+        """Run one regulated step of the benchmark.
+
+        Actions go through :meth:`action`; ``_step`` then computes the
+        intrinsic utilities with :meth:`intrinsic_utility`, shapes and
+        aggregates them with :meth:`reward`, advances ``S_t`` with
+        :meth:`transition_kernel` and builds the next observations with
+        :meth:`observation`. Rewards are logged per agent and as
+        ``reward_mean``, the intrinsic utilities are recorded in the infos as
+        ``intrinsic_utility``, and an ``EnvStepContext`` is published to the
+        ``World``. Episodes never terminate; ``truncated`` is raised for every
+        agent and for ``"__all__"`` when ``_is_truncated`` reports the horizon.
+
+        Before any candidate mechanism has been published (RLlib's environment
+        checks), the step is inert: observations of the unchanged state, zero
+        rewards, nothing published.
+
+        Returns
+        -------
+        tuple
+            ``(obs, rewards, terminated, truncated, infos)``, each keyed by
+            agent ID; ``terminated`` and ``truncated`` also carry ``"__all__"``.
+        """
         actions = self.action(action_dict)
 
         if not self.published_mechanism_assigned:
@@ -169,7 +248,7 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         *,
         A_t: MultiAgentDict,
         S_t: dict[str, MultiAgentDict],
-        **kwargs,
+        **kwargs: Any,
     ) -> dict[str, float]:
         """S_{t+1} = T(S_t, A_t)"""
         raise NotImplementedError
@@ -179,18 +258,18 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         self,
         *,
         A_t: MultiAgentDict,
-        **kwargs,
+        **kwargs: Any,
     ) -> SupportsFloat:
         """u_i = U(a_i, S_t)"""
         raise NotImplementedError
 
     @abstractmethod
-    def violation_signal(self, u_i: SupportsFloat, **kwargs) -> SupportsFloat:
+    def violation_signal(self, u_i: SupportsFloat, **kwargs: Any) -> SupportsFloat:
         """v_i = V(a_i, S_t, M)"""
         raise NotImplementedError
 
     @abstractmethod
-    def penalty(self, u_i: SupportsFloat, **kwargs) -> SupportsFloat:
+    def penalty(self, u_i: SupportsFloat, **kwargs: Any) -> SupportsFloat:
         """λ = λ(M)"""
         raise NotImplementedError
 
@@ -219,7 +298,13 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
         return {agent_id: mean_reward for agent_id in self.agents}
 
     @override(RegulatedEnv)
-    def reward(self, rewards: MultiAgentDict, **kwargs) -> SupportsFloat:
+    def reward(self, rewards: MultiAgentDict, **kwargs: Any) -> SupportsFloat:
+        """Regulate each agent's utility as ``u_i - lambda(M) * v_i``, then average.
+
+        ``rewards`` maps agent ID to intrinsic utility; ``kwargs`` (``A_t``)
+        are forwarded to :meth:`penalty` and :meth:`violation_signal`. The
+        aggregated result gives every agent the mean regulated reward.
+        """
         # u_i - lambda(M) * v_i, as on dev; logging happens once in step()
         reward_by_agent: MultiAgentDict = {
             aid: u_i

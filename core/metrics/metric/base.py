@@ -17,6 +17,14 @@ PrimitiveType: TypeAlias = Union[int, float, bool, str]
 
 
 class Metric(ABC):
+    """Accumulator of primitive values behind one schema field.
+
+    Each subclass implements one reduction protocol (see
+    :class:`~core.metrics.enums.ReduceProtocol`). ``float()`` and ``int()``
+    on a metric return its compiled value and raise ``ValueError`` when that
+    value is a list.
+    """
+
     @abstractmethod
     def __len__(self) -> int:
         """Returns the length of the internal values list."""
@@ -35,6 +43,7 @@ class Metric(ABC):
         return int(value)
 
     def empty_copy(self) -> Self:
+        """Return a fresh, empty metric of the same class."""
         return type(self)()
 
     @abstractmethod
@@ -75,7 +84,9 @@ class Metric(ABC):
         """
 
     @abstractmethod
-    def push(self, value: PrimitiveType) -> None: ...
+    def push(self, value: PrimitiveType) -> None:
+        """Append one value to the internal history."""
 
     @abstractmethod
-    def flush(self) -> None: ...
+    def flush(self) -> None:
+        """Discard every accumulated value."""

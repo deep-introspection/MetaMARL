@@ -11,8 +11,17 @@ from core.metrics.metric.sum import SumMetric
 
 
 class MetricFactory:
+    """Instantiate the :class:`Metric` matching a :class:`ReduceProtocol`."""
+
     @staticmethod
     def create(protocol: ReduceProtocol) -> Metric:
+        """Return a new, empty metric for ``protocol``.
+
+        Raises
+        ------
+        NotImplementedError
+            For protocols without an implementation (currently ``EMA``).
+        """
         match protocol:
             case ReduceProtocol.MEAN:
                 return MeanMetric()

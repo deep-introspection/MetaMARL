@@ -107,16 +107,17 @@ class RayRuntimeConfig:
 
         torch.set_default_device(self.device)
 
-    def initialize(self):
+    def initialize(self) -> None:
         """Apply environment variables, quieten library loggers and ``ray.init``.
 
         Ray is started in ``local_mode=True`` with the dashboard and metrics
         collection disabled and ``log_to_driver=False``. Local mode runs every
         actor and task in the driver process; the source comment marks this
-        as intentional for debugging and asks not to turn it off. ``num_cpus``
-        and ``num_gpus`` are forwarded to ``ray.init`` when set. Ray's
-        ``uv run`` runtime-env hook is disabled first, because the
-        ``py_executable="uv run"`` it injects is rejected in local mode.
+        as intentional for debugging and asks not to turn it off. Before
+        ``ray.init``, Ray's ``uv run`` runtime-env hook
+        (``RAY_ENABLE_UV_RUN_RUNTIME_ENV``) is disabled because ``local_mode``
+        rejects the runtime env it would inject. ``num_cpus`` and ``num_gpus``
+        are forwarded to ``ray.init`` when they are not ``None``.
         """
         self._apply_env_vars()
 
@@ -163,7 +164,7 @@ class RayRuntime:
     _initialized = False
 
     @classmethod
-    def ensure_initialized(cls, cfg: RayRuntimeConfig):
+    def ensure_initialized(cls, cfg: RayRuntimeConfig) -> None:
         """Initialise Ray with ``cfg`` unless it is already running.
 
         Parameters

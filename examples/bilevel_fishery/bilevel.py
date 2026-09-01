@@ -1,3 +1,12 @@
+"""YAML-driven bilevel configuration loader for the fishery example.
+
+``BilevelConfigLoader.from_yaml`` turns a ``config.yaml`` into a
+``BilevelConfig``: the mechanism space and the environments are resolved by
+name through ``examples.registry.REGISTRY``, the outer level is an ES and the
+inner level an APPO. This is the historical entry point that predates the
+typed metrics/reporting stack; ``debug`` is the runnable one.
+"""
+
 import numpy as np
 import yaml
 from gymnasium import spaces
@@ -22,8 +31,20 @@ CALLBACKS = {
 
 
 class BilevelConfigLoader:
+    """Namespace for building a ``BilevelConfig`` from a YAML file."""
+
     @staticmethod
     def from_yaml(path: str, output_dir: str | None = None) -> BilevelConfig:
+        """Load ``path`` and assemble the outer ES and inner APPO configurations.
+
+        The ``mechanism`` section names the space and its scaling and default
+        values, ``outer`` and ``inner`` carry the per-level training,
+        environment and (for the inner level) Ray sections passed through to
+        the fluent builders; ``reporting`` is optional. Inner callbacks are
+        resolved by name in ``CALLBACKS``. The fishers' observation dimension
+        is ``observation_base_dim`` plus the mechanism space's
+        ``full_dimension``. Only ``APPO`` is accepted as the inner optimizer.
+        """
         with open(path, "r") as f:
             cfg = yaml.safe_load(f)
 

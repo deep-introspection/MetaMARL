@@ -43,6 +43,7 @@ OPTIMIZED = ("fixed_quota", "restoration_subsidy")
 
 
 def build_reporter(args: argparse.Namespace) -> ReporterConfig:
+    """CSV or Weights & Biases reporter, selected by ``--reporter``."""
     if args.reporter == "csv":
         return CSVConfig(project=args.project, output_dir=args.output_dir)
     return WandbConfig(
@@ -56,6 +57,12 @@ def build_reporter(args: argparse.Namespace) -> ReporterConfig:
 
 
 def build_mechanism_space() -> FisheryMechanismSpace:
+    """Fishery mechanism space with ``fixed_quota`` and ``restoration_subsidy`` optimized.
+
+    The other four parameters (``max_demand_frac``, ``fine_amount``,
+    ``risk_penalty_scale``, ``risk_penalty_power``) keep their defaults; the
+    quota default is the historical baseline of the surplus-production model.
+    """
     return FisheryMechanismSpace(
         optimize_params=list(OPTIMIZED),
         default_fixed_quota=0.56224,
@@ -68,6 +75,16 @@ def build_mechanism_space() -> FisheryMechanismSpace:
 
 
 def build_config(args: argparse.Namespace) -> BilevelConfig:
+    """Assemble the full bilevel configuration from the parsed CLI arguments.
+
+    The outer level is an ``ESConfig`` on ``FisheryRegulatorEnv`` with a
+    fixed ``sigma`` (no adaptation) and the ES queries; the inner level is an
+    ``APPOptimizerConfig`` on ``FisheryRegulatedEnv`` with one environment per
+    candidate (``--num-candidates``), the fishery metric schema, ``--num-agents``
+    fishers sharing one policy, and evaluation seeds derived from base seed
+    42. Ray runs on CPU with ``--num-cpus`` cores. The observation is the
+    three base features plus the full mechanism vector.
+    """
     space = build_mechanism_space()
     obs_dim = 3 + space.full_dimension
 
@@ -235,7 +252,8 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
     )
 
 
-def parse_args(argv=None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse the command line (``None`` reads ``sys.argv``); see ``--help`` for the options."""
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -260,7 +278,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv=None) -> None:
+def main(argv: list[str] | None = None) -> None:
+    """Configure logging, build the bilevel optimizer, run it and shut Ray down."""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )

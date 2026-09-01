@@ -30,6 +30,14 @@ Path: TypeAlias = tuple[str, ...]
 
 
 class Node(dict[str, "Node | Metric"]):
+    """One level of the metric tree built from a ``MetricSchema``.
+
+    A node maps field names (or runtime ids for a *dynamic* node) to child
+    nodes or :class:`Metric` leaves. ``schema`` is the pydantic class that the
+    node rebuilds in :meth:`construct`; ``dynamic`` marks a
+    ``dict[ID, MetricSchema]`` field whose children are created on first push.
+    """
+
     schema: type[MetricSchema]
     dynamic: bool = False
 
@@ -45,7 +53,19 @@ class Node(dict[str, "Node | Metric"]):
         self.schema = schema
         self.dynamic = dynamic
 
-    def construct(self, data: dict[str, Any]):
+    def construct(self, data: dict[str, Any]) -> MetricSchema | dict[str, Any]:
+        """Rebuild a schema instance from values laid out like this node.
+
+        ``data`` mirrors the node: one entry per child, holding either a leaf
+        value or the nested dictionary of a child node. A dynamic node returns
+        a plain ``dict`` keyed by runtime id; a static node returns
+        ``schema.model_construct(**values)``, so no pydantic validation runs.
+
+        Raises
+        ------
+        RuntimeError
+            If a static node was built without a schema.
+        """
         if self.dynamic:
             return {
                 dynamic_id: child.construct(data[dynamic_id])
@@ -69,6 +89,18 @@ class Node(dict[str, "Node | Metric"]):
 
 
 class MetricLogger(ABC):
+    """Tree of metric accumulators mirroring a ``MetricSchema``.
+
+    Build one with :meth:`from_schema` (direct instantiation raises
+    ``TypeError``), feed it with :meth:`push` (one path) or :meth:`push_data`
+    (a whole schema instance), then read it back with :meth:`peek` (raw
+    histories, non-destructive) or :meth:`reduce` (reduced values, clears the
+    accumulators). The logger is the second layer of the reporting stack:
+    ``MetricSchema`` declares, ``MetricLogger`` accumulates,
+    :class:`~core.reporting.query.Query` selects and
+    :class:`~core.reporting.base.Reporter` renders.
+    """
+
     _TOKEN: ClassVar[object] = object()
     _schema: type[MetricSchema]
     _refs: dict[Path, Metric]
@@ -93,6 +125,11 @@ class MetricLogger(ABC):
     # TODO immutability
     @classmethod
     def from_schema(cls, schema: type[MetricSchema]) -> "MetricLogger":
+        """Create a logger whose tree mirrors ``schema``.
+
+        This is the only supported constructor: it builds the ``Node`` tree and
+        the flat ``path -> Metric`` index that :meth:`push` looks up first.
+        """
         tree, refs = cls._build_from_schema(schema)
         self = cls.__new__(cls, _token=cls._TOKEN)
         self._schema = schema

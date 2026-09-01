@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import copy
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Optional, Self, Type, Union
+from typing import TYPE_CHECKING, Any, Optional, Self, Type, Union
 
 import numpy as np
 import ray
@@ -122,10 +122,12 @@ class OptimizerConfig(_Config, ABC):
 
     @property
     def reporter_cfg(self) -> Optional[ReporterConfig]:
+        """Reporter configuration used by ``_build_reporter``; ``None`` disables reporting."""
         return self._reporter_cfg
 
     @reporter_cfg.setter
     def reporter_cfg(self, reporter_cfg: ReporterConfig) -> None:
+        """Attach a reporter configuration (``BilevelConfig`` copies one to each level)."""
         self._reporter_cfg = reporter_cfg
 
     def __setattr__(self, name, value):
@@ -245,9 +247,16 @@ class OptimizerConfig(_Config, ABC):
         *,
         world: Optional[ActorHandle[World]] = None,
         inner_opt: Optional[Optimizer] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Optimizer:
-        """Builds an Optimizer from this OptimizerConfig (or a copy thereof)."""
+        """Build an ``Optimizer`` from a frozen deep copy of this config.
+
+        The optimizer is registered with ``world`` (when given) to obtain its
+        ``opt_id``, receives the optimizer-level reporter, and its environment
+        is instantiated once through ``_env_creator`` with ``world``,
+        ``opt_id``, ``inner_opt`` and the ``env_config`` entries. Extra
+        keyword arguments are accepted for subclass compatibility and ignored.
+        """
         cfg = self.copy(copy_frozen=True)
         if cfg.opt_class is None:
             raise ValueError("OptimizerConfig has no opt_class")
@@ -294,56 +303,37 @@ class OptimizerConfig(_Config, ABC):
         observation_space: Optional[Space] = None,
         action_space: Optional[Space] = None,
         disable_env_checking: Optional[bool] = None,
-    ):
-        """Sets the config's RL-environment settings.
+    ) -> Self:
+        """Set the environment class and the keyword arguments it is built with.
 
-        Args:
-            env: The environment specifier. This can either be a tune-registered env,
-                via `tune.register_env([name], lambda env_ctx: [env object])`,
-                or a string specifier of an RLlib supported type. In the latter case,
-                RLlib tries to interpret the specifier as either an Farama-Foundation
-                gymnasium env, a PyBullet env, or a fully qualified classpath to an Env
-                class, e.g. "ray.rllib.examples.envs.classes.random_env.RandomEnv".
-            env_config: Arguments dict passed to the env creator as an EnvContext
-                object (which is a dict plus the properties: `num_env_runners`,
-                `worker_index`, `vector_index`, and `remote`).
-            observation_space: The observation space for the Policies of this Algorithm.
-            action_space: The action space for the Policies of this Algorithm.
-            horizon: Rollout steps taken by the environment before termination.
-            render_env: If True, try to render the environment on the local worker or on
-                worker 1 (if num_env_runners > 0). For vectorized envs, this usually
-                means that only the first sub-environment is rendered.
-                In order for this to work, your env has to implement the
-                `render()` method which either:
-                a) handles window generation and rendering itself (returning True) or
-                b) returns a numpy uint8 image of shape [height x width x 3 (RGB)].
-            clip_rewards: Whether to clip rewards during Policy's postprocessing.
-                None (default): Clip for Atari only (r=sign(r)).
-                True: r=sign(r): Fixed rewards -1.0, 1.0, or 0.0.
-                False: Never clip.
-                [float value]: Clip at -value and + value.
-                Tuple[value1, value2]: Clip at value1 and value2.
-            normalize_actions: If True, RLlib learns entirely inside a normalized
-                action space (0.0 centered with small stddev; only affecting Box
-                components). RLlib unsquashes actions (and clip, just in case) to the
-                bounds of the env's action space before sending actions back to the env.
-            clip_actions: If True, the RLlib default ModuleToEnv connector clips
-                actions according to the env's bounds (before sending them into the
-                `env.step()` call).
-            disable_env_checking: Disable RLlib's env checks after a gymnasium.Env
-                instance has been constructed in an EnvRunner. Note that the checks
-                include an `env.reset()` and `env.step()` (with a random action), which
-                might tinker with your env's logic and behavior and thus negatively
-                influence sample collection- and/or learning behavior.
-            is_atari: This config can be used to explicitly specify whether the env is
-                an Atari env or not. If not specified, RLlib tries to auto-detect
-                this.
-            action_mask_key: If observation is a dictionary, expect the value by
-                the key `action_mask_key` to contain a valid actions mask (`numpy.int8`
-                array of zeros and ones). Defaults to "action_mask".
+        Calling this resets ``env_config`` to an empty dict before filling it,
+        so ``_merge_env_config`` calls made earlier are lost.
 
-        Returns:
-            This updated AlgorithmConfig object.
+        Parameters
+        ----------
+        env : str or EnvType, optional
+            Environment class instantiated by ``_env_creator`` (string
+            specifiers are stored but not resolved by the base class).
+        train_iters : int, optional
+            Stored in ``env_config["train_iters"]``; the regulator environment
+            reads it as the number of inner training iterations per candidate.
+        horizon : int, optional
+            Episode length in steps, stored in ``env_config["horizon"]``.
+        queries : tuple of Query, optional
+            Env-level queries rendered by the environment's own reporter.
+        schema : type[MetricSchema], optional
+            Metric schema the environment logs into.
+        env_config : dict, optional
+            Extra constructor arguments merged into ``env_config``.
+        observation_space, action_space : gymnasium.Space, optional
+            Stored in ``env_config`` for environments that take them.
+        disable_env_checking : bool, optional
+            Stored as an attribute; RLlib-backed subclasses forward it.
+
+        Returns
+        -------
+        OptimizerConfig
+            ``self`` for chaining.
         """
         self.env_config: dict = {}
         if env is not None:
@@ -368,7 +358,7 @@ class OptimizerConfig(_Config, ABC):
         return self
 
     @abstractmethod
-    def training(self):
+    def training(self) -> Self:
         """Set the optimizer's training hyperparameters (backend specific).
 
         Subclasses define the accepted keyword arguments and return ``self``.

@@ -1,3 +1,14 @@
+"""Single-agent environment base publishing every step to the ``World``.
+
+``BaseEnv`` is a gymnasium ``Env`` implementing the template method: the
+public ``step``/``reset`` call the abstract ``_step``/``_reset``/``_pre_reset``
+hooks, apply the overridable ``action``/``observation``/``reward`` transforms
+and publish an ``EnvStepContext`` to the shared ``World`` actor. The regulated
+inner environments (:class:`core.envs.regulated.RegulatedEnv`,
+:class:`core.envs.marl_regulated.MultiAgentRegulatedEnv`) and the outer
+``RegulatorEnv`` build on it.
+"""
+
 from abc import abstractmethod
 from typing import Any, Optional, SupportsFloat
 
@@ -19,7 +30,32 @@ from core.world.context import Context, ContextSchema, EnvStepContext, Mechanism
 
 
 class BaseEnv(Env):
-    """Base environment that directly interacts with the World."""
+    """Base environment that directly interacts with the World.
+
+    Parameters
+    ----------
+    world : World
+        Ray actor handle of the shared blackboard.
+    opt_id : OptimizerID, optional
+        Identifier of the optimizer owning this env (set on published contexts).
+    env_name : str, optional
+        Label prefix of the env-level reporter.
+    horizon : int, optional
+        Episode length in steps.
+    mechanism_space : MechanismSpace or type[MechanismSpace], optional
+        Geometry of the mechanism manifold (encode/decode, default mechanism).
+        A class is instantiated without arguments.
+    seed, policy_seed : int, optional
+        Environment RNG seed and seed of the associated policy.
+    mode : {"train", "eval"}
+        Lifecycle status stamped on published contexts.
+    reporter_cfg : ReporterConfig, optional
+        Builds the env-level ``Reporter``; ``None`` disables reporting.
+    queries : tuple[AnyQuery, ...], optional
+        Queries rendered by the env-level reporter.
+    schema : type[MetricSchema], optional
+        Metric schema of the env logger; ``None`` disables logging.
+    """
 
     def __init__(
         self,
@@ -83,6 +119,7 @@ class BaseEnv(Env):
 
     # Setter
     def set_opt_id(self, opt_id: OptimizerID) -> None:
+        """Set the optimizer identifier stamped on every context this env publishes."""
         self._opt_id = opt_id
 
     # private methods
@@ -115,6 +152,21 @@ class BaseEnv(Env):
     def step(
         self, action: ActType = None
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
+        """Advance the environment by one step and publish the transition.
+
+        The template method applies :meth:`action` to ``action``, runs the
+        abstract ``_step``, then applies :meth:`observation` and :meth:`reward`
+        to the raw outputs. The transformed observation and reward, together
+        with the original ``action`` and ``info``, are published to the
+        ``World`` as an ``EnvStepContext`` before the step counter is advanced
+        and logged under ``("iter",)``.
+
+        Returns
+        -------
+        tuple
+            ``(obs, reward, terminated, truncated, info)`` in the gymnasium
+            convention.
+        """
         raw_obs, raw_reward, terminated, truncated, info = self._step(
             self.action(action)
         )
@@ -142,7 +194,23 @@ class BaseEnv(Env):
         return obs, reward, terminated, truncated, info
 
     @override(Env)
-    def reset(self, *, seed: Optional[int] = None, options=None):
+    def reset(
+        self, *, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None
+    ) -> tuple[ObsType, dict[str, Any]]:
+        """Start a new episode and publish its initial observation.
+
+        The per-call ``seed`` is ignored: the environment seed is fixed at
+        construction and ``_pre_reset`` always receives that one. The step
+        counter is reset to zero and logged, the abstract ``_reset`` produces
+        the first observation, and an ``EnvStepContext`` with zero reward and
+        no action is published to the ``World``. ``options`` is accepted for
+        gymnasium compatibility and unused.
+
+        Returns
+        -------
+        tuple[ObsType, dict]
+            The initial observation and an empty info dictionary.
+        """
         # Option to pass seed directly to env --> sequential
         # TODO what are the options used for ?
 

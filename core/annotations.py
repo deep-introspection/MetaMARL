@@ -1,7 +1,12 @@
 """Decorators providing lightweight checks on class hierarchies."""
 
+from collections.abc import Callable
+from typing import Any, TypeVar
 
-def override(parent_cls):
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def override(parent_cls: type) -> Callable[[F], F]:
     """Decorator for documenting method overrides.
 
     Parameters
