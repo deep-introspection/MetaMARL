@@ -34,6 +34,7 @@ command merged the base into itself twice on day 1.
 | Bonus B. Logging: ES scatter colored by generation, parallel coordinates | **done** (08-28 pm) | `Query.color` + `ParallelCoordinatesQuery`; 33 new tests; demo runs with the CSV and offline W&B reporters checked by hand; notes, section "ES scatter colour and parallel coordinates" |
 | Bonus B'. Episode-level wildcard alignment (`by_episode/*` vs `iter`) | waiting on Nadine | needs an episode-to-iteration key, her call in `TODO.md` §3–4 |
 | Bonus C. Integration trial of the two features | **built and pushed** (`origin/feature/integration-trial`, 09-01) | logging merged into mechanism; 30-file conflict map in `docs/MERGE_NOTES.md`; outcome and decisions recorded in the notes on that branch |
+| Bonus D. Validation audit of all four branches (functional, docs, coverage, notebooks, end-to-end) and fixes | **done on the three deliverable branches** (09-01) | audit reports measured per branch; docstring/type-hint pass to 100 % of public symbols in `core/` and `examples/bilevel_fishery`; stale docs reconciled; notebooks corrected and re-executed; commits 080d43c, 73e57b1, 12bb144 |
 
 ## Decisions log
 
@@ -54,6 +55,9 @@ command merged the base into itself twice on day 1.
 | 08-28 | Push all three branches; testing branches renamed `feature/*-testing` | Rémy |
 | 08-28 | Bonus B design: `color` is an optional path on `Query`, resolved like x; parallel coordinates are a separate query type that the base reporter resolves to a table; the first wildcard is the row entity; TensorBoard skips tables with a warning | Claude, per TODO options |
 | 08-28 | Delete the dead code of §24 (old-API-stack module and branch, `reporting/base.py`, two unused `RayOptimizer` methods); `mps_model.py` kept pending the fresh-water cleanup | Rémy |
+| 09-01 | Fix order for the audit findings: docstrings and type hints, then stale docs, then notebooks, then cartpole, then the shared base | Rémy |
+| 09-01 | Cartpole and dummy examples are not ported (same situation as fresh-water: pre-mechanism API, a rename alone does not fix them); recorded as a finding for Nadine instead of being fixed | Claude, measured; Rémy to confirm |
+| 09-01 | `chore/cleanup-base` stays as it is: it is already merged into the three deliverable branches, its own `debug.py` has no CLI and its Ray init lacks the `uv run` fix, so it is not a runnable reference on its own; documented here rather than repaired | Claude; Rémy to confirm |
 
 ## Waiting on
 
@@ -107,3 +111,4 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters
   a tutorial cell that assumed every outer query has an `x`; fixed. Full suite 533 green.
   Demo runs checked with `--reporter csv` and `--reporter wandb` (offline). Episode-level
   alignment stays with Nadine.
+- **2026-09-01 (afternoon)** — Validation audit requested by Rémy, one agent per worktree, everything measured rather than read from this file. Result: the three deliverable branches are functional (full suites green, smoke runs sane with both reporters, notebooks execute), coverage 98–99 % on `core/`; the shared base is not runnable on its own (no CLI, Ray/uv trap, 25 % coverage, lint red) and is left as is. Gaps fixed in order on the three branches: (1) docstrings and type hints on every public symbol of `core/` and `examples/bilevel_fishery` (was 51–61 %); (2) stale statements in README, QUICKSTART, AGENTS, ARCHITECTURE, TODO and the merge notes, lint gate aligned on the CI command, unused `system` marker dropped, new findings for Nadine (cartpole/dummy on the pre-mechanism API, reporter side effects, TensorBoard not selectable from `debug.py`, the fresh-water YAML loader keywords, the stray `src/` directory); (3) notebooks: factual slips fixed (encoded subsidy in observations, `resolve` is not a channel, builder names, `@action` import, test list labelled as a template), math delimiters, colour and parallel coordinates now exercised in `visualization.ipynb`, reading order and summaries added; all re-executed under nbconvert and `pytest -m notebook`. Remaining examples (cartpole, dummy, fresh-water) are Nadine's call. Commits on this branch: 080d43c, 73e57b1, 12bb144. Not pushed yet.
