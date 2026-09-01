@@ -55,12 +55,18 @@ command merged the base into itself twice on day 1.
 | 08-28 | Push all three branches; testing branches renamed `feature/*-testing` | Rémy |
 | 08-28 | Bonus B design: `color` is an optional path on `Query`, resolved like x; parallel coordinates are a separate query type that the base reporter resolves to a table; the first wildcard is the row entity; TensorBoard skips tables with a warning | Claude, per TODO options |
 | 08-28 | Bonus C resolution rules: mechanism control flow kept, logging additions re-inserted; reporting optional everywhere; `aggregate_rewards` receives the inner metric schema; same-name tests kept as `_logging` copies; orphan tests deleted | Claude, per conflict map |
+| 09-01 | Integration decision 5 (parameter names from the template, positional fallback) accepted; decision 3 to discuss with Nadine on 09-02, Rémy leaning towards `allowed_fraction` in the mechanism contract | Rémy |
 | 09-01 | Push `feature/integration-trial`; keep `core/adaptors/ray/mps_model.py` (may serve future model changes; drop it only if it proves useless) | Rémy |
 | 08-28 | Delete the dead code of §24 (old-API-stack module and branch, `reporting/base.py`, two unused `RayOptimizer` methods); `mps_model.py` kept pending the fresh-water cleanup | Rémy |
 
 ## Waiting on
 
-- **Rémy**: confirm (or hand to Nadine) the six design decisions of the integration trial (`docs/MERGE_NOTES.md`, last section); the handoff itself is deferred.
+- **Nadine, with Rémy (2026-09-02)**: integration decision 3 — make `allowed_fraction` part of the
+  mechanism contract (Rémy's preference) vs keep the logging heuristic vs drop the two fields
+  (`docs/MERGE_NOTES.md`, "Integration trial").
+- **Nadine**: confirm integration decisions 1, 2, 4 and the positional-name fallback of 5
+  (accepted by Rémy). Decision 6 is information only.
+- **Rémy**: hand `docs/MERGE_NOTES.md` to Nadine (deferred).
 - **Nadine** (in `docs/MERGE_NOTES.md`): `mean_fines = tail_fish.mean()` intent; undefined
   names in the live `examples/fresh_water/regulated_env_ed_hs.py`; the 16 code-review
   findings; episode-level wildcard alignment; the fresh-water example is not ported to the
@@ -118,3 +124,5 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug --outer-iters
   green, demo runs with `--reporter csv` and `--reporter wandb`. Branch committed, not pushed.
 - **2026-09-01** — Status review. `feature/integration-trial` pushed; `mps_model.py` kept
   (Rémy's call). Remaining: confirm the six integration decisions, then hand the notes to Nadine.
+  Decisions 3/5/6 qualified in the merge notes on `feature/integration-trial` (authorship, risks,
+  options); decision 5 accepted, decision 3 scheduled with Nadine on 09-02.
