@@ -7,6 +7,7 @@ from core.metrics.enums import ReduceProtocol
 
 AgentID: TypeAlias = str
 
+
 class FisheryAgentMetricSchema(AgentEnvStepSchema):
     """Fishery-specific metrics that vary by agent."""
 
@@ -28,6 +29,7 @@ class FisheryAgentMetricSchema(AgentEnvStepSchema):
     risk_penalty: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
+
 
 class FisheryMetricSchema(EpisodeRolloutSchema):
     """Fishery-specific environment-level metrics."""
@@ -76,8 +78,17 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
     fish_norm: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
-    fish_norm_next: Optional[float] = Field(
+    fish_norm_next_mean: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN},
+    )
+    fish_norm_next_min: Optional[float] = Field(
+        json_schema_extra={"reduce": ReduceProtocol.MIN},
+    )
+    fish_norm_next_max: Optional[float] = Field(
+        json_schema_extra={"reduce": ReduceProtocol.MAX},
+    )
+    fish_norm_next_last: Optional[float] = Field(
+        json_schema_extra={"reduce": ReduceProtocol.MAX},
     )
 
     # full_required_harvest: float = Field(
