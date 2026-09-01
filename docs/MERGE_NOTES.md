@@ -481,7 +481,8 @@ Design decisions taken during the resolution, all to be confirmed by Nadine:
    in a composition only the first is read, and a regulating mechanism without
    `allowed_fraction` (a tax, say) logs 1.0 as if unconstrained. Alternatives: make
    `allowed_fraction` part of the mechanism contract, aggregated by compositions; or drop
-   the two fields from the schema and the queries.
+   the two fields from the schema and the queries. Rémy leans towards the contract option
+   (2026-09-01); to be discussed with Nadine on 2026-09-02.
 4. `MultiAgentRegulatedEnv` logs rewards once, after the mechanism transformation
    (`by_agent/*/reward`, `reward_mean`); the logging branch's `_aggregate_rewards`
    (mean sharing) is gone, replaced by the mechanism's reward transformation. The
@@ -491,7 +492,7 @@ Design decisions taken during the resolution, all to be confirmed by Nadine:
    longer than `param_names()`, the payload falls back to positional `parameter_i` names.
    `debug.py` no longer hard-codes the optimized parameter names. The naming itself
    predates the merge on both branches; the merge added only the positional fallback,
-   which could instead raise.
+   which could instead raise. Accepted by Rémy (2026-09-01); Nadine to confirm the fallback.
 6. (Information, not a decision.) `RayOptimizer` keeps `_to_logger_payload` but not
    `_build_agent_policy_map` / `_get_policy_handle`: git offered the logging branch's copy,
    which still had them, and the merge kept their deletion, decided on 2026-08-28 (§24).
